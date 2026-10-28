@@ -94,6 +94,7 @@ function WatchSession() {
     (lang: string, at: number) => {
       setStartAt(at)
       audioPref.current = lang
+      // @ts-ignore audio accepté par resolve-stream
       void resolve({ audio: lang, quality: state.status === 'ready' ? state.stream.quality : undefined } as any)
     },
     [resolve, state],
@@ -102,6 +103,7 @@ function WatchSession() {
   const onQualityChange = useCallback(
     (q: Quality, at: number) => {
       setStartAt(at)
+      // @ts-ignore audio accepté par resolve-stream
       void resolve({ quality: q, audio: audioPref.current } as any)
     },
     [resolve],

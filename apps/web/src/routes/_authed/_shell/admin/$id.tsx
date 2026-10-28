@@ -56,7 +56,7 @@ function EditTitle() {
             title={title.title}
             onConfirm={async () => {
               try {
-                await deleteTitle(supabase, titleId)
+                await deleteTitle(supabase, titleId || '')
               } catch (e) {
                 throw new Error(adminErrorMessage(e))
               }
@@ -65,7 +65,7 @@ function EditTitle() {
           />
         }
       />
-      <SubtitlesManager titleId={titleId} type={title.type} />
+      <SubtitlesManager titleId={titleId || ''} type={title.type} />
     </div>
   )
 }
