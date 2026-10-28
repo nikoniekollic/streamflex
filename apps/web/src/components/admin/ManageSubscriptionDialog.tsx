@@ -34,7 +34,7 @@ export function ManageSubscriptionDialog({ user, onClose, onChanged }: Props) {
     if (!user) return
     setDate(user.sub_ends_at ? user.sub_ends_at.slice(0, 10) : '')
     setNote('')
-    void userEvents(supabase, user.id).then(setEvents, () => setEvents([]))
+    void userEvents(supabase, user.id).then((r) => setEvents(r || []), () => setEvents([]))
   }, [user, supabase])
 
   if (!user) return null
@@ -45,7 +45,7 @@ export function ManageSubscriptionDialog({ user, onClose, onChanged }: Props) {
       await fn()
       toast.success(success, { description: user.email })
       await onChanged()
-      setEvents(await userEvents(supabase, user.id))
+      setEvents((await userEvents(supabase, user.id)) || [])
     } catch (e) {
       toast.error((e as Error).message)
     } finally {

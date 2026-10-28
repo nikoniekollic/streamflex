@@ -34,7 +34,9 @@ const STATUS_BADGE: Record<CodeStatus, { label: string; variant: 'default' | 'se
 }
 
 function BillingPage() {
-  const { rows, total } = Route.useLoaderData()
+  const data = Route.useLoaderData()
+  const rows = data.rows || []
+  const total = data.total || 0
   const search = Route.useSearch()
   const navigate = Route.useNavigate()
   const router = useRouter()
@@ -57,7 +59,7 @@ function BillingPage() {
     if (!valid) return
     setPending(true)
     try {
-      const codes = await generateCodes(supabase, n, d, label, expires ? new Date(`${expires}T23:59:59`).toISOString() : null)
+      const codes = (await generateCodes(supabase, n, d, label, expires ? new Date(`${expires}T23:59:59`).toISOString() : null)) || []
       setGenerated({ codes, days: d, label })
       toast.success(`${codes.length} code(s) générés`)
       await router.invalidate()
