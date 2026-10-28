@@ -10,7 +10,7 @@ export const PIXELDRAIN_BYPASS = 'https://pixeldrain-bypass.gamedrive.org'
 
 export function buildStreamUrl(provider: Hoster, fileId: string): string {
   const id = encodeURIComponent(fileId)
-  return provider === 'pixeldrain' ? `${PIXELDRAIN_BYPASS}/${id}` : `https://1fichier.com/?${id}`
+  return provider === 'pixeldrain' ? `${PIXELDRAIN_BYPASS}/api/file/${id}` : `https://1fichier.com/?${id}`
 }
 
 export function buildHosterPageUrl(provider: Hoster, fileId: string): string {

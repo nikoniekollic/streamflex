@@ -16,7 +16,7 @@ export function buildStreamUrl(provider: Hoster, fileId: string): string {
   const id = encodeURIComponent(assertFileId(fileId))
   switch (provider) {
     case 'pixeldrain':
-      return `${PIXELDRAIN_BYPASS}/${id}`
+      return `${PIXELDRAIN_BYPASS}/api/file/${id}`
     case 'onefichier':
       return `https://1fichier.com/?${id}`
   }

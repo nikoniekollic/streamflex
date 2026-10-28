@@ -14,7 +14,7 @@ const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!
 const QUALITY_ORDER = ['2160p', '1080p', '720p', '480p'] as const
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
-Deno.serve(async (req) => {
+async function handle(req: Request): Promise<Response> {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
   if (req.method !== 'POST') return json({ error: 'method_not_allowed' }, 405)
 
@@ -85,11 +85,17 @@ Deno.serve(async (req) => {
       return aa - ab || qa - qb || QUALITY_ORDER.indexOf(a.quality) - QUALITY_ORDER.indexOf(b.quality) || a.priority - b.priority
     })
 
+  // Toutes les sources ont déjà échoué côté lecteur (exclude) : réponse explicite, pas de 502
+  if (ordered.length === 0) {
+    console.warn('[resolve-stream] aucune source restante après exclusion', { titleId, episodeId, exclude })
+    return json({ error: 'all_sources_failed', qualities, reasons: ['excluded'] }, 409)
+  }
+
   // 5. Résolution avec cache + fallback multi-provider
   const errors: string[] = []
   const kinds: FailureKind[] = []
   for (const src of ordered) {
-    const key = `stream:${src.id}`
+    const key = `stream:v2:${src.id}` // v2 : invalide les URL de bypass mal formées mises en cache
     if (!refresh) {
       const hit = await cache.get<CachedStream>(key)
       if (hit && hit.expiresAt > Date.now() + 60_000) {
@@ -123,5 +129,15 @@ Deno.serve(async (req) => {
       : kinds.some((k) => k === 'host_busy')
         ? 'host_busy'
         : 'all_sources_failed'
-  return json({ error: code, qualities, reasons: [...new Set(kinds)] }, code === 'source_offline' ? 404 : 502)
+  return json({ error: code, qualities, reasons: [...new Set(kinds)] }, code === 'source_offline' ? 404 : 503)
+}
+
+// Toute exception imprévue → réponse JSON 500 avec CORS (jamais de crash nu)
+Deno.serve(async (req) => {
+  try {
+    return await handle(req)
+  } catch (e) {
+    console.error('[resolve-stream] exception', e)
+    return json({ error: 'all_sources_failed', reasons: ['exception'] }, 500)
+  }
 })
