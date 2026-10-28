@@ -1,0 +1,8 @@
+pipelines/
+supabase/
+**/node_modules/
+**/.venv/
+**/__pycache__/
+media/
+*.md
+!README.md

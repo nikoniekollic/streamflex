@@ -1,0 +1,57 @@
+# ── Dépendances & builds
+node_modules/
+dist/
+build/
+.vite/
+coverage/
+*.tsbuildinfo
+apps/web/src/routeTree.gen.ts
+
+# ── Secrets (ne JAMAIS committer) : .env, .env.local, .env.production…
+.env
+.env.*
+*.env
+!.env.example
+!.env.*.example
+supabase/functions/.env
+pipelines/.env
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+*secret*.json
+service-account*.json
+rclone.conf
+
+# ── Outils
+.vercel/
+supabase/.temp/
+supabase/.branches/
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
+Thumbs.db
+*.log
+npm-debug.log*
+
+# ── Python
+__pycache__/
+*.pyc
+.venv/
+.state/
+pipelines/report*.json
+
+# ── Médias & traitement local
+media/
+downloads/
+transcode/
+tmp/
+cache/
+rclone-cache/
+alist-data/
+*.mp4
+*.mkv
+*.avi
+*.mov

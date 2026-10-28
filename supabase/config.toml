@@ -1,0 +1,20 @@
+# Configuration des Edge Functions (fusionner avec le config.toml généré par `supabase init` si besoin)
+# verify_jwt = true : la passerelle Supabase exige un JWT valide (session utilisateur ou clé anon)
+
+[functions.resolve-stream]
+verify_jwt = true    # lecture : utilisateur + abonnement + profil, débridage Alldebrid côté serveur
+
+[functions.debrid-link]
+verify_jwt = true    # test de débridage — admin uniquement (is_admin)
+
+[functions.subtitle]
+verify_jwt = true
+
+[functions.ip-check]
+verify_jwt = true    # appelée avec la clé anon avant connexion
+
+[functions.catalog]
+verify_jwt = true    # `catalog` lit le rôle du JWT vérifié par la passerelle
+
+[functions.catalog-webhook]
+verify_jwt = false   # appelé par pg_net ; authentifié par x-webhook-secret
