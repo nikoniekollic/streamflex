@@ -1,6 +1,6 @@
 import { DebridError, isDebridHost, unlock, type DebridFailure } from './alldebrid.ts'
 import { getSecret } from './secrets.ts'
-import { buildStreamUrl, pixeldrainInfoUrl } from './stream-url.ts'
+import { buildStreamUrl, pixeldrainApiFileUrl, pixeldrainInfoUrl } from './stream-url.ts'
 
 export type Provider = 'pixeldrain' | 'onefichier' | 'alist' | 'other'
 
@@ -52,9 +52,77 @@ async function resolvePixeldrain(src: MediaSource): Promise<Resolved> {
   if (info.status === 404) throw new ResolveError('Pixeldrain: fichier supprimé', 404, 'offline')
   if (!info.ok) throw new ResolveError(`Pixeldrain: HTTP ${info.status}`, 502, info.status === 429 ? 'host_busy' : 'unavailable')
   const meta = (await info.json()) as { name?: string }
-  const url = buildStreamUrl('pixeldrain', id)
-  console.log('[resolve-stream] pixeldrain', id, '→', url)
-  return { url, ttl: 6 * 3600, filename: meta.name, debrid: false }
+  const bypassUrl = buildStreamUrl('pixeldrain', id)
+  const direct = await extractBypassVideo(bypassUrl)
+  // Repli : flux officiel Pixeldrain (lisible par <video>, limites de débit du compte gratuit)
+  const url = direct ?? pixeldrainApiFileUrl(id)
+  console.log('[resolve-stream] pixeldrain', id, direct ? '→ bypass' : '→ repli API officielle', url)
+  return { url, ttl: direct ? 3600 : 6 * 3600, filename: meta.name, debrid: false }
+}
+
+const VIDEO_CT = /^(video\/|application\/(octet-stream|vnd\.apple\.mpegurl|x-mpegurl))/i
+const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36'
+
+/** Le bypass renvoie soit le flux, soit une page HTML : on y cherche le lien vidéo direct. null si rien d'exploitable. */
+async function extractBypassVideo(pageUrl: string): Promise<string | null> {
+  let res: Response
+  try {
+    res = await fetch(pageUrl, { headers: { 'User-Agent': BROWSER_UA, Accept: 'text/html,video/*;q=0.9,*/*;q=0.8' }, redirect: 'follow', signal: AbortSignal.timeout(8000) })
+  } catch (e) {
+    console.warn('[resolve-stream] bypass injoignable', (e as Error).message)
+    return null
+  }
+  const ct = res.headers.get('content-type') ?? ''
+  if (res.ok && VIDEO_CT.test(ct)) {
+    await res.body?.cancel()
+    return res.url
+  }
+  if (!res.ok || !ct.includes('text/html')) {
+    console.warn('[resolve-stream] bypass', res.status, ct)
+    await res.body?.cancel()
+    return null
+  }
+  const html = (await res.text()).slice(0, 500_000)
+  console.log('[resolve-stream] bypass HTML (extrait)', html.replace(/\s+/g, ' ').slice(0, 400))
+
+  const patterns = [
+    /<video[^>]+src=["']([^"']+)["']/gi,
+    /<source[^>]+src=["']([^"']+)["']/gi,
+    /<meta[^>]+property=["']og:video(?::secure_url|:url)?["'][^>]+content=["']([^"']+)["']/gi,
+    /["'](https?:\/\/[^"'\s<>]+?\.(?:mp4|webm|mkv|m3u8)(?:\?[^"'\s<>]*)?)["']/gi,
+    /["']((?:https?:\/\/[^"'\s<>]+)?\/api\/file\/[A-Za-z0-9_-]+(?:\?[^"'\s<>]*)?)["']/gi,
+    /["'](?:url|src|file|stream|download)["']\s*:\s*["'](https?:\/\/[^"'\s]+)["']/gi,
+  ]
+  const seen = new Set<string>([res.url, pageUrl])
+  for (const re of patterns) {
+    for (const m of html.matchAll(re)) {
+      let cand: string
+      try {
+        cand = new URL(m[1].replace(/\\\//g, '/').replace(/&amp;/g, '&'), res.url).toString()
+      } catch {
+        continue
+      }
+      if (!cand.startsWith('https://') || seen.has(cand)) continue
+      seen.add(cand)
+      if (await isPlayable(cand)) {
+        console.log('[resolve-stream] lien vidéo extrait du bypass', cand)
+        return cand
+      }
+    }
+  }
+  console.warn('[resolve-stream] aucun lien vidéo lisible dans la page du bypass')
+  return null
+}
+
+/** Vérifie qu'une URL sert bien un flux vidéo (1er octet). */
+async function isPlayable(url: string): Promise<boolean> {
+  try {
+    const r = await fetch(url, { headers: { Range: 'bytes=0-0', 'User-Agent': BROWSER_UA }, redirect: 'follow', signal: AbortSignal.timeout(6000) })
+    await r.body?.cancel()
+    return (r.status === 206 || r.ok) && VIDEO_CT.test(r.headers.get('content-type') ?? '')
+  } catch {
+    return false
+  }
 }
 
 // ───────── Débridage Alldebrid (1fichier + tout hébergeur reconnu)

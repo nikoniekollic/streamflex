@@ -85,7 +85,7 @@ async function handle(req: Request): Promise<Response> {
       return aa - ab || qa - qb || QUALITY_ORDER.indexOf(a.quality) - QUALITY_ORDER.indexOf(b.quality) || a.priority - b.priority
     })
 
-  // Toutes les sources ont déjà échoué côté lecteur (exclude) : réponse explicite, pas de 502
+  // Le lecteur a déjà essayé (et exclu) toutes les sources : 409 volontaire = « plus aucune source à tenter »
   if (ordered.length === 0) {
     console.warn('[resolve-stream] aucune source restante après exclusion', { titleId, episodeId, exclude })
     return json({ error: 'all_sources_failed', qualities, reasons: ['excluded'] }, 409)
@@ -95,7 +95,7 @@ async function handle(req: Request): Promise<Response> {
   const errors: string[] = []
   const kinds: FailureKind[] = []
   for (const src of ordered) {
-    const key = `stream:v2:${src.id}` // v2 : invalide les URL de bypass mal formées mises en cache
+    const key = `stream:v3:${src.id}` // v3 : invalide les URL de bypass HTML mises en cache
     if (!refresh) {
       const hit = await cache.get<CachedStream>(key)
       if (hit && hit.expiresAt > Date.now() + 60_000) {
