@@ -450,11 +450,17 @@ export function VideoPlayer({
           const v = videoRef.current
           const err = v?.error
           // MediaError : 1 abandon, 2 réseau, 3 décodage, 4 source non supportée (404, page HTML, format)
-          console.error('[StreamFlex] erreur <video>', {
+          const MEDIA_ERR: Record<number, string> = {
+            1: 'MEDIA_ERR_ABORTED — chargement interrompu',
+            2: 'MEDIA_ERR_NETWORK — erreur réseau pendant le téléchargement (coupure, 403/404 en cours de lecture)',
+            3: 'MEDIA_ERR_DECODE — fichier corrompu ou codec non supporté par le navigateur (ex. HEVC/x265, MKV)',
+            4: 'MEDIA_ERR_SRC_NOT_SUPPORTED — réponse non vidéo (403, 404, page HTML) ou format non lisible',
+          }
+          console.error(`[StreamFlex][video] ${MEDIA_ERR[err?.code ?? 0] ?? 'erreur inconnue'}`, {
             src: v?.currentSrc || src,
             code: err?.code,
-            message: err?.message,
-            networkState: v?.networkState,
+            message: err?.message || '(vide)',
+            networkState: ['EMPTY', 'IDLE', 'LOADING', 'NO_SOURCE'][v?.networkState ?? 0],
             readyState: v?.readyState,
           })
           onError?.(v?.currentTime ?? 0)
