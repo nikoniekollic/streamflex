@@ -1,5 +1,5 @@
 import { Link, useNavigate } from '@tanstack/react-router'
-import { ChevronDown, LogOut, Pencil, ShieldCheck, UserCog } from 'lucide-react'
+import { ChevronDown, LogOut, MessageSquarePlus, Pencil, ShieldCheck, UserCog } from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -46,6 +46,11 @@ export function ProfileMenu({ isAdmin }: { isAdmin: boolean }) {
         <DropdownMenuItem asChild className="focus:bg-white/10 focus:text-white">
           <Link to="/profiles">
             <Pencil /> Gérer les profils
+          </Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild className="focus:bg-white/10 focus:text-white">
+          <Link to="/request">
+            <MessageSquarePlus /> Demander un titre
           </Link>
         </DropdownMenuItem>
         {!isKids && (

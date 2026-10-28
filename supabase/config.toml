@@ -18,3 +18,6 @@ verify_jwt = true    # `catalog` lit le rôle du JWT vérifié par la passerelle
 
 [functions.catalog-webhook]
 verify_jwt = false   # appelé par pg_net ; authentifié par x-webhook-secret
+
+[functions.source-maintenance]
+verify_jwt = true    # admin uniquement (is_admin) : métadonnées / téléchargement de maintenance

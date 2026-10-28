@@ -4,6 +4,7 @@ import { VideoPlayer } from '@/components/player/VideoPlayer'
 import { StreamStatus } from '@/components/player/StreamStatus'
 import { useWatchProgress } from '@/hooks/useWatchProgress'
 import { useStream } from '@/hooks/useStream'
+import { useBookmarks } from '@/hooks/useBookmarks'
 import { StreamError, loadWatch, type Quality } from '@/lib/stream'
 import { loadSubtitleUrl } from '@/lib/subtitles'
 import { requireActiveProfile } from '@/lib/route-guards'
@@ -52,6 +53,7 @@ function WatchSession() {
   const lastPosition = useRef(initialStart)
 
   const { report, flush } = useWatchProgress({ supabase, profileId, titleId: title.id, episodeId })
+  const bm = useBookmarks(supabase, profileId, title.id, episodeId)
 
   const onTimeUpdate = useCallback(
     (pos: number, dur: number) => {
@@ -149,6 +151,9 @@ function WatchSession() {
       nextLabel={nextEpisode ? `Épisode suivant (É${nextEpisode.episode_number})` : undefined}
       onBack={back}
       onError={onMediaError}
+      bookmarks={bm.bookmarks}
+      onCreateBookmark={bm.create}
+      onDeleteBookmark={bm.remove}
     />
   )
 }

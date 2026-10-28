@@ -41,7 +41,7 @@ export SUPABASE_PROJECT_REF=<ref>
 ```bash
 supabase link --project-ref $SUPABASE_PROJECT_REF && supabase db push
 supabase secrets set --env-file supabase/functions/.env
-supabase functions deploy resolve-stream debrid-link subtitle ip-check catalog catalog-webhook
+supabase functions deploy resolve-stream debrid-link subtitle ip-check catalog catalog-webhook source-maintenance
 npm install --prefix apps/web && npm run build --prefix apps/web
 npx vercel build --prod && npx vercel deploy --prebuilt --prod
 ```

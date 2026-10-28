@@ -165,6 +165,11 @@ function EmptyState({ q, hasFilters }: { q?: string; hasFilters: boolean }) {
             </Link>
           </Button>
         )}
+        <Button asChild>
+          <Link to="/request" search={q ? { title: q } : {}}>
+            Demander ce titre
+          </Link>
+        </Button>
       </div>
     </div>
   )

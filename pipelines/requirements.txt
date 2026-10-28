@@ -1,2 +1,5 @@
 aiohttp>=3.10,<4
 supabase>=2.15,<3
+
+# Optionnel : import d’un tableau JSON en flux (scripts/mass_import.py) — CSV / NDJSON sans dépendance
+# ijson>=3.3

@@ -1,12 +1,15 @@
 import { DebridError, isDebridHost, unlock, type DebridFailure } from './alldebrid.ts'
 import { getSecret } from './secrets.ts'
+import { buildStreamUrl, pixeldrainInfoUrl } from './stream-url.ts'
 
 export type Provider = 'pixeldrain' | 'onefichier' | 'alist' | 'other'
 
 export type MediaSource = {
   id: string
   provider: Provider
-  external_id: string | null
+  /** ID hébergeur seul (pixeldrain / onefichier) — l'URL est reconstruite ici, au moment de la lecture */
+  file_id: string | null
+  /** uniquement alist / other */
   raw_url: string | null
   quality: '480p' | '720p' | '1080p' | '2160p'
   priority: number
@@ -29,10 +32,8 @@ export class ResolveError extends Error {
 
 // ───────── Pixeldrain : URL directe /api/file/{id} (Range supporté, pas de débridage)
 function pixeldrainId(src: MediaSource): string {
-  if (src.external_id) return src.external_id
-  const m = src.raw_url?.match(/pixeldrain\.com\/(?:u|api\/file)\/([A-Za-z0-9]+)/)
-  if (!m) throw new ResolveError('Pixeldrain: identifiant introuvable', 422, 'invalid_source')
-  return m[1]
+  if (!src.file_id) throw new ResolveError('Pixeldrain: file_id manquant', 422, 'invalid_source')
+  return src.file_id
 }
 
 async function resolvePixeldrain(src: MediaSource): Promise<Resolved> {
@@ -41,7 +42,7 @@ async function resolvePixeldrain(src: MediaSource): Promise<Resolved> {
   const headers: HeadersInit = PIXELDRAIN_KEY ? { Authorization: `Basic ${btoa(`:${PIXELDRAIN_KEY}`)}` } : {}
   let info: Response
   try {
-    info = await fetch(`https://pixeldrain.com/api/file/${encodeURIComponent(id)}/info`, {
+    info = await fetch(pixeldrainInfoUrl(id), {
       headers,
       signal: AbortSignal.timeout(8000),
     })
@@ -51,15 +52,14 @@ async function resolvePixeldrain(src: MediaSource): Promise<Resolved> {
   if (info.status === 404) throw new ResolveError('Pixeldrain: fichier supprimé', 404, 'offline')
   if (!info.ok) throw new ResolveError(`Pixeldrain: HTTP ${info.status}`, 502, info.status === 429 ? 'host_busy' : 'unavailable')
   const meta = (await info.json()) as { name?: string }
-  return { url: `https://pixeldrain.com/api/file/${encodeURIComponent(id)}`, ttl: 6 * 3600, filename: meta.name, debrid: false }
+  return { url: buildStreamUrl('pixeldrain', id), ttl: 6 * 3600, filename: meta.name, debrid: false }
 }
 
 // ───────── Débridage Alldebrid (1fichier + tout hébergeur reconnu)
 function debridLink(src: MediaSource): string | null {
   if (src.provider === 'onefichier') {
-    if (src.raw_url) return src.raw_url
-    if (src.external_id) return `https://1fichier.com/?${src.external_id}`
-    throw new ResolveError('1fichier: lien introuvable', 422, 'invalid_source')
+    if (!src.file_id) throw new ResolveError('1fichier: file_id manquant', 422, 'invalid_source')
+    return buildStreamUrl('onefichier', src.file_id)
   }
   if (src.raw_url && isDebridHost(src.raw_url)) return src.raw_url
   return null

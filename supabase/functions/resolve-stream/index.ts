@@ -3,6 +3,7 @@ import { corsHeaders, json } from '../_shared/cors.ts'
 import { cache } from '../_shared/redis.ts'
 import { adminClient } from '../_shared/admin-client.ts'
 import { denyIfBanned, denyIfNoSubscription } from '../_shared/guard.ts'
+import { background } from '../_shared/background.ts'
 import { ResolveError, resolveSource, type FailureKind, type MediaSource } from '../_shared/providers.ts'
 
 type Body = { profileId?: string; titleId?: string; episodeId?: string | null; quality?: string; audio?: string; refresh?: boolean; exclude?: string[] }
@@ -61,7 +62,7 @@ Deno.serve(async (req) => {
   const admin = adminClient()
   let q = admin
     .from('media_sources')
-    .select('id, provider, external_id, raw_url, quality, priority, audio_languages')
+    .select('id, provider, file_id, raw_url, quality, priority, audio_languages')
     .or('is_active.is.null,is_active.eq.true')
   q = episodeId ? q.eq('episode_id', episodeId) : q.eq('title_id', titleId)
   const { data: rows, error } = await q.order('priority', { ascending: true }).range(0, 49)
@@ -92,6 +93,7 @@ Deno.serve(async (req) => {
     if (!refresh) {
       const hit = await cache.get<CachedStream>(key)
       if (hit && hit.expiresAt > Date.now() + 60_000) {
+        await background(admin.rpc('mark_source_streamed', { p_source_id: src.id })) // activité du fichier (monitoring)
         return json({ url: hit.url, provider: src.provider, quality: src.quality, sourceId: src.id, qualities, audios, audio: src.audio_languages ?? [], expiresAt: hit.expiresAt, debrid: !!hit.debrid, cached: true })
       }
     } else {
@@ -101,6 +103,7 @@ Deno.serve(async (req) => {
       const r = await resolveSource(src)
       const expiresAt = Date.now() + r.ttl * 1000
       await cache.set(key, { url: r.url, expiresAt, debrid: r.debrid } satisfies CachedStream, r.ttl - 120)
+      await background(admin.rpc('mark_source_streamed', { p_source_id: src.id })) // activité du fichier (monitoring)
       await admin.from('media_sources').update({ last_checked_at: new Date().toISOString(), last_status: 200 }).eq('id', src.id)
       return json({ url: r.url, provider: src.provider, quality: src.quality, sourceId: src.id, qualities, audios, audio: src.audio_languages ?? [], expiresAt, debrid: r.debrid, cached: false })
     } catch (e) {

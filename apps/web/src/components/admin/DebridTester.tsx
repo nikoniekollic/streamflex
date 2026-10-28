@@ -7,7 +7,7 @@ import { debridLinkFor, testDebridLink, type DebridTestResult, type SourceFormVa
 
 const size = (n: number | null) => (n ? `${(n / 1024 ** 3).toFixed(2)} Go` : null)
 
-export function DebridTester({ source }: { source: Pick<SourceFormValues, 'provider' | 'external_id' | 'raw_url'> }) {
+export function DebridTester({ source }: { source: Pick<SourceFormValues, 'provider' | 'file_id' | 'raw_url'> }) {
   const { supabase } = useRouteContext({ from: '/_authed' })
   const [pending, setPending] = useState(false)
   const [result, setResult] = useState<DebridTestResult | null>(null)

@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { NativeSelect } from '@/components/ui/native-select'
 import { FavoriteButton } from '@/components/catalog/FavoriteButton'
+import { ReviewsSection } from '@/components/catalog/ReviewsSection'
 import { fetchTitleDetail, type SeasonItem } from '@/lib/title'
 
 export const Route = createFileRoute('/_authed/_shell/title/$slug')({
@@ -97,6 +98,7 @@ function TitlePage() {
       </section>
 
       {t.type === 'series' && t.seasons.length > 0 && <Episodes titleId={t.id} seasons={t.seasons} />}
+      <ReviewsSection titleId={t.id} />
     </div>
   )
 }

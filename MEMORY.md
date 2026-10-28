@@ -503,3 +503,127 @@ cd pipelines && ./setup.sh            # Windows : .\setup.ps1
 2. La CI GitHub Actions lance `npm install` + `npm run build` + `deno check` + tests Python → récupérer les erreurs du **premier build** (jamais compilé) et les corriger
 3. Vercel : Import Git Repository, variables `VITE_*` (Production + Preview) → déploiement continu sur `main`, previews sur PR
 4. Supabase : `./scripts/deploy.sh` (staging d'abord), Auth URLs = domaine Vercel
+
+## Étape 21 — Sources vidéo compactes (2026-10-28) ✅ BDD OPTIMISÉE POUR 500 000+ LIENS
+> L'étape « GitHub → Vercel → premier build » reste à faire (décalée en 22).
+
+### Terminé — Migration `0013_media_sources_compact.sql` (reconstruction complète 0001→0013 OK)
+- Table **`media_sources` reconstruite** (nom conservé, référencé partout) — colonnes **ordonnées par alignement** (uuid → 8 o → 4 o → 2 o → bool → longueur variable) pour supprimer le padding
+- **Hébergeur = enum** `video_provider` existant (4 o ; `onefichier` = 1fichier, + `alist`/`other` conservés pour l'AList du backlog) — pas de nouvel enum `'1fichier','pixeldrain'` : renommer aurait cassé pipeline/Edge/admin pour un gain de stockage nul
+- **Plus aucune URL pour Pixeldrain/1fichier** : `file_id VARCHAR(32)` (`^[A-Za-z0-9_-]{4,32}$`), contrainte `media_sources_locator_chk` (ID obligatoire + `raw_url` NULL pour les hébergeurs ; URL seulement pour alist/other) ; migration des données : ID extrait des anciennes URL (`/u/…`, `?…&af=…`)
+- `checksum` **bytea 32 o** (au lieu de texte 68 o) ; `audio_languages` / `subtitle_languages` **NULL au lieu de `'{}'`** ; `container` VARCHAR(8), `video_codec` VARCHAR(16) ; `updated_at` supprimé (`last_checked_at` suffit)
+- UUID PK + FK `title_id` / `episode_id` **ON DELETE CASCADE** (vérifié)
+- **Index B-tree** : `(title_id, priority)`, `(episode_id, priority)` (partiels `IS NOT NULL`, **non filtrés sur is_active** → utilisés aussi avec `.or("is_active.is.null,is_active.eq.true")`), **unique `(provider, file_id)`** (couvre les requêtes par hébergeur — un index `provider` seul, 4 valeurs, serait ignoré par le planificateur et coûterait ~10 Mo), `(provider, checksum)` pour la déduplication pipeline
+- `get_available_qualities`, `admin_save_title` (format `{provider, file_id, raw_url…}`) recréées ; RLS admin + grants rétablis
+- **Mesures sur 500 000 lignes (PG16 local)** :
+  | | avant | après |
+  |---|---|---|
+  | Table (heap) | 163 Mo (341 o/ligne) | **87 Mo (183 o/ligne)** |
+  | Index | 104 Mo | 86 Mo |
+  | Total | 267 Mo | **173 Mo (−35 %)** |
+  | Sources d'un film (`title_id`) | **56 ms (seq scan** : l'ancien index partiel `WHERE is_active` n'était pas utilisé par le filtre `.or(...)`) | **0,22 ms** (index) |
+  | Recherche `(provider, file_id)` | — | 1,9 ms |
+  | Déduplication `(provider, checksum)` | — | 0,04 ms |
+
+### Terminé — Code
+- **`buildStreamUrl(provider, fileId)`** : Edge `supabase/functions/_shared/stream-url.ts` (+ `buildHosterPageUrl`, `pixeldrainInfoUrl`, validation de l'ID) utilisé par `providers.ts` **uniquement au moment de la résolution** (clic Lecture → `resolve-stream` : Pixeldrain `/api/file/{id}`, 1fichier `/?{id}` → Alldebrid) ; `resolve-stream` lit `file_id`
+- Front `apps/web/src/lib/stream-url.ts` : `buildStreamUrl`, `buildHosterPageUrl`, `extractFileId` (URL collée → ID), `FILE_ID_RE`, `isHoster` ; admin : champ **« Identifiant du fichier »** (conversion URL → ID à la sortie du champ, lien d'aperçu reconstruit), champ URL seulement pour alist/other, validation zod par hébergeur, `debridLinkFor` reconstruit le lien 1fichier ; `database.ts` mis à jour
+- Pipeline : `insert_source` n'envoie que `file_id` (validé) ; checksum en bytea (`\x…`) pour insert et dédup — **18 tests Python OK** (+ `tests/test_ids.py`)
+
+### Non vérifié
+- Front toujours jamais compilé (npm bloqué) ; modifications non commitées (à committer avec le premier build)
+
+### Prochaine action — Étape 22 : GitHub → Vercel → premier build
+1. `git add -A && git commit` puis `./setup_github.sh <url-du-depot-privé>` → CI : `npm install` + `npm run build` + `deno check` + tests Python → corriger les erreurs
+2. Vercel : Import Git Repository + variables `VITE_*` ; Supabase : `./scripts/deploy.sh` (staging d'abord, migration 0013 incluse)
+3. Supabase prod : surveiller la taille (Database → Usage) ; si > 400 Mo, envisager `VACUUM FULL media_sources` après imports massifs
+
+## Étape 22 — Import massif de liens (2026-10-28) ✅ SCRIPT D'IMPORT CRÉÉ
+> « GitHub → Vercel → premier build » décalé en étape 23.
+
+### Terminé
+- **`pipelines/scripts/mass_import.py`** — **stdlib uniquement** (aucune dépendance ; `ijson` optionnel pour un tableau JSON, commenté dans `requirements.txt`)
+  - **Lecture en flux** : CSV (`csv.DictReader`, séparateur auto-détecté, BOM), NDJSON/JSONL ligne à ligne, tableau JSON via `ijson.items` ; générateur → mémoire constante
+  - **Transformation à la volée** (`sfpipe/links.py`, `parse_link`) : URL → `(provider, file_id)` — Pixeldrain `/u/…`, `/api/file/…` (liste `/l/` refusée) ; 1fichier `?ID&af=…`, ancien `<id>.1fichier.com`, **domaines miroirs** (alterupload, cjoint, desfichiers, dfichiers, megadl, mesfichiers, piecejointe, pjointe, tenvoi, dl4free) ; provider en base = `onefichier` ; ID validé `^[A-Za-z0-9_-]{4,32}$` ; colonnes : `url*`, cible `title_id` | `episode_id` | `slug` (+ `season`,`episode`), `quality` (+ alias 4k/hd…), `priority` (déf. Pixeldrain 10 / 1fichier 20), `size_bytes`, `audio`, `subtitles`, `container` ; `--default-slug`
+  - **Résolution slug → title_id / episode_id par lot** (1 requête `titles?slug=in.(…)` par lot + épisodes des séries), cache mémoire
+  - **Insertion par lots** (déf. 2000, 1–5000) via PostgREST `POST /media_sources?on_conflict=provider,file_id&columns=…` + `Prefer: return=minimal,resolution=ignore-duplicates` → **relançable sans doublon** ; clés identiques sur toutes les lignes ; connexions keep-alive par thread ; **N lots en parallèle** (déf. 4) avec **sémaphore borné (2 lots en attente / worker)**
+  - **Erreurs non bloquantes** → `import_errors.log` (JSON Lines : ligne, raison, URL) : ligne mal formée, hébergeur inconnu, slug/épisode introuvable, qualité/langue invalide ; lot en 5xx/408/429/timeout → **retries exponentiels + Retry-After** ; lot rejeté en 400/409/422 (FK, contrainte) → **bissection** pour isoler la/les ligne(s) fautive(s), le reste est inséré
+  - Options : `--dry-run`, `--skip N` (reprise), `--limit`, `--workers`, `--batch-size`, `--errors`, `--url/--key` (sinon `pipelines/.env` : `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`) ; progression (lignes/s) ; code retour 2 si erreurs
+- **Migration 0013 ajustée** : index unique `(provider, file_id)` **non partiel** (cible `ON CONFLICT` utilisable par PostgREST ; NULL multiples autorisés pour alist/other) — vérifié sur PG16 (doublon ignoré, 2 sources AList acceptées), reconstruction 0001→0013 OK
+- `pipelines/import_template.csv` (film, série par slug/saison/épisode, cible par UUID)
+- Tests : `tests/test_links.py` (Pixeldrain, 1fichier, miroirs, rejets dont domaine piège) — **21 tests Python OK**
+- **Banc d'essai** (faux PostgREST local validant format, conflits, FK, 503) :
+  | Fichier | Lignes | Durée | Débit | RSS max |
+  |---|---|---|---|---|
+  | 33 Mo | 300 006 | 7,0 s | ~43 000 lignes/s | **46 Mo** |
+  | 166 Mo | 1 500 030 | 33,2 s | ~45 000 lignes/s | **47 Mo** (mémoire constante) |
+  → 4 pannes 503 rattrapées, lot contenant une FK invalide bissecté (1 seule ligne rejetée), doublon ignoré, lignes fautives journalisées. Le débit réel sera limité par Supabase (latence réseau, Free Tier) : viser `--workers 4 --batch-size 2000`
+
+### Usage
+```
+cd pipelines
+python scripts/mass_import.py liens.csv --dry-run                  # validation hors ligne (slugs non résolus)
+python scripts/mass_import.py liens.csv --batch-size 2000 --workers 4
+python scripts/mass_import.py liens.csv --skip 250000              # reprise après interruption
+```
+
+### Prochaine action — Étape 23 : GitHub → Vercel → premier build
+1. `git add -A && git commit` (étapes 21–22 non commitées) puis `./setup_github.sh <url-du-depot-privé>` → CI (build front, deno check, 21 tests Python) → corriger les erreurs du premier build
+2. Vercel (Import Git Repository + `VITE_*`) ; Supabase `./scripts/deploy.sh` (staging, migrations 0001→0013)
+3. Premier import réel en staging : `--dry-run` puis import ; surveiller Database → Usage (≈ 173 Mo / 500 000 liens)
+
+## Étape 23 — Monitoring d'inactivité des fichiers (2026-10-28) ✅ MONITORING FINALISÉ
+> « GitHub → Vercel → premier build » décalé en étape 24.
+
+### Terminé
+- **Migration `0014_source_monitoring.sql`** (reconstruction 0001→0014 OK, testée PG16) : `media_sources.last_streamed_at timestamptz` (table = « video_sources » de la spec) + index partiel `(last_streamed_at asc nulls first) where is_active` ; `mark_source_streamed(id)` (**service_role uniquement**, ≤ 1 écriture / heure / fichier) ; RPC admin `admin_cold_sources(p_days=25, provider, status never|offline, limit, offset)` (titre, épisode SxxEyy, jours d'inactivité = depuis dernière lecture ou création, dernier contrôle) et `admin_cold_sources_summary(p_days)` (actifs, à risque, critiques = seuil + 20 j, jamais lus, hors ligne)
+- **Lecture → marquage silencieux** : `resolve-stream` appelle `mark_source_streamed` sur la source servie (cache Redis ou résolution fraîche) **après la réponse** (`_shared/background.ts` → `EdgeRuntime.waitUntil`) — aucune latence ajoutée
+- **Nouvelle Edge Function `source-maintenance`** (admin, `verify_jwt`, IP bannie refusée) : `POST {ids[], action}` — `info` (≤ 25) : Pixeldrain `GET /api/file/{id}/info` (nom, taille, vues, téléchargements, `date_last_view`), 1fichier `POST /v1/file/info.cgi` (Bearer `ONEFICHIER_API_KEY`) ; `touch` (≤ 5) : **téléchargement de maintenance partiel (1 Mio, Range)** — Pixeldrain `/api/file/{id}`, 1fichier `download/get_token.cgi` puis GET ; met à jour `last_checked_at`, `last_status` (404 = hors ligne), `size_bytes` si absent ; appels 1fichier espacés (anti-flood) ; ajoutée à `config.toml`, `deploy.sh`, `DEPLOY.md`, `.env.example`
+- **Front `/admin/monitoring`** (onglet « Monitoring ») — `lib/monitoring.ts` : seuils 15/25/45/60 j (défaut 25), filtres hébergeur / jamais lus / hors ligne (search params), cartes de synthèse par hébergeur, tableau paginé (50) : contenu + épisode, hébergeur + `file_id` (lien reconstruit), dernière lecture, badge d'inactivité (À risque / Critique / Jamais lu / Hors ligne), dernier contrôle ou résultat live (en ligne · vues · dernière vue · Kio lus) ; boutons **« Rafraîchir »** (info) et **« Maintenance »** (touch, AlertDialog) par ligne et sur la sélection (cases à cocher)
+- Vérif syntaxique OK
+
+### À vérifier en réel
+- Formats de réponse exacts de l'API 1fichier (`file/info.cgi`, `download/get_token.cgi` — compte premium requis) et effet réel d'un téléchargement partiel sur l'expiration (non garanti par les hébergeurs)
+
+### Prochaine action — Étape 24 : GitHub → Vercel → premier build
+1. `git add -A && git commit` (étapes 21–23 non commitées) puis `./setup_github.sh <url-du-depot-privé>` → CI → corriger les erreurs du premier build
+2. Vercel + `./scripts/deploy.sh` (staging : migrations 0001→0014, 7 Edge Functions)
+3. Option : planifier un contrôle automatique (pg_cron → `source-maintenance` action `info` sur les fichiers ≥ 25 j, quotidien)
+
+## Étape 24 — Demandes de contenus (2026-10-28) ✅ SYSTÈME DE REQUÊTES FINALISÉ
+> « GitHub → Vercel → premier build » décalé en étape 25.
+
+### Terminé
+- **Migration `0015_content_requests.sql`** (reconstruction 0001→0015 OK, testée PG16) : enum `request_status` (`pending` = en attente, `added` = ajouté, `rejected` = refusé) ; table **`content_requests`** (id, `user_id` → compte, `profile_id` optionnel → profil de visionnage via FK composite, `title` 2–200 normalisé, `media_type` = `title_type` movie|series, `release_year`, `note`, `status` défaut pending, `admin_note`, `title_id` → titre ajouté, `handled_by/at`, `created_at`) ; **pas de doublon en attente** par utilisateur (index unique sur titre sans accents/casse + type) ; quotas anti-abus (20 en attente, 10 / 24 h)
+  - RLS : l'utilisateur **crée** (colonnes autorisées seulement, statut forcé pending), **lit** et **annule** (si pending) ses demandes ; l'admin a tous les droits
+  - RPC admin `admin_list_requests(status, q, limit, offset)` (demandeur e-mail + nom du profil, **nombre de demandes similaires** regroupées par titre normalisé, tri en attente → plus demandées → récentes) et **`admin_set_request_status(ids[], status, note, title_id)`** (lot, idempotent) → **notification personnelle** au demandeur : « Ta demande « X » est disponible au catalogue ! » (lien `/title/slug` ou recherche) ou « … n'a pas pu être ajoutée : motif »
+- Dep `@radix-ui/react-select` + **`components/ui/select.tsx`** (Shadcn Select) ; `database.ts` (table, enum, 2 RPC)
+- `lib/requests.ts` : schéma **zod**, création, mes demandes (+ slug du titre lié), annulation, erreurs FR (doublon, quotas), admin (liste, statut, recherche de titres à lier)
+- **Route `/request`** (`?title=` pré-rempli) : formulaire **React Hook Form + Zod + Shadcn** (Input, Select Film/Série, année, précision, Button), **toast Sonner** au succès, détection « Déjà disponible ? » (recherche catalogue debounce 400 ms, filtrée Enfants), panneau « Mes demandes » (statut, motif, lien vers le titre ajouté, annulation)
+- Accès : « Demander ce titre » dans l'état vide de `/search`, entrée « Demander un titre » du menu profil
+- **Admin `/admin/requests`** (onglet « Demandes ») : onglets En attente / Ajoutées / Refusées / Toutes, recherche titre/e-mail, tableau (demande, demandeur, **demandes similaires**, date, statut, motif), **« Marquer comme ajouté »** (traite d'un coup les demandes identiques en attente ; dialogue de liaison à un titre du catalogue + note), « Refuser » (motif envoyé), « Remettre en attente », actions groupées sur la sélection, pagination
+- Vérif syntaxique OK
+
+### Prochaine action — Étape 25 : GitHub → Vercel → premier build
+1. `git add -A && git commit` (étapes 21–24 non commitées) puis `./setup_github.sh <url-du-depot-privé>` → CI → corriger les erreurs du premier build
+2. Vercel + `./scripts/deploy.sh` (staging : migrations 0001→0015, 7 Edge Functions)
+3. Option : notifier automatiquement les demandeurs quand un titre correspondant est **publié** (trigger sur `titles` + rapprochement par titre normalisé)
+
+## Étape 25 — Notes communautaires et marque-pages vidéo (2026-10-28) ✅ NOTES ET MARQUE-PAGES FINALISÉS
+> « GitHub → Vercel → premier build » décalé en étape 26.
+
+### Terminé
+- **Migration `0016_reviews_bookmarks.sql`** (reconstruction 0001→0016 OK, **testée PG16** : upsert, note hors 1–5 refusée, écriture pour autrui refusée, marque-page privé invisible aux autres, modération admin)
+  - **`reviews`** : id, user_id (défaut `auth.uid()`), `profile_id` (FK composite → viewer_profiles), `title_id` (= « movie_id » de la spec), `rating` smallint 1–5, `comment` ≤ 2000, created/updated_at ; unique (profile_id, title_id)
+  - **`video_bookmarks`** : id, user_id, profile_id, title_id, `episode_id` optionnel (séries), `timestamp_seconds` int 0–86400, `label` 1–120, `is_public` (défaut true), created_at
+  - RLS : lecture tous connectés (titres publiés ; marque-pages privés = auteur seul) ; insert/update propriétaire, colonnes autorisées uniquement ; delete propriétaire ou admin
+  - RPC : `title_rating_summary` (moyenne, total, r1..r5), `title_reviews` (paginé, auteur = nom/avatar du profil, mes avis en premier), `upsert_review`, `title_bookmarks(title, episode, profile)` (≤ 500, trié par timestamp)
+- `types/database.ts` (2 tables, 4 RPC) ; `lib/reviews.ts`, `lib/bookmarks.ts` (zod, `formatTimestamp`) ; `hooks/useBookmarks.ts`
+- **Section « Avis et Notes »** (`components/catalog/ReviewsSection.tsx`) sur **`/title/$slug`** (vraie page de détail ; `/watch/$id` = lecteur plein écran) : moyenne + étoiles fractionnaires, répartition 5→1, formulaire étoiles + commentaire (créer/modifier/supprimer mon avis), liste paginée (10) avec avatar profil, badge « Toi », date
+- **VideoPlayer** : props `bookmarks`, `onCreateBookmark`, `onDeleteBookmark` ; bouton **« Marquer ce moment »** (BookmarkPlus, touche **B**) : capture `currentTime`, pause, **Dialog Shadcn** (`DialogContent` reçoit `container` → visible en plein écran) avec texte + public/privé, reprise de lecture à la fermeture ; **panneau latéral** (`components/player/Bookmarks.tsx`, touche **P**, filtre Tous/Les miens, marque-page courant surligné, suppression des miens) ; clic = `videoRef.current.currentTime = timestamp_seconds` + `play()` ; **repères** sur la barre de progression (ambre = les miens)
+- Vérif syntaxique OK (pas de build : npm bloqué dans l'environnement)
+
+### Prochaine action — Étape 26 : GitHub → Vercel → premier build
+1. `git add -A && git commit` (étapes 21–25 non commitées) puis `./setup_github.sh <url-du-depot-privé>` → CI → corriger les erreurs du premier build
+2. Vercel + `./scripts/deploy.sh` (staging : migrations 0001→0016, 7 Edge Functions)
+3. Options : marque-pages en temps réel (Realtime sur `video_bookmarks`), signalement d'avis, note moyenne sur les cartes du catalogue

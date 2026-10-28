@@ -18,7 +18,7 @@ else
 fi
 
 echo "▶ Supabase : Edge Functions"
-for fn in resolve-stream debrid-link subtitle ip-check catalog catalog-webhook; do
+for fn in resolve-stream debrid-link subtitle ip-check catalog catalog-webhook source-maintenance; do
   supabase functions deploy "$fn" --project-ref "$SUPABASE_PROJECT_REF"
 done
 

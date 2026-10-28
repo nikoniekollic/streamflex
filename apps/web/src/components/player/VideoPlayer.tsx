@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import {
   ArrowLeft,
+  BookmarkPlus,
+  Bookmark as BookmarkIcon,
   Loader2,
   Maximize,
   Minimize,
@@ -17,6 +19,8 @@ import { cn } from '@/lib/utils'
 import { formatTime, type Quality } from '@/lib/stream'
 import { pickInitialTrack, setSubtitlePref, type SubtitleTrack } from '@/lib/subtitles'
 import { AudioMenu, QualityMenu, SubtitlesMenu, type NativeAudio } from '@/components/player/PlayerMenus'
+import { BookmarkDialog, BookmarkPanel } from '@/components/player/Bookmarks'
+import { formatTimestamp, type NewBookmark, type VideoBookmark } from '@/lib/bookmarks'
 
 export type VideoPlayerProps = {
   src: string
@@ -41,6 +45,10 @@ export type VideoPlayerProps = {
   onNext?: () => void
   onBack?: () => void
   onError?: (currentTime: number) => void
+  /** Marque-pages partagés (timestamps) */
+  bookmarks?: VideoBookmark[]
+  onCreateBookmark?: (b: NewBookmark) => Promise<void>
+  onDeleteBookmark?: (id: string) => Promise<void>
 }
 
 const HIDE_DELAY_MS = 3000
@@ -77,6 +85,9 @@ export function VideoPlayer({
   onNext,
   onBack,
   onError,
+  bookmarks = [],
+  onCreateBookmark,
+  onDeleteBookmark,
 }: VideoPlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -105,13 +116,19 @@ export function VideoPlayer({
   // audio natif (HTMLMediaElement.audioTracks — Safari / flag Chrome)
   const [nativeAudio, setNativeAudio] = useState<NativeAudio[]>([])
   const [flash, setFlash] = useState<'play' | 'pause' | null>(null)
+  // marque-pages
+  const [markAt, setMarkAt] = useState<number | null>(null)
+  const [panelOpen, setPanelOpen] = useState(false)
+  const resumeAfterMark = useRef(false)
+  const overlayRef = useRef(false)
+  overlayRef.current = markAt !== null || panelOpen
 
   // ── Contrôles auto-masqués
   const showControls = useCallback(() => {
     setControlsVisible(true)
     window.clearTimeout(hideTimer.current)
     hideTimer.current = window.setTimeout(() => {
-      if (!videoRef.current?.paused && !menuOpenRef.current) setControlsVisible(false)
+      if (!videoRef.current?.paused && !menuOpenRef.current && !overlayRef.current) setControlsVisible(false)
     }, HIDE_DELAY_MS)
   }, [])
 
@@ -245,10 +262,49 @@ export function VideoPlayer({
     [showControls],
   )
 
+  // ── Marque-pages
+  const markMoment = useCallback(() => {
+    const v = videoRef.current
+    if (!v || !onCreateBookmark) return
+    const at = v.currentTime // capturé AVANT la pause
+    resumeAfterMark.current = !v.paused
+    v.pause()
+    setMarkAt(at)
+    setControlsVisible(true)
+  }, [onCreateBookmark])
+
+  const closeMark = useCallback(() => {
+    setMarkAt(null)
+    if (resumeAfterMark.current) void videoRef.current?.play().catch(() => undefined)
+    resumeAfterMark.current = false
+  }, [])
+
+  const createBookmark = useCallback(
+    async (b: NewBookmark) => {
+      await onCreateBookmark?.(b)
+      setPanelOpen(true)
+    },
+    [onCreateBookmark],
+  )
+
+  const jumpTo = useCallback(
+    (seconds: number) => {
+      const v = videoRef.current
+      if (!v) return
+      v.currentTime = Number.isFinite(v.duration) ? Math.min(seconds, Math.max(0, v.duration - 0.5)) : seconds
+      setCurrent(v.currentTime)
+      void v.play().catch(() => undefined)
+      setFlash('play')
+      showControls()
+    },
+    [showControls],
+  )
+
   // ── Raccourcis clavier
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.metaKey || e.ctrlKey || e.altKey) return
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.metaKey || e.ctrlKey || e.altKey) return
+      if (markAt !== null) return // la modale gère ses touches
       switch (e.key) {
         case ' ':
         case 'k':
@@ -286,14 +342,23 @@ export function VideoPlayer({
           if (subtitles.length) selectSub(activeSubRef.current ? null : lastSub.current)
           showControls()
           break
+        case 'b':
+          e.preventDefault()
+          markMoment()
+          break
+        case 'p':
+          if (onCreateBookmark || bookmarks.length) setPanelOpen((o) => !o)
+          showControls()
+          break
         case 'Escape':
-          if (!document.fullscreenElement) onBack?.()
+          if (panelOpen) setPanelOpen(false)
+          else if (!document.fullscreenElement) onBack?.()
           break
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [togglePlay, skip, toggleMute, toggleFullscreen, showControls, onBack, subtitles.length, selectSub])
+  }, [togglePlay, skip, toggleMute, toggleFullscreen, showControls, onBack, subtitles.length, selectSub, markAt, markMoment, panelOpen, onCreateBookmark, bookmarks.length])
 
   // ── Barre de progression (pointer events)
   const timeFromPointer = (clientX: number) => {
@@ -341,7 +406,8 @@ export function VideoPlayer({
   const remaining = duration - current
   const showNext = !!onNext && duration > 0 && remaining < 30
   const VolumeIcon = muted || volume === 0 ? VolumeX : volume < 0.5 ? Volume1 : Volume2
-  const visible = controlsVisible || !playing || menuOpen
+  const visible = controlsVisible || !playing || menuOpen || panelOpen || markAt !== null
+  const hasBookmarks = !!onCreateBookmark || bookmarks.length > 0
 
   return (
     <div
@@ -471,6 +537,19 @@ export function VideoPlayer({
             <div className="relative h-1 w-full rounded-full bg-white/25 transition-[height] group-hover/seek:h-1.5">
               <div className="absolute inset-y-0 left-0 rounded-full bg-white/40" style={{ width: pct(buffered) }} />
               <div className="absolute inset-y-0 left-0 rounded-full bg-primary" style={{ width: pct(current) }} />
+              {duration > 0 &&
+                bookmarks.map((b) => (
+                  <span
+                    key={b.id}
+                    aria-hidden
+                    title={`${formatTimestamp(b.timestamp_seconds)} — ${b.label}`}
+                    className={cn(
+                      'absolute top-1/2 h-2.5 w-1 -translate-x-1/2 -translate-y-1/2 rounded-sm',
+                      b.is_mine ? 'bg-amber-400' : 'bg-white/80',
+                    )}
+                    style={{ left: pct(b.timestamp_seconds) }}
+                  />
+                ))}
             </div>
             <div
               className={cn(
@@ -524,6 +603,23 @@ export function VideoPlayer({
           </span>
 
           <div className="ml-auto flex items-center gap-1 md:gap-3">
+            {onCreateBookmark && (
+              <IconButton label="Marquer ce moment (B)" onClick={markMoment}>
+                <BookmarkPlus />
+              </IconButton>
+            )}
+            {hasBookmarks && (
+              <IconButton label={`Marque-pages (${bookmarks.length})`} onClick={() => setPanelOpen((o) => !o)} active={panelOpen}>
+                <span className="relative">
+                  <BookmarkIcon className={cn(panelOpen && 'fill-current')} />
+                  {bookmarks.length > 0 && (
+                    <span className="absolute -top-1.5 -right-2 min-w-4 rounded-full bg-primary px-1 text-[10px] leading-4 font-bold">
+                      {bookmarks.length > 99 ? '99+' : bookmarks.length}
+                    </span>
+                  )}
+                </span>
+              </IconButton>
+            )}
             {onNext && (
               <IconButton label={nextLabel ?? 'Épisode suivant'} onClick={onNext}>
                 <SkipForward />
@@ -562,15 +658,28 @@ export function VideoPlayer({
           </div>
         </div>
       </div>
+
+      {hasBookmarks && (
+        <BookmarkPanel
+          open={panelOpen}
+          bookmarks={bookmarks}
+          current={current}
+          onJump={jumpTo}
+          onDelete={onDeleteBookmark}
+          onClose={() => setPanelOpen(false)}
+        />
+      )}
+      {onCreateBookmark && <BookmarkDialog at={markAt} container={containerRef.current} onSubmit={createBookmark} onClose={closeMark} />}
     </div>
   )
 }
 
-function IconButton({ label, onClick, children }: { label: string; onClick: () => void; children: ReactNode }) {
+function IconButton({ label, onClick, children, active }: { label: string; onClick: () => void; children: ReactNode; active?: boolean }) {
   return (
     <button
       type="button"
       aria-label={label}
+      aria-pressed={active}
       title={label}
       onClick={onClick}
       className="rounded-full p-2 transition hover:scale-110 hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-white focus-visible:outline-none [&_svg]:size-6 md:[&_svg]:size-7"

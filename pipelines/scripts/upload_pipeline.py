@@ -172,7 +172,7 @@ class Pipeline:
         if self.catalog and target:
             source_id = await self._retry(
                 f"{job.label} insert",
-                lambda: self.catalog.insert_source(target, m, provider, external_id, raw_url, self.priority[provider]),
+                lambda: self.catalog.insert_source(target, m, provider, external_id, self.priority[provider]),
             )
             await self.state.record(provider, m.checksum, db=True, source_id=source_id)
         self.report.uploaded.append(

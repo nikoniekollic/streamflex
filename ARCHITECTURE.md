@@ -27,7 +27,7 @@ streamflex/
 ├── apps/web/                 # Frontend React/Vite
 │   ├── src/routes/           # Routes TanStack (file-based) → routeTree.gen.ts (généré)
 │   │   ├── _guest/           # /login, /register (redirige si connecté)
-│   │   └── _authed/          # garde auth → _shell/ (/, /browse, /search, /my-list, /history, /profile, /title/$slug, /admin, /admin/new, /admin/$id, /admin/users, /admin/billing, /admin/security, /admin/stats) ; /profiles (Qui est-ce ?, hors shell) ; /banned (hors garde) + watch.$id (plein écran)
+│   │   └── _authed/          # garde auth → _shell/ (/, /browse, /search, /my-list, /history, /request, /profile, /title/$slug, /admin, /admin/new, /admin/$id, /admin/users, /admin/billing, /admin/security, /admin/stats, /admin/monitoring, /admin/requests) ; /profiles (Qui est-ce ?, hors shell) ; /banned (hors garde) + watch.$id (plein écran)
 │   ├── src/components/ui/    # Composants Shadcn (carousel natif scroll-snap)
 │   ├── src/components/catalog/ # MovieCard, HeroBanner, CategoryCarousel
 │   ├── src/components/player/  # VideoPlayer
@@ -37,9 +37,9 @@ streamflex/
 │   ├── src/types/database.ts # Types Supabase (Database)
 │   └── components.json       # Config Shadcn CLI
 ├── services/                 # Node.js : resolver API, workers (à venir)
-├── pipelines/                # Python : sfpipe/ (config, resilience, media, state, catalog, providers/) + scripts/upload_pipeline.py + tests/
-├── supabase/migrations/      # SQL versionné (0001 schéma, 0002 save_progress, 0003 admin_save_title, 0004 search_titles, 0005 user_favorites, 0006 subscriptions/codes/ip_bans/vault, 0007 subtitles + bucket, 0008 pg_net cache webhook, 0009 watch_daily + stats, 0010 notifications + realtime, 0011 historique RPC, 0012 viewer_profiles)
-├── supabase/functions/       # Edge Functions Deno : resolve-stream, debrid-link (admin), ip-check, subtitle, catalog, catalog-webhook (+ _shared: subtitles, catalog-cache, alldebrid, providers, redis, cors, secrets, guard, admin-client)
+├── pipelines/                # Python : sfpipe/ (config, resilience, media, links, state, catalog, providers/) + scripts/upload_pipeline.py, scripts/mass_import.py + tests/
+├── supabase/migrations/      # SQL versionné (0001 schéma, 0002 save_progress, 0003 admin_save_title, 0004 search_titles, 0005 user_favorites, 0006 subscriptions/codes/ip_bans/vault, 0007 subtitles + bucket, 0008 pg_net cache webhook, 0009 watch_daily + stats, 0010 notifications + realtime, 0011 historique RPC, 0012 viewer_profiles, 0013 media_sources compacte, 0014 monitoring last_streamed_at, 0015 content_requests, 0016 reviews + video_bookmarks)
+├── supabase/functions/       # Edge Functions Deno : resolve-stream, debrid-link (admin), ip-check, subtitle, catalog, catalog-webhook, source-maintenance (+ _shared: background, subtitles, catalog-cache, alldebrid, providers, redis, cors, secrets, guard, admin-client)
 ├── vercel.json               # Déploiement front (SPA rewrite, en-têtes, CSP)
 ├── DEPLOY.md                 # Variables Vercel/Supabase + commandes
 ├── scripts/deploy.sh         # Déploiement complet
@@ -107,3 +107,20 @@ Compte (`profiles`, rôle) ≠ profils de visionnage (`viewer_profiles`, ≤ 5, 
 
 ## Déploiement
 Vercel (statique, `apps/web/dist`, rewrite SPA) + Supabase (Postgres/Auth/Storage/Realtime/Vault + 6 Edge Functions Deno). Aucun secret serveur dans le bundle : front = `VITE_SUPABASE_URL` + clé anon ; Alldebrid/Pixeldrain/Redis = secrets Edge ou Vault.
+
+## Sources vidéo (stockage)
+`media_sources` ne stocke que `(provider enum, file_id ≤ 32)` pour Pixeldrain/1fichier — aucune URL ; `buildStreamUrl` (Edge `_shared/stream-url.ts`) reconstruit l'URL à la résolution. ~183 o/ligne, 500 k lignes ≈ 173 Mo (index inclus), requête par titre < 1 ms.
+
+## Import massif
+`scripts/mass_import.py` : flux CSV/NDJSON → `parse_link` (provider, file_id) → résolution des cibles par lot → POST PostgREST par lots de 2000, `on_conflict=provider,file_id` + ignore-duplicates, workers parallèles à mémoire bornée, bissection des lots rejetés, `import_errors.log`.
+
+## Monitoring des fichiers
+Lecture → `resolve-stream` → `mark_source_streamed` (en arrière-plan, ≤ 1/h) → `last_streamed_at`. `/admin/monitoring` → `admin_cold_sources` (≥ 25 j / jamais lus) → Edge `source-maintenance` (info API officielle ou téléchargement partiel 1 Mio).
+
+## Demandes de contenus
+`/request` (RHF + Zod + Shadcn) → `content_requests` (RLS propriétaire, quotas, anti-doublon) → `/admin/requests` (regroupement des demandes similaires) → `admin_set_request_status` → notification personnelle (Realtime → cloche).
+
+## Notes communautaires et marque-pages
+- `reviews` (1 avis / profil / titre, note 1–5 + commentaire) → `/title/$slug` section « Avis et Notes » (`ReviewsSection` : moyenne + répartition via `title_rating_summary`, liste paginée `title_reviews`, `upsert_review`).
+- `video_bookmarks` (timestamp + label, public/privé, épisode optionnel) → `VideoPlayer` : bouton « Marquer ce moment » (touche B, pause + Dialog portaillé dans le conteneur plein écran), panneau latéral (touche P), repères sur la barre de progression, clic = `currentTime = timestamp_seconds` + lecture. Données via `useBookmarks` → `title_bookmarks`.
+- RLS : lecture pour tous les connectés (titres publiés ; marque-pages privés réservés à l'auteur), écriture/modification limitées au propriétaire (colonnes autorisées), suppression propriétaire ou admin (modération).

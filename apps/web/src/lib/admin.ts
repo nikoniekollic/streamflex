@@ -3,11 +3,12 @@ import type { TypedSupabaseClient } from '@/lib/supabase'
 import type { Enums, Json, Tables } from '@/types/database'
 import { slugify } from '@/lib/utils'
 import { invalidateCatalogCache } from '@/lib/catalog-api'
+import { FILE_ID_RE, buildStreamUrl, extractFileId, isHoster } from '@/lib/stream-url'
 
 // ───────── Constantes
 export const PROVIDERS: { value: Enums<'video_provider'>; label: string; hint: string }[] = [
-  { value: 'pixeldrain', label: 'Pixeldrain', hint: 'ID (ex. AbC123) ou URL pixeldrain.com/u/…' },
-  { value: 'onefichier', label: '1fichier', hint: 'ID (ex. a1b2c3d4) ou URL 1fichier.com/?…' },
+  { value: 'pixeldrain', label: 'Pixeldrain', hint: 'ID (ex. AbCd1234) ou colle l’URL pixeldrain.com/u/…' },
+  { value: 'onefichier', label: '1fichier', hint: 'ID (ex. x7k2m9p4q1w8e3r5t6y0) ou colle l’URL 1fichier.com/?…' },
   { value: 'alist', label: 'AList', hint: 'URL signée /d/…' },
   { value: 'other', label: 'Autre', hint: 'URL directe' },
 ]
@@ -25,17 +26,20 @@ const sourceSchema = z
   .object({
     id: z.string().optional(),
     provider: z.enum(['pixeldrain', 'onefichier', 'alist', 'other']),
-    external_id: z.string().trim().max(200),
+    /** pixeldrain / onefichier : ID seul (une URL collée est convertie) */
+    file_id: z.string().trim().max(300),
+    /** alist / other uniquement */
     raw_url: optionalUrl,
     quality: z.enum(['2160p', '1080p', '720p', '480p']),
     priority: z.string().regex(/^\d{1,4}$/, 'Nombre requis'),
     is_active: z.boolean(),
   })
   .superRefine((s, ctx) => {
-    if (!s.external_id && !s.raw_url) {
-      ctx.addIssue({ code: 'custom', path: ['external_id'], message: 'Identifiant ou URL requis' })
-    }
-    if ((s.provider === 'alist' || s.provider === 'other') && !s.raw_url) {
+    if (isHoster(s.provider)) {
+      if (!FILE_ID_RE.test(extractFileId(s.provider, s.file_id))) {
+        ctx.addIssue({ code: 'custom', path: ['file_id'], message: 'Identifiant invalide (4 à 32 caractères alphanumériques) ou URL non reconnue' })
+      }
+    } else if (!s.raw_url) {
       ctx.addIssue({ code: 'custom', path: ['raw_url'], message: 'URL requise pour ce fournisseur' })
     }
   })
@@ -68,7 +72,7 @@ export type SourceFormValues = TitleFormValues['sources'][number]
 
 export const emptySource = (): SourceFormValues => ({
   provider: 'pixeldrain',
-  external_id: '',
+  file_id: '',
   raw_url: '',
   quality: '1080p',
   priority: '10',
@@ -92,14 +96,6 @@ export const emptyTitle = (): TitleFormValues => ({
   genre_ids: [],
   sources: [],
 })
-
-/** Accepte un ID brut ou une URL complète et renvoie l'ID normalisé. */
-export function normalizeExternalId(provider: SourceFormValues['provider'], value: string): string {
-  const v = value.trim()
-  if (provider === 'pixeldrain') return v.match(/pixeldrain\.com\/(?:u|api\/file)\/([A-Za-z0-9]+)/)?.[1] ?? v
-  if (provider === 'onefichier') return v.match(/1fichier\.com\/\?([A-Za-z0-9]+)/)?.[1] ?? v
-  return v
-}
 
 // ───────── Lecture
 export type AdminListRow = Pick<
@@ -163,7 +159,7 @@ export async function fetchTitleForEdit(supabase: TypedSupabaseClient, id: strin
     supabase.from('title_genres').select('genre_id').eq('title_id', id).range(0, 99),
     supabase
       .from('media_sources')
-      .select('id, provider, external_id, raw_url, quality, priority, is_active')
+      .select('id, provider, file_id, raw_url, quality, priority, is_active')
       .eq('title_id', id)
       .order('priority')
       .range(0, 49),
@@ -191,7 +187,7 @@ export async function fetchTitleForEdit(supabase: TypedSupabaseClient, id: strin
     sources: (sourcesRes.data ?? []).map((m) => ({
       id: m.id,
       provider: m.provider,
-      external_id: s(m.external_id),
+      file_id: s(m.file_id),
       raw_url: s(m.raw_url),
       quality: m.quality,
       priority: String(m.priority),
@@ -222,7 +218,11 @@ export async function saveTitle(supabase: TypedSupabaseClient, v: TitleFormValue
     p_genre_ids: genre_ids,
     p_sources:
       v.type === 'movie'
-        ? (sources.map((s) => ({ ...s, external_id: normalizeExternalId(s.provider, s.external_id) })) as unknown as Json)
+        ? (sources.map((s) =>
+            isHoster(s.provider)
+              ? { ...s, file_id: extractFileId(s.provider, s.file_id), raw_url: '' } // jamais d'URL stockée
+              : { ...s, file_id: '' },
+          ) as unknown as Json)
         : null,
   })
   if (error) throw error
@@ -247,9 +247,12 @@ export type DebridTestResult =
   | { ok: true; url: string; filename: string | null; filesize: number | null; host: string | null }
   | { ok: false; message: string }
 
-export function debridLinkFor(s: Pick<SourceFormValues, 'provider' | 'external_id' | 'raw_url'>): string | null {
-  if (s.raw_url) return s.provider === 'pixeldrain' ? null : s.raw_url
-  if (s.provider === 'onefichier' && s.external_id) return `https://1fichier.com/?${normalizeExternalId('onefichier', s.external_id)}`
+export function debridLinkFor(s: Pick<SourceFormValues, 'provider' | 'file_id' | 'raw_url'>): string | null {
+  if (s.provider === 'onefichier') {
+    const id = extractFileId('onefichier', s.file_id)
+    return FILE_ID_RE.test(id) ? buildStreamUrl('onefichier', id) : null
+  }
+  if (s.provider === 'other' && s.raw_url) return s.raw_url
   return null
 }
 

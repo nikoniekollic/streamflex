@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from dataclasses import dataclass
 
 from postgrest.exceptions import APIError
@@ -9,6 +10,21 @@ from supabase import AsyncClient, acreate_client
 
 from .media import MediaFile
 from .resilience import RetryableError
+
+
+def db_checksum(checksum: str) -> str:
+    """'qh1:<hex sha256>' → littéral bytea PostgREST '\\x<hex>' (32 octets en base au lieu de 68)."""
+    hexdigest = checksum.split(":", 1)[-1]
+    if len(hexdigest) != 64:
+        raise ValueError(f"checksum inattendu: {checksum!r}")
+    return "\\x" + hexdigest
+
+
+def file_id_from(provider: str, external_id: str) -> str:
+    """Seul l'ID est stocké (VARCHAR(32), ^[A-Za-z0-9_-]{4,32}$) ; l'URL est reconstruite à la lecture."""
+    if not re.fullmatch(r"[A-Za-z0-9_-]{4,32}", external_id or ""):
+        raise ValueError(f"{provider}: identifiant de fichier invalide {external_id!r}")
+    return external_id
 
 
 @dataclass(frozen=True)
@@ -103,23 +119,23 @@ class Catalog:
 
     async def source_exists(self, provider: str, checksum: str) -> bool:
         row = await self._one(
-            self.db.table("media_sources").select("id").eq("provider", provider).eq("checksum", checksum)
+            self.db.table("media_sources").select("id").eq("provider", provider).eq("checksum", db_checksum(checksum))
         )
         return row is not None
 
     async def insert_source(
-        self, target: Target, media: MediaFile, provider: str, external_id: str, raw_url: str, priority: int
+        self, target: Target, media: MediaFile, provider: str, external_id: str, priority: int
     ) -> str:
+        file_id = file_id_from(provider, external_id)
         row = {
             "title_id": None if target.episode_id else target.title_id,
             "episode_id": target.episode_id,
             "provider": provider,
-            "external_id": external_id,
-            "raw_url": raw_url,
+            "file_id": file_id,  # aucune URL stockée
             "quality": media.quality,
-            "container": media.container,
+            "container": media.container[:8] or None,
             "size_bytes": media.size,
-            "checksum": media.checksum,
+            "checksum": db_checksum(media.checksum),
             "priority": media.priority if media.priority is not None else priority,
             "is_active": True,
             "last_status": 200,
@@ -127,9 +143,9 @@ class Catalog:
         try:
             return (await self._insert("media_sources", row))["id"]
         except APIError as e:
-            if getattr(e, "code", "") == "23505":  # déjà présent (provider, external_id)
+            if getattr(e, "code", "") == "23505":  # déjà présent (provider, file_id)
                 existing = await self._one(
-                    self.db.table("media_sources").select("id").eq("provider", provider).eq("external_id", external_id)
+                    self.db.table("media_sources").select("id").eq("provider", provider).eq("file_id", file_id)
                 )
                 if existing:
                     return existing["id"]

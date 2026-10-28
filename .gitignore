@@ -9,6 +9,7 @@ apps/web/src/routeTree.gen.ts
 
 # ── Secrets (ne JAMAIS committer) : .env, .env.local, .env.production…
 .env
+.env.local
 .env.*
 *.env
 !.env.example

@@ -145,41 +145,45 @@ export type Database = {
           id: string
           title_id: string | null
           episode_id: string | null
+          size_bytes: number | null
+          created_at: string
+          last_checked_at: string | null
           provider: Database['public']['Enums']['video_provider']
-          external_id: string | null
-          raw_url: string | null
           quality: Database['public']['Enums']['video_quality']
+          priority: number
+          last_status: number | null
+          is_active: boolean
+          /** ID hébergeur seul (pixeldrain / onefichier) — URL reconstruite par buildStreamUrl */
+          file_id: string | null
           container: string | null
           video_codec: string | null
-          audio_languages: string[]
-          subtitle_languages: string[]
-          size_bytes: number | null
+          audio_languages: string[] | null
+          subtitle_languages: string[] | null
+          /** alist / other uniquement */
+          raw_url: string | null
+          /** sha256 binaire (bytea, sérialisé « \\x… ») */
           checksum: string | null
-          priority: number
-          is_active: boolean
-          last_checked_at: string | null
-          last_status: number | null
-          created_at: string
-          updated_at: string
+          /** dernière lecture (marquée par resolve-stream, ≤ 1 écriture / h) */
+          last_streamed_at: string | null
         }
         Insert: {
           id?: string
           title_id?: string | null
           episode_id?: string | null
+          size_bytes?: number | null
+          last_checked_at?: string | null
           provider: Database['public']['Enums']['video_provider']
-          external_id?: string | null
-          raw_url?: string | null
           quality?: Database['public']['Enums']['video_quality']
+          priority?: number
+          last_status?: number | null
+          is_active?: boolean
+          file_id?: string | null
           container?: string | null
           video_codec?: string | null
-          audio_languages?: string[]
-          subtitle_languages?: string[]
-          size_bytes?: number | null
+          audio_languages?: string[] | null
+          subtitle_languages?: string[] | null
+          raw_url?: string | null
           checksum?: string | null
-          priority?: number
-          is_active?: boolean
-          last_checked_at?: string | null
-          last_status?: number | null
         }
         Update: Partial<Database['public']['Tables']['media_sources']['Insert']>
         Relationships: [
@@ -287,6 +291,76 @@ export type Database = {
         Update: never
         Relationships: []
       }
+      content_requests: {
+        Row: {
+          id: string
+          user_id: string
+          profile_id: string | null
+          title: string
+          media_type: Database['public']['Enums']['title_type']
+          release_year: number | null
+          note: string | null
+          status: Database['public']['Enums']['request_status']
+          admin_note: string | null
+          title_id: string | null
+          handled_by: string | null
+          handled_at: string | null
+          created_at: string
+        }
+        Insert: {
+          title: string
+          media_type: Database['public']['Enums']['title_type']
+          release_year?: number | null
+          note?: string | null
+          profile_id?: string | null
+        }
+        Update: never
+        Relationships: [
+          { foreignKeyName: 'content_requests_title_id_fkey'; columns: ['title_id']; isOneToOne: false; referencedRelation: 'titles'; referencedColumns: ['id'] },
+        ]
+      }
+      reviews: {
+        Row: {
+          id: string
+          user_id: string
+          profile_id: string
+          title_id: string
+          rating: number
+          comment: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: { profile_id: string; title_id: string; rating: number; comment?: string | null }
+        Update: { rating?: number; comment?: string | null }
+        Relationships: [
+          { foreignKeyName: 'reviews_title_id_fkey'; columns: ['title_id']; isOneToOne: false; referencedRelation: 'titles'; referencedColumns: ['id'] },
+        ]
+      }
+      video_bookmarks: {
+        Row: {
+          id: string
+          user_id: string
+          profile_id: string
+          title_id: string
+          episode_id: string | null
+          timestamp_seconds: number
+          label: string
+          is_public: boolean
+          created_at: string
+        }
+        Insert: {
+          profile_id: string
+          title_id: string
+          episode_id?: string | null
+          timestamp_seconds: number
+          label: string
+          is_public?: boolean
+        }
+        Update: { label?: string; is_public?: boolean }
+        Relationships: [
+          { foreignKeyName: 'video_bookmarks_title_id_fkey'; columns: ['title_id']; isOneToOne: false; referencedRelation: 'titles'; referencedColumns: ['id'] },
+        ]
+      }
       notifications: {
         Row: {
           id: string
@@ -341,6 +415,41 @@ export type Database = {
     }
     Views: { [_ in never]: never }
     Functions: {
+      title_rating_summary: {
+        Args: { p_title_id: string }
+        Returns: { average: number | null; total: number; r1: number; r2: number; r3: number; r4: number; r5: number }[]
+      }
+      title_reviews: {
+        Args: { p_title_id: string; p_profile_id?: string | null; p_limit?: number; p_offset?: number }
+        Returns: {
+          id: string
+          rating: number
+          comment: string | null
+          created_at: string
+          updated_at: string
+          author_name: string
+          author_avatar: string | null
+          is_mine: boolean
+          total_count: number
+        }[]
+      }
+      upsert_review: {
+        Args: { p_profile_id: string; p_title_id: string; p_rating: number; p_comment?: string | null }
+        Returns: string
+      }
+      title_bookmarks: {
+        Args: { p_title_id: string; p_episode_id?: string | null; p_profile_id?: string | null }
+        Returns: {
+          id: string
+          timestamp_seconds: number
+          label: string
+          is_public: boolean
+          created_at: string
+          author_name: string
+          author_avatar: string | null
+          is_mine: boolean
+        }[]
+      }
       is_admin: { Args: Record<PropertyKey, never>; Returns: boolean }
       has_active_subscription: { Args: { p_user?: string | null }; Returns: boolean }
       redeem_activation_code: { Args: { p_code: string }; Returns: Json }
@@ -479,6 +588,78 @@ export type Database = {
           genres: Json
         }[]
       }
+      admin_cold_sources: {
+        Args: {
+          p_days?: number
+          p_provider?: Database['public']['Enums']['video_provider'] | null
+          p_status?: 'never' | 'offline' | null
+          p_limit?: number
+          p_offset?: number
+        }
+        Returns: {
+          id: string
+          provider: Database['public']['Enums']['video_provider']
+          file_id: string
+          quality: Database['public']['Enums']['video_quality']
+          size_bytes: number | null
+          title_id: string
+          title: string
+          slug: string
+          episode_label: string | null
+          last_streamed_at: string | null
+          created_at: string
+          idle_days: number
+          last_checked_at: string | null
+          last_status: number | null
+          total_count: number
+        }[]
+      }
+      admin_cold_sources_summary: {
+        Args: { p_days?: number }
+        Returns: {
+          provider: Database['public']['Enums']['video_provider']
+          active: number
+          at_risk: number
+          never_streamed: number
+          offline: number
+          critical: number
+        }[]
+      }
+      admin_list_requests: {
+        Args: {
+          p_status?: Database['public']['Enums']['request_status'] | null
+          p_q?: string | null
+          p_limit?: number
+          p_offset?: number
+        }
+        Returns: {
+          id: string
+          title: string
+          media_type: Database['public']['Enums']['title_type']
+          release_year: number | null
+          note: string | null
+          status: Database['public']['Enums']['request_status']
+          admin_note: string | null
+          title_id: string | null
+          title_slug: string | null
+          created_at: string
+          handled_at: string | null
+          user_id: string
+          user_email: string
+          user_name: string | null
+          similar_count: number
+          total_count: number
+        }[]
+      }
+      admin_set_request_status: {
+        Args: {
+          p_ids: string[]
+          p_status: Database['public']['Enums']['request_status']
+          p_admin_note?: string | null
+          p_title_id?: string | null
+        }
+        Returns: number
+      }
       search_titles: {
         Args: {
           p_q?: string | null
@@ -537,6 +718,7 @@ export type Database = {
       subscription_status: 'active' | 'suspended' | 'canceled'
       activation_code_status: 'active' | 'used' | 'revoked'
       notification_type: 'info' | 'new_content' | 'subscription' | 'warning' | 'system'
+      request_status: 'pending' | 'added' | 'rejected'
     }
     CompositeTypes: {
       /** forme de retour de my_watch_history / my_continue_watching */

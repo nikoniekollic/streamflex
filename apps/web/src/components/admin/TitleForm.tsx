@@ -17,6 +17,7 @@ import {
 } from '@/lib/admin'
 import type { Tables } from '@/types/database'
 import { DebridTester } from '@/components/admin/DebridTester'
+import { FILE_ID_RE, buildHosterPageUrl, extractFileId, isHoster } from '@/lib/stream-url'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -371,32 +372,56 @@ export function TitleForm({ initial, genres: initialGenres, onSaved, onCancel, e
                             <Trash2 className="text-destructive" />
                           </Button>
                         </div>
-                        <FormField
-                          control={form.control}
-                          name={`sources.${i}.external_id`}
-                          render={({ field }) => (
-                            <FormItem className="sm:col-span-3">
-                              <FormLabel>Identifiant</FormLabel>
-                              <FormControl>
-                                <Input placeholder={hint} {...field} />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                        <FormField
-                          control={form.control}
-                          name={`sources.${i}.raw_url`}
-                          render={({ field }) => (
-                            <FormItem className="sm:col-span-3">
-                              <FormLabel>URL brute (optionnel)</FormLabel>
-                              <FormControl>
-                                <Input placeholder="https://…" {...field} />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
+                        {isHoster(provider) ? (
+                          <FormField
+                            control={form.control}
+                            name={`sources.${i}.file_id`}
+                            render={({ field }) => {
+                              const id = extractFileId(provider, field.value)
+                              return (
+                                <FormItem className="sm:col-span-6">
+                                  <FormLabel>Identifiant du fichier</FormLabel>
+                                  <FormControl>
+                                    <Input
+                                      placeholder={hint}
+                                      {...field}
+                                      onBlur={(e) => {
+                                        field.onChange(extractFileId(provider, e.target.value)) // URL collée → ID seul
+                                        field.onBlur()
+                                      }}
+                                      className="font-mono"
+                                    />
+                                  </FormControl>
+                                  {FILE_ID_RE.test(id) && (
+                                    <a
+                                      href={buildHosterPageUrl(provider, id)}
+                                      target="_blank"
+                                      rel="noreferrer noopener"
+                                      className="text-xs text-muted-foreground hover:underline"
+                                    >
+                                      {buildHosterPageUrl(provider, id)}
+                                    </a>
+                                  )}
+                                  <FormMessage />
+                                </FormItem>
+                              )
+                            }}
+                          />
+                        ) : (
+                          <FormField
+                            control={form.control}
+                            name={`sources.${i}.raw_url`}
+                            render={({ field }) => (
+                              <FormItem className="sm:col-span-6">
+                                <FormLabel>URL</FormLabel>
+                                <FormControl>
+                                  <Input placeholder="https://…" {...field} />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        )}
                         <DebridTester source={form.watch(`sources.${i}`)} />
                       </div>
                     )
