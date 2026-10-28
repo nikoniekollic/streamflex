@@ -490,3 +490,16 @@ cd pipelines && ./setup.sh            # Windows : .\setup.ps1
 2. `deno check supabase/functions/*/index.ts` → corriger
 3. Déploiement staging (projet Supabase de test + preview Vercel), parcours e2e complet, test réel Alldebrid (`NO_SERVER`), en-têtes IP, Realtime, Redis
 4. Puis `./scripts/deploy.sh` en production
+
+## Étape 20 — Contrôle de version (2026-10-28) ✅ SOUS GIT, PRÊT À LIER À GITHUB/VERCEL
+### Terminé
+- **`.gitignore` durci** : `.env`, `.env.*`, `*.env`, `.env.local` (seuls `*.example` suivis), `supabase/functions/.env`, `pipelines/.env`, clés (`*.pem`, `*.key`, `*.p12`, `secrets/`, `*secret*.json`, `service-account*.json`, `rclone.conf`), `node_modules`, `dist`, `.vite`, `*.tsbuildinfo`, `routeTree.gen.ts`, `.vercel`, `supabase/.temp`, `.venv`, `.state`, rapports pipeline, médias (`*.mp4`, `*.mkv`…) — correction : `.env.production.example` était ignoré par l'ancienne règle
+- **Scan de secrets** avant commit : aucun JWT, clé `sk_*`, valeur de clé API ou `.env` réel dans les fichiers suivis (seuls les 4 `.env*.example` vides)
+- `git init -b main` + commit initial `feat: initial commit platform` (163 fichiers, auteur Hedy)
+- GitHub CLI non authentifié dans le sandbox → **`setup_github.sh`** : `./setup_github.sh <url-du-depot>` (remote add/set-url origin, `branch -M main`, `push -u origin main`, garde-fou anti-`.env` suivi) ; sans argument et avec `gh` connecté : `gh repo create streamflex --private --source=. --push`
+
+### Prochaine action — Étape 21 : GitHub → Vercel → premier build
+1. Créer un dépôt **privé** vide sur GitHub → `./setup_github.sh https://github.com/<user>/streamflex.git`
+2. La CI GitHub Actions lance `npm install` + `npm run build` + `deno check` + tests Python → récupérer les erreurs du **premier build** (jamais compilé) et les corriger
+3. Vercel : Import Git Repository, variables `VITE_*` (Production + Preview) → déploiement continu sur `main`, previews sur PR
+4. Supabase : `./scripts/deploy.sh` (staging d'abord), Auth URLs = domaine Vercel
