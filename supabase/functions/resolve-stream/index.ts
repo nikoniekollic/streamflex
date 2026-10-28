@@ -107,7 +107,12 @@ async function handle(req: Request): Promise<Response> {
       await cache.del(key)
     }
     try {
-      const r = await resolveSource(src)
+      const r = await resolveSource(src, { userId: auth.user.id })
+      if (r.worker) {
+        // Jeton à usage court : jamais mis en cache, le navigateur appelle le Worker
+        await background(admin.rpc('mark_source_streamed', { p_source_id: src.id }))
+        return json({ url: null, debridWorker: r.worker.url, debridToken: r.worker.token, provider: src.provider, quality: src.quality, sourceId: src.id, qualities, audios, audio: src.audio_languages ?? [], expiresAt: Date.now() + r.ttl * 1000, debrid: true, cached: false })
+      }
       const expiresAt = Date.now() + r.ttl * 1000
       await cache.set(key, { url: r.url, expiresAt, debrid: r.debrid } satisfies CachedStream, r.ttl - 120)
       await background(admin.rpc('mark_source_streamed', { p_source_id: src.id })) // activité du fichier (monitoring)

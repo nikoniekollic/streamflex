@@ -1,5 +1,6 @@
 import { DebridError, isDebridHost, unlock, type DebridFailure } from './alldebrid.ts'
 import { getSecret } from './secrets.ts'
+import { debridWorkerUrl, signDebridToken } from './debrid-token.ts'
 import { buildStreamUrl, pixeldrainInfoUrl } from './stream-url.ts'
 
 export type Provider = 'pixeldrain' | 'onefichier' | 'alist' | 'other'
@@ -16,7 +17,14 @@ export type MediaSource = {
   audio_languages: string[]
 }
 
-export type Resolved = { url: string; ttl: number; filename?: string; debrid: boolean }
+export type Resolved = {
+  url: string
+  ttl: number
+  filename?: string
+  debrid: boolean
+  /** Débridage délégué au Worker Cloudflare (IP non datacenter Supabase) : le navigateur échange ce jeton contre l'URL */
+  worker?: { url: string; token: string }
+}
 
 export type FailureKind = DebridFailure | 'invalid_source'
 
@@ -82,10 +90,18 @@ async function resolveDebrid(link: string): Promise<Resolved> {
 }
 
 // ───────── Point d'entrée : identifie l'origine puis résout
-export async function resolveSource(src: MediaSource): Promise<Resolved> {
+export async function resolveSource(src: MediaSource, ctx: { userId?: string } = {}): Promise<Resolved> {
   if (src.provider === 'pixeldrain') return resolvePixeldrain(src)
   const link = debridLink(src)
-  if (link) return resolveDebrid(link)
+  if (link) {
+    // 1fichier → Worker Cloudflare si configuré (Alldebrid refuse les IP Supabase), sinon appel direct
+    const worker = debridWorkerUrl()
+    if (worker && ctx.userId && /^https:\/\/(?:www\.)?1fichier\.com\//.test(link)) {
+      const token = await signDebridToken(link, ctx.userId)
+      if (token) return { url: '', ttl: 600, debrid: true, worker: { url: `${worker}/alldebrid/unlock`, token } }
+    }
+    return resolveDebrid(link)
+  }
   if (!src.raw_url) throw new ResolveError(`${src.provider}: raw_url manquant`, 422, 'invalid_source')
   return { url: src.raw_url, ttl: 3600, debrid: false } // AList signé / URL directe
 }

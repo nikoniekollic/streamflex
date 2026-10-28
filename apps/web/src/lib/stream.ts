@@ -19,6 +19,9 @@ export type StreamInfo = {
   expiresAt: number
   debrid: boolean
   cached: boolean
+  /** 1fichier : débridage via le Worker Cloudflare (jeton signé par resolve-stream) */
+  debridWorker?: string
+  debridToken?: string
 }
 
 export type StreamErrorCode =
@@ -93,6 +96,24 @@ export type ResolveParams = {
   exclude?: string[]
 }
 
+/** Échange le jeton signé contre le lien direct Alldebrid via le Worker Cloudflare (IP non datacenter). */
+async function unlockViaWorker(worker: string, token: string): Promise<string> {
+  let res: Response
+  try {
+    res = await fetch(worker, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }) })
+  } catch (e) {
+    console.error('[StreamFlex][alldebrid] Worker injoignable (réseau/CORS)', worker, e)
+    throw new StreamError('debrid_unavailable')
+  }
+  const body = (await res.json().catch(() => null)) as { url?: string; error?: string; code?: string; message?: string } | null
+  if (!res.ok || !body?.url) {
+    console.error(`[StreamFlex][alldebrid] HTTP ${res.status}`, body)
+    throw new StreamError(body?.code === 'LINK_DOWN' || body?.code === 'LINK_NOT_FOUND' ? 'source_offline' : 'debrid_unavailable')
+  }
+  console.info('[StreamFlex][alldebrid] lien débridé obtenu')
+  return body.url
+}
+
 export async function resolveStream(supabase: TypedSupabaseClient, params: ResolveParams): Promise<StreamInfo> {
   const { data, error } = await supabase.functions.invoke<StreamInfo>('resolve-stream', { body: params })
   if (error) {
@@ -101,6 +122,9 @@ export async function resolveStream(supabase: TypedSupabaseClient, params: Resol
       throw new StreamError(body.error && body.error in STREAM_ERROR_MESSAGES ? body.error : 'unknown')
     }
     throw new StreamError('network')
+  }
+  if (data && !data.url && data.debridWorker && data.debridToken) {
+    data.url = await unlockViaWorker(data.debridWorker, data.debridToken)
   }
   if (!data?.url) throw new StreamError('unknown')
   return data
