@@ -23,15 +23,21 @@ export function opError(e: unknown): Error {
   return new Error(ERR[err?.message ?? ''] ?? err?.message ?? 'Erreur inconnue.')
 }
 
-async function run<T>(p: PromiseLike<{ data: T; error: unknown }>): Promise<T> {
+async function run<T>(p: PromiseLike<{ data: T | null; error: unknown }>): Promise<T> {
   const { data, error } = await p
   if (error) throw opError(error)
-  return data
+  return data as T
+}
+
+async function runList<T>(p: PromiseLike<{ data: T[] | null; error: unknown }>): Promise<T[]> {
+  const { data, error } = await p
+  if (error) throw opError(error)
+  return data ?? []
 }
 
 // ───────── Utilisateurs & abonnements
 export async function listUsers(s: TypedSupabaseClient, q: { q?: string; filter?: UserFilter; page?: number }) {
-  const rows = await run(
+  const rows = await runList(
     s.rpc('admin_list_users', {
       p_q: q.q ?? null,
       p_filter: q.filter ?? null,
@@ -55,7 +61,7 @@ export const setSubscription = (
 ) => run(s.rpc('admin_set_subscription', { p_user: user, p_ends_at: endsAt, p_status: status, p_note: note || null }))
 
 export async function userEvents(s: TypedSupabaseClient, user: string) {
-  return run(
+  return runList(
     s
       .from('subscription_events')
       .select('id, source, delta_days, previous_ends_at, new_ends_at, status, note, created_at')
@@ -78,11 +84,11 @@ export async function listCodes(s: TypedSupabaseClient, status?: Enums<'activati
   if (status) q = q.eq('status', status)
   const { data, error, count } = await q.order('created_at', { ascending: false }).range(0, 99)
   if (error) throw opError(error)
-  return { rows: data as CodeRow[], total: count ?? 0 }
+  return { rows: (data ?? []) as CodeRow[], total: count ?? 0 }
 }
 
 export const generateCodes = (s: TypedSupabaseClient, count: number, days: number, label?: string, expiresAt?: string | null) =>
-  run(s.rpc('admin_generate_codes', { p_count: count, p_duration_days: days, p_label: label || null, p_expires_at: expiresAt ?? null }))
+  runList(s.rpc('admin_generate_codes', { p_count: count, p_duration_days: days, p_label: label || null, p_expires_at: expiresAt ?? null }))
 
 export const setCodeStatus = (s: TypedSupabaseClient, id: string, status: 'active' | 'revoked') =>
   run(s.rpc('admin_set_code_status', { p_id: id, p_status: status }))
@@ -99,7 +105,7 @@ export function downloadCodesCsv(codes: { code: string }[], days: number, label?
 export type IpBan = Tables<'ip_bans'>
 
 export const listBans = (s: TypedSupabaseClient) =>
-  run(s.from('ip_bans').select('id, ip, reason, expires_at, created_by, created_at').order('created_at', { ascending: false }).range(0, 499))
+  runList(s.from('ip_bans').select('id, ip, reason, expires_at, created_by, created_at').order('created_at', { ascending: false }).range(0, 499))
 
 export async function banIp(s: TypedSupabaseClient, ip: string, reason: string, expiresAt: string | null, userId: string) {
   await run(s.from('ip_bans').insert({ ip: ip.trim(), reason: reason.trim() || null, expires_at: expiresAt, created_by: userId }))
@@ -131,7 +137,7 @@ export function generateSecret(bytes = 32): string {
   return Array.from(crypto.getRandomValues(new Uint8Array(bytes)), (b) => b.toString(16).padStart(2, '0')).join('')
 }
 
-export const listApiKeys = (s: TypedSupabaseClient) => run(s.rpc('admin_list_api_keys'))
+export const listApiKeys = (s: TypedSupabaseClient) => runList(s.rpc('admin_list_api_keys'))
 export const setApiKey = (s: TypedSupabaseClient, name: string, value: string) => run(s.rpc('admin_set_api_key', { p_name: name, p_value: value }))
 export const deleteApiKey = (s: TypedSupabaseClient, name: string) => run(s.rpc('admin_delete_api_key', { p_name: name }))
 

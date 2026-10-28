@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { TypedSupabaseClient } from '@/lib/supabase'
-import { StreamError, resolveStream, type Quality, type StreamErrorCode, type StreamInfo } from '@/lib/stream'
+import { StreamError, resolveStream, type ResolveParams, type StreamErrorCode, type StreamInfo } from '@/lib/stream'
 
 export type StreamState =
   | { status: 'resolving'; attempt: number }
   | { status: 'ready'; stream: StreamInfo }
   | { status: 'error'; code: StreamErrorCode }
 
-type Opts = { quality?: Quality; refresh?: boolean; exclude?: string[] }
+type Opts = Pick<ResolveParams, 'quality' | 'audio' | 'refresh' | 'exclude'>
 
 /**
  * Résolution du flux côté serveur (Edge Function `resolve-stream`) :

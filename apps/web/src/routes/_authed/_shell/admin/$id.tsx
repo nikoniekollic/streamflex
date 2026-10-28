@@ -26,6 +26,8 @@ export const Route = createFileRoute('/_authed/_shell/admin/$id')({
 
 function EditTitle() {
   const { title, genres } = Route.useLoaderData()
+  const { id } = Route.useParams()
+  const titleId: string = title.id ?? id
   const { supabase } = Route.useRouteContext()
   const navigate = Route.useNavigate()
   const router = useRouter()
@@ -43,7 +45,7 @@ function EditTitle() {
         )}
       </div>
       <TitleForm
-        key={title.id}
+        key={titleId}
         initial={title}
         genres={genres}
         onSaved={() => router.invalidate()}
@@ -54,7 +56,7 @@ function EditTitle() {
             title={title.title}
             onConfirm={async () => {
               try {
-                await deleteTitle(supabase, title.id)
+                await deleteTitle(supabase, titleId)
               } catch (e) {
                 throw new Error(adminErrorMessage(e))
               }
@@ -63,7 +65,7 @@ function EditTitle() {
           />
         }
       />
-      <SubtitlesManager titleId={title.id} type={title.type} />
+      <SubtitlesManager titleId={titleId} type={title.type} />
     </div>
   )
 }
