@@ -37,7 +37,7 @@ function SubBadge({ u }: { u: AdminUser }) {
 
 function UsersPage() {
   const data = Route.useLoaderData()
-  const rows = data.rows || []
+  const rows = (data.rows || []) as AdminUser[]
   const { total, pageCount } = data
   const search = Route.useSearch()
   const navigate = Route.useNavigate()

@@ -37,14 +37,14 @@ async function runList<T>(p: PromiseLike<{ data: T[] | null; error: unknown }>):
 
 // ───────── Utilisateurs & abonnements
 export async function listUsers(s: TypedSupabaseClient, q: { q?: string; filter?: UserFilter; page?: number }) {
-  const rows = await runList(
+  const rows: AdminUser[] = ((await runList(
     s.rpc('admin_list_users', {
       p_q: q.q ?? null,
       p_filter: q.filter ?? null,
       p_limit: USERS_PAGE,
       p_offset: ((q.page ?? 1) - 1) * USERS_PAGE,
     }),
-  )
+  )) || []) as AdminUser[]
   const total = rows[0]?.total_count ?? 0
   return { rows, total, pageCount: Math.max(1, Math.ceil(total / USERS_PAGE)) }
 }

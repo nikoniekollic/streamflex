@@ -27,7 +27,7 @@ export const Route = createFileRoute('/_authed/_shell/admin/$id')({
 function EditTitle() {
   const { title, genres } = Route.useLoaderData()
   const { id } = Route.useParams()
-  const titleId: string = title.id ?? id
+  const titleId = (title.id || id || '') as string
   const { supabase } = Route.useRouteContext()
   const navigate = Route.useNavigate()
   const router = useRouter()

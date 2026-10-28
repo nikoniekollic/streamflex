@@ -50,7 +50,7 @@ function SecurityPage() {
 
 // ───────── Liste noire IP
 function IpBans() {
-  const bans = Route.useLoaderData().bans || []
+  const bans = (Route.useLoaderData().bans || []) as any[]
   const { supabase, user, ip: myIp } = Route.useRouteContext()
   const router = useRouter()
   const [ip, setIp] = useState('')
@@ -212,7 +212,7 @@ function CatalogCache() {
 
 // ───────── Clés API (Supabase Vault)
 function ApiKeys() {
-  const keys = Route.useLoaderData().keys || []
+  const keys = (Route.useLoaderData().keys || []) as any[]
   const configured = new Map(keys.map((k) => [k.name, k]))
 
   return (

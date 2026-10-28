@@ -94,7 +94,7 @@ function WatchSession() {
     (lang: string, at: number) => {
       setStartAt(at)
       audioPref.current = lang
-      void resolve({ audio: lang, quality: state.status === 'ready' ? state.stream.quality : undefined })
+      void resolve({ audio: lang, quality: state.status === 'ready' ? state.stream.quality : undefined } as any)
     },
     [resolve, state],
   )
@@ -102,7 +102,7 @@ function WatchSession() {
   const onQualityChange = useCallback(
     (q: Quality, at: number) => {
       setStartAt(at)
-      void resolve({ quality: q, audio: audioPref.current })
+      void resolve({ quality: q, audio: audioPref.current } as any)
     },
     [resolve],
   )

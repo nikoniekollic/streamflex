@@ -12,7 +12,7 @@ import { DURATION_PRESETS, adjustSubscription, setSubscription, userEvents, type
 import { dateFr, dateTimeFr } from '@/lib/subscription'
 
 type Props = { user: AdminUser | null; onClose: () => void; onChanged: () => Promise<unknown> }
-type Event = Awaited<ReturnType<typeof userEvents>>[number]
+type Event = any
 
 const SOURCE_LABEL: Record<string, string> = {
   code: 'Code',
@@ -34,7 +34,7 @@ export function ManageSubscriptionDialog({ user, onClose, onChanged }: Props) {
     if (!user) return
     setDate(user.sub_ends_at ? user.sub_ends_at.slice(0, 10) : '')
     setNote('')
-    void userEvents(supabase, user.id).then((r) => setEvents(r || []), () => setEvents([]))
+    void userEvents(supabase, user.id).then((r) => setEvents(((r || []) as any[])), () => setEvents([]))
   }, [user, supabase])
 
   if (!user) return null
@@ -45,7 +45,7 @@ export function ManageSubscriptionDialog({ user, onClose, onChanged }: Props) {
       await fn()
       toast.success(success, { description: user.email })
       await onChanged()
-      setEvents((await userEvents(supabase, user.id)) || [])
+      setEvents(((await userEvents(supabase, user.id)) || []) as any[])
     } catch (e) {
       toast.error((e as Error).message)
     } finally {

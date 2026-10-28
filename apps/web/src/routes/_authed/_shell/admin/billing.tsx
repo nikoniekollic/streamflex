@@ -59,7 +59,7 @@ function BillingPage() {
     if (!valid) return
     setPending(true)
     try {
-      const codes = (await generateCodes(supabase, n, d, label, expires ? new Date(`${expires}T23:59:59`).toISOString() : null)) || []
+      const codes = ((await generateCodes(supabase, n, d, label, expires ? new Date(`${expires}T23:59:59`).toISOString() : null)) || []) as { id: string; code: string }[]
       setGenerated({ codes, days: d, label })
       toast.success(`${codes.length} code(s) générés`)
       await router.invalidate()
