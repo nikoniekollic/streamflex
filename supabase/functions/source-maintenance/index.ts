@@ -6,7 +6,7 @@ import { corsHeaders, json } from '../_shared/cors.ts'
 import { adminClient } from '../_shared/admin-client.ts'
 import { denyIfBanned } from '../_shared/guard.ts'
 import { getSecret } from '../_shared/secrets.ts'
-import { buildHosterPageUrl, buildStreamUrl, pixeldrainInfoUrl } from '../_shared/stream-url.ts'
+import { buildHosterPageUrl, pixeldrainApiFileUrl, pixeldrainInfoUrl } from '../_shared/stream-url.ts'
 
 type Action = 'info' | 'touch'
 type Source = { id: string; provider: 'pixeldrain' | 'onefichier'; file_id: string; size_bytes: number | null }
@@ -67,7 +67,7 @@ async function pixeldrain(src: Source, action: Action): Promise<Outcome> {
     lastViewAt: info.date_last_view ?? null,
   }
   if (action === 'touch') {
-    const r = await readPartial(buildStreamUrl('pixeldrain', src.file_id), headers)
+    const r = await readPartial(pixeldrainApiFileUrl(src.file_id), headers)
     out.bytesRead = r.bytes
     if (r.status >= 400) Object.assign(out, { ok: false, status: r.status, state: 'error', message: `Téléchargement HTTP ${r.status}` })
   }

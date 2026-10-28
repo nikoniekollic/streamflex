@@ -3,17 +3,20 @@ export type Hoster = 'pixeldrain' | 'onefichier'
 
 const FILE_ID = /^[A-Za-z0-9_-]{4,32}$/
 
+/** Lecture Pixeldrain : passe obligatoirement par le bypass (pas d'Alldebrid pour Pixeldrain). */
+export const PIXELDRAIN_BYPASS = 'https://pixeldrain-bypass.gamedrive.org'
+
 export function assertFileId(fileId: string | null | undefined): string {
   if (!fileId || !FILE_ID.test(fileId)) throw new Error(`file_id invalide: ${fileId}`)
   return fileId
 }
 
-/** URL directe lisible par <video> (Pixeldrain) ou lien hébergeur à débrider (1fichier). */
+/** URL lisible par <video> (Pixeldrain via bypass) ou lien hébergeur à débrider (1fichier). */
 export function buildStreamUrl(provider: Hoster, fileId: string): string {
   const id = encodeURIComponent(assertFileId(fileId))
   switch (provider) {
     case 'pixeldrain':
-      return `https://pixeldrain.com/api/file/${id}`
+      return `${PIXELDRAIN_BYPASS}/${id}`
     case 'onefichier':
       return `https://1fichier.com/?${id}`
   }
@@ -25,4 +28,6 @@ export function buildHosterPageUrl(provider: Hoster, fileId: string): string {
   return provider === 'pixeldrain' ? `https://pixeldrain.com/u/${id}` : `https://1fichier.com/?${id}`
 }
 
-export const pixeldrainInfoUrl = (fileId: string) => `${buildStreamUrl('pixeldrain', fileId)}/info`
+/** API officielle Pixeldrain (métadonnées, maintenance) — jamais servie au lecteur. */
+export const pixeldrainApiFileUrl = (fileId: string) => `https://pixeldrain.com/api/file/${encodeURIComponent(assertFileId(fileId))}`
+export const pixeldrainInfoUrl = (fileId: string) => `${pixeldrainApiFileUrl(fileId)}/info`

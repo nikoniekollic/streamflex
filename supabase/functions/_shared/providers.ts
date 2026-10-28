@@ -30,7 +30,7 @@ export class ResolveError extends Error {
   }
 }
 
-// ───────── Pixeldrain : URL directe /api/file/{id} (Range supporté, pas de débridage)
+// ───────── Pixeldrain : vérification via l'API officielle, lecture via le bypass (pas de débridage Alldebrid)
 function pixeldrainId(src: MediaSource): string {
   if (!src.file_id) throw new ResolveError('Pixeldrain: file_id manquant', 422, 'invalid_source')
   return src.file_id
