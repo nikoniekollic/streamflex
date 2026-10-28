@@ -6,11 +6,11 @@ export type Hoster = 'pixeldrain' | 'onefichier'
 export const FILE_ID_RE = /^[A-Za-z0-9_-]{4,32}$/
 export const isHoster = (p: string): p is Hoster => p === 'pixeldrain' || p === 'onefichier'
 
-export const PIXELDRAIN_BYPASS = 'https://pixeldrain-bypass.gamedrive.org'
+export const PIXELDRAIN_BYPASS = 'https://cdn.pixeldrain.eu.cc'
 
 export function buildStreamUrl(provider: Hoster, fileId: string): string {
   const id = encodeURIComponent(fileId)
-  return provider === 'pixeldrain' ? `${PIXELDRAIN_BYPASS}/api/file/${id}` : `https://1fichier.com/?${id}`
+  return provider === 'pixeldrain' ? `${PIXELDRAIN_BYPASS}/${id}` : `https://1fichier.com/?${id}`
 }
 
 export function buildHosterPageUrl(provider: Hoster, fileId: string): string {

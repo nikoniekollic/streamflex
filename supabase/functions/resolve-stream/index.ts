@@ -85,17 +85,18 @@ async function handle(req: Request): Promise<Response> {
       return aa - ab || qa - qb || QUALITY_ORDER.indexOf(a.quality) - QUALITY_ORDER.indexOf(b.quality) || a.priority - b.priority
     })
 
-  // Le lecteur a déjà essayé (et exclu) toutes les sources : 409 volontaire = « plus aucune source à tenter »
+  // Toutes les sources ont été exclues par le lecteur : on réessaie la liste complète (pas de 409).
+  // Le lecteur plafonne lui-même ses réessais, donc aucune boucle possible.
   if (ordered.length === 0) {
-    console.warn('[resolve-stream] aucune source restante après exclusion', { titleId, episodeId, exclude })
-    return json({ error: 'all_sources_failed', qualities, reasons: ['excluded'] }, 409)
+    console.warn('[resolve-stream] exclusion de toutes les sources → nouvelle tentative sur la liste complète', { titleId, episodeId })
+    ordered.push(...sources.slice().sort((a, b) => QUALITY_ORDER.indexOf(a.quality) - QUALITY_ORDER.indexOf(b.quality) || a.priority - b.priority))
   }
 
   // 5. Résolution avec cache + fallback multi-provider
   const errors: string[] = []
   const kinds: FailureKind[] = []
   for (const src of ordered) {
-    const key = `stream:v3:${src.id}` // v3 : invalide les URL de bypass HTML mises en cache
+    const key = `stream:v4:${src.id}` // v4 : domaine cdn.pixeldrain.eu.cc
     if (!refresh) {
       const hit = await cache.get<CachedStream>(key)
       if (hit && hit.expiresAt > Date.now() + 60_000) {

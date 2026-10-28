@@ -4,7 +4,7 @@ export type Hoster = 'pixeldrain' | 'onefichier'
 const FILE_ID = /^[A-Za-z0-9_-]{4,32}$/
 
 /** Lecture Pixeldrain : passe obligatoirement par le bypass (pas d'Alldebrid pour Pixeldrain). */
-export const PIXELDRAIN_BYPASS = 'https://pixeldrain-bypass.gamedrive.org'
+export const PIXELDRAIN_BYPASS = 'https://cdn.pixeldrain.eu.cc'
 
 export function assertFileId(fileId: string | null | undefined): string {
   if (!fileId || !FILE_ID.test(fileId)) throw new Error(`file_id invalide: ${fileId}`)
@@ -16,7 +16,7 @@ export function buildStreamUrl(provider: Hoster, fileId: string): string {
   const id = encodeURIComponent(assertFileId(fileId))
   switch (provider) {
     case 'pixeldrain':
-      return `${PIXELDRAIN_BYPASS}/api/file/${id}`
+      return `${PIXELDRAIN_BYPASS}/${id}`
     case 'onefichier':
       return `https://1fichier.com/?${id}`
   }
