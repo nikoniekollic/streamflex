@@ -9,6 +9,8 @@ import { StreamError, loadWatch, type Quality } from '@/lib/stream'
 import { loadSubtitleUrl } from '@/lib/subtitles'
 import { requireActiveProfile } from '@/lib/route-guards'
 
+const MAX_MEDIA_RETRIES = 2
+
 type WatchSearch = { episode?: string; t?: number }
 
 export const Route = createFileRoute('/_authed/watch/$id')({
@@ -69,7 +71,11 @@ function WatchSession() {
     else void navigate({ to: '/' })
   }, [flush, navigate, router])
 
+  const [playbackFailed, setPlaybackFailed] = useState(false)
+
   const retry = useCallback(() => {
+    mediaRetries.current = 0
+    setPlaybackFailed(false)
     setStartAt(lastPosition.current)
     void resolve({ refresh: true }, 2)
   }, [resolve])
@@ -80,9 +86,15 @@ function WatchSession() {
       if (state.status !== 'ready') return
       setStartAt(at)
       mediaRetries.current += 1
+      console.warn(`[StreamFlex] échec de lecture (tentative ${mediaRetries.current}/${MAX_MEDIA_RETRIES})`, state.stream.url)
+      // Plafond strict : plus de boucle infinie de réessais
+      if (mediaRetries.current > MAX_MEDIA_RETRIES) {
+        console.error('[StreamFlex] abandon après', MAX_MEDIA_RETRIES, 'réessais — voir les logs <video> ci-dessus')
+        setPlaybackFailed(true)
+        return
+      }
       if (mediaRetries.current === 1) void resolve({ quality: state.stream.quality, refresh: true }, 2)
-      else if (mediaRetries.current === 2) void resolve({ refresh: true, exclude: [state.stream.sourceId] }, 3)
-      else void resolve({ refresh: true }, mediaRetries.current + 1)
+      else void resolve({ refresh: true, exclude: [state.stream.sourceId] }, 3)
     },
     [resolve, state],
   )
@@ -121,6 +133,9 @@ function WatchSession() {
 
   if (state.status === 'resolving') {
     return <StreamStatus phase="resolving" attempt={state.attempt} title={title.title} backdrop={title.backdrop_url} onBack={back} />
+  }
+  if (playbackFailed) {
+    return <StreamStatus phase="error" code="all_sources_failed" title={title.title} backdrop={title.backdrop_url} onBack={back} onRetry={retry} />
   }
   if (state.status === 'error') {
     return <StreamStatus phase="error" code={state.code} title={title.title} backdrop={title.backdrop_url} onBack={back} onRetry={retry} />

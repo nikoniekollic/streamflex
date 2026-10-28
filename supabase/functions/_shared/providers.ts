@@ -52,7 +52,9 @@ async function resolvePixeldrain(src: MediaSource): Promise<Resolved> {
   if (info.status === 404) throw new ResolveError('Pixeldrain: fichier supprimé', 404, 'offline')
   if (!info.ok) throw new ResolveError(`Pixeldrain: HTTP ${info.status}`, 502, info.status === 429 ? 'host_busy' : 'unavailable')
   const meta = (await info.json()) as { name?: string }
-  return { url: buildStreamUrl('pixeldrain', id), ttl: 6 * 3600, filename: meta.name, debrid: false }
+  const url = buildStreamUrl('pixeldrain', id)
+  console.log('[resolve-stream] pixeldrain', id, '→', url)
+  return { url, ttl: 6 * 3600, filename: meta.name, debrid: false }
 }
 
 // ───────── Débridage Alldebrid (1fichier + tout hébergeur reconnu)

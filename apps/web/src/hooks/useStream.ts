@@ -7,6 +7,25 @@ export type StreamState =
   | { status: 'ready'; stream: StreamInfo }
   | { status: 'error'; code: StreamErrorCode }
 
+/** Diagnostic console uniquement : statut HTTP / type de contenu / blocage CORS de l'URL servie. */
+async function probeStream(url: string) {
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), 10_000)
+  try {
+    const res = await fetch(url, { signal: ctrl.signal, redirect: 'follow' })
+    console.info('[StreamFlex] sonde', res.status, res.headers.get('content-type'), res.url)
+    if (res.status === 404) console.error('[StreamFlex] 404 : fichier introuvable sur le bypass')
+    else if (!res.ok) console.error('[StreamFlex] HTTP', res.status)
+    else if (res.headers.get('content-type')?.includes('text/html')) console.error('[StreamFlex] le bypass renvoie une page HTML, pas une vidéo')
+  } catch (e) {
+    if ((e as Error).name !== 'AbortError')
+      console.error('[StreamFlex] sonde bloquée (CORS ou réseau) — <video> peut fonctionner quand même', e)
+  } finally {
+    clearTimeout(timer)
+    ctrl.abort()
+  }
+}
+
 type Opts = Pick<ResolveParams, 'quality' | 'audio' | 'refresh' | 'exclude'>
 
 /**
@@ -24,9 +43,13 @@ export function useStream(supabase: TypedSupabaseClient, profileId: string, titl
       setState({ status: 'resolving', attempt })
       try {
         const stream = await resolveStream(supabase, { profileId, titleId, episodeId, ...opts })
+        console.info('[StreamFlex] URL de lecture', stream.url, { source: stream.sourceId, quality: stream.quality })
+        if (!stream.url || /\/(undefined|null)(\/|$|\?)/.test(stream.url)) console.error('[StreamFlex] URL invalide (ID manquant)', stream.url)
+        void probeStream(stream.url)
         if (id === req.current) setState({ status: 'ready', stream })
         return stream
       } catch (e) {
+        console.error('[StreamFlex] resolve-stream a échoué', e instanceof StreamError ? e.code : e)
         if (id === req.current) setState({ status: 'error', code: e instanceof StreamError ? e.code : 'unknown' })
         return null
       }

@@ -446,7 +446,19 @@ export function VideoPlayer({
           setPlaying(false)
           onEnded?.()
         }}
-        onError={() => onError?.(videoRef.current?.currentTime ?? 0)}
+        onError={() => {
+          const v = videoRef.current
+          const err = v?.error
+          // MediaError : 1 abandon, 2 réseau, 3 décodage, 4 source non supportée (404, page HTML, format)
+          console.error('[StreamFlex] erreur <video>', {
+            src: v?.currentSrc || src,
+            code: err?.code,
+            message: err?.message,
+            networkState: v?.networkState,
+            readyState: v?.readyState,
+          })
+          onError?.(v?.currentTime ?? 0)
+        }}
       >
         {subtitles.map((t) =>
           subUrls[t.id] ? (
