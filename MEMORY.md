@@ -627,3 +627,18 @@ python scripts/mass_import.py liens.csv --skip 250000              # reprise apr
 1. `git add -A && git commit` (étapes 21–25 non commitées) puis `./setup_github.sh <url-du-depot-privé>` → CI → corriger les erreurs du premier build
 2. Vercel + `./scripts/deploy.sh` (staging : migrations 0001→0016, 7 Edge Functions)
 3. Options : marque-pages en temps réel (Realtime sur `video_bookmarks`), signalement d'avis, note moyenne sur les cartes du catalogue
+
+## Étape 26 — Push GitHub + déploiement Supabase (2026-10-28) ⏳ PRÊT, À LANCER EN LOCAL
+### Terminé
+- `.gitignore` vérifié (`.env`, `.env.local` explicite, `.env.*`, `node_modules/`, `dist/`) ; aucun `.env` suivi ; scan de secrets propre
+- Commit `feat: étapes 21–25 …` sur `main` (48 fichiers, 3 commits au total)
+- Migrations 0001→0016 rejouées sur PG16 : REBUILD_OK
+- `scripts/push_and_deploy.sh <url-github> <project-ref>` : garde-fous → push `main` → `supabase link` → `migration list` → `db push --dry-run` → confirmation → `db push` → 7 Edge Functions
+- `streamflex.bundle` (dépôt git complet) livré
+### Bloquant
+- Push impossible depuis le sandbox : `gh` sans jeton valide, ordinateur non relié → push à faire en local
+- Aucun `npm install`/`build` lancé (compilation déléguée à Vercel)
+### Prochaine action
+1. Local : cloner le bundle → `./scripts/push_and_deploy.sh <url> <ref>`
+2. Vercel : `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_ENABLE_MOCKS=false` → suivre le premier build et corriger les erreurs TS
+3. Secrets Edge Functions : `supabase secrets set --env-file supabase/functions/.env` (fichier local, jamais commité)
