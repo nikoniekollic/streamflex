@@ -3,11 +3,10 @@ import type { TypedSupabaseClient } from '@/lib/supabase'
 import type { Enums, Json, Tables } from '@/types/database'
 import { slugify } from '@/lib/utils'
 import { invalidateCatalogCache } from '@/lib/catalog-api'
-import { FILE_ID_RE, buildStreamUrl, extractFileId, isHoster } from '@/lib/stream-url'
+import { FILE_ID_RE, extractFileId, isHoster } from '@/lib/stream-url'
 
 // ───────── Constantes
 export const PROVIDERS: { value: Enums<'video_provider'>; label: string; hint: string }[] = [
-  { value: 'pixeldrain', label: 'Pixeldrain', hint: 'ID (ex. AbCd1234) ou colle l’URL pixeldrain.com/u/…' },
   { value: 'onefichier', label: '1fichier', hint: 'ID (ex. x7k2m9p4q1w8e3r5t6y0) ou colle l’URL 1fichier.com/?…' },
   { value: 'alist', label: 'AList', hint: 'URL signée /d/…' },
   { value: 'other', label: 'Autre', hint: 'URL directe' },
@@ -26,7 +25,7 @@ const sourceSchema = z
   .object({
     id: z.string().optional(),
     provider: z.enum(['pixeldrain', 'onefichier', 'alist', 'other']),
-    /** pixeldrain / onefichier : ID seul (une URL collée est convertie) */
+    /** onefichier : ID seul (une URL collée est convertie) */
     file_id: z.string().trim().max(300),
     /** alist / other uniquement */
     raw_url: optionalUrl,
@@ -71,7 +70,7 @@ export type TitleFormValues = z.infer<typeof titleFormSchema>
 export type SourceFormValues = TitleFormValues['sources'][number]
 
 export const emptySource = (): SourceFormValues => ({
-  provider: 'pixeldrain',
+  provider: 'onefichier',
   file_id: '',
   raw_url: '',
   quality: '1080p',
@@ -240,33 +239,4 @@ export async function setPublished(supabase: TypedSupabaseClient, id: string, is
   const { error } = await supabase.from('titles').update({ is_published }).eq('id', id)
   if (error) throw error
   void invalidateCatalogCache(supabase)
-}
-
-// ───────── Test de débridage (Edge Function admin `debrid-link`)
-export type DebridTestResult =
-  | { ok: true; url: string; filename: string | null; filesize: number | null; host: string | null }
-  | { ok: false; message: string }
-
-export function debridLinkFor(s: Pick<SourceFormValues, 'provider' | 'file_id' | 'raw_url'>): string | null {
-  if (s.provider === 'onefichier') {
-    const id = extractFileId('onefichier', s.file_id)
-    return FILE_ID_RE.test(id) ? buildStreamUrl('onefichier', id) : null
-  }
-  if (s.provider === 'other' && s.raw_url) return s.raw_url
-  return null
-}
-
-export async function testDebridLink(supabase: TypedSupabaseClient, link: string): Promise<DebridTestResult> {
-  const { data, error } = await supabase.functions.invoke<{ url: string; filename: string | null; filesize: number | null; host: string | null }>(
-    'debrid-link',
-    { body: { link } },
-  )
-  if (!error && data?.url) return { ok: true, ...data }
-  let message = 'Fonction de débridage injoignable.'
-  const ctx = (error as { context?: Response } | null)?.context
-  if (ctx && typeof ctx.json === 'function') {
-    const body = (await ctx.json().catch(() => null)) as { message?: string; error?: string } | null
-    message = body?.message ?? body?.error ?? message
-  }
-  return { ok: false, message }
 }

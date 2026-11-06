@@ -17,11 +17,7 @@ export type StreamInfo = {
   /** langues audio de la source servie */
   audio: string[]
   expiresAt: number
-  debrid: boolean
   cached: boolean
-  /** 1fichier : débridage via le Worker Cloudflare (jeton signé par resolve-stream) */
-  debridWorker?: string
-  debridToken?: string
 }
 
 export type StreamErrorCode =
@@ -35,7 +31,7 @@ export type StreamErrorCode =
   | 'episode_not_found'
   | 'no_source'
   | 'source_offline'
-  | 'debrid_unavailable'
+  | 'source_unavailable'
   | 'host_busy'
   | 'all_sources_failed'
   | 'network'
@@ -52,7 +48,7 @@ export const STREAM_ERROR_TITLES: Record<StreamErrorCode, string> = {
   episode_not_found: 'Épisode introuvable',
   no_source: 'Aucune source',
   source_offline: 'Fichier hors ligne',
-  debrid_unavailable: 'Débridage indisponible',
+  source_unavailable: 'Source temporairement indisponible',
   host_busy: 'Hébergeur saturé',
   all_sources_failed: 'Sources indisponibles',
   network: 'Erreur réseau',
@@ -60,7 +56,7 @@ export const STREAM_ERROR_TITLES: Record<StreamErrorCode, string> = {
 }
 
 /** Erreurs pour lesquelles un nouvel essai a du sens. */
-export const RETRYABLE_STREAM_ERRORS: StreamErrorCode[] = ['debrid_unavailable', 'host_busy', 'all_sources_failed', 'network', 'unknown']
+export const RETRYABLE_STREAM_ERRORS: StreamErrorCode[] = ['source_unavailable', 'host_busy', 'all_sources_failed', 'network', 'unknown']
 
 export class StreamError extends Error {
   constructor(readonly code: StreamErrorCode) {
@@ -79,7 +75,7 @@ export const STREAM_ERROR_MESSAGES: Record<StreamErrorCode, string> = {
   episode_not_found: 'Cet épisode est introuvable.',
   no_source: "Aucune source vidéo n'est disponible pour ce titre.",
   source_offline: "Le fichier vidéo est hors ligne ou a été supprimé chez l'hébergeur.",
-  debrid_unavailable: 'Le service de débridage (Alldebrid) est injoignable ou refuse la requête.',
+  source_unavailable: 'Le service de lecture est momentanément indisponible. Réessaie dans quelques minutes.',
   host_busy: "L'hébergeur est temporairement saturé. Réessaie dans quelques minutes.",
   all_sources_failed: 'Toutes les sources sont momentanément indisponibles. Réessaie dans quelques minutes.',
   network: 'Erreur réseau. Vérifie ta connexion.',
@@ -96,24 +92,6 @@ export type ResolveParams = {
   exclude?: string[]
 }
 
-/** Échange le jeton signé contre le lien direct Alldebrid via le Worker Cloudflare (IP non datacenter). */
-async function unlockViaWorker(worker: string, token: string): Promise<string> {
-  let res: Response
-  try {
-    res = await fetch(worker, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }) })
-  } catch (e) {
-    console.error('[StreamFlex][alldebrid] Worker injoignable (réseau/CORS)', worker, e)
-    throw new StreamError('debrid_unavailable')
-  }
-  const body = (await res.json().catch(() => null)) as { url?: string; error?: string; code?: string; message?: string } | null
-  if (!res.ok || !body?.url) {
-    console.error(`[StreamFlex][alldebrid] HTTP ${res.status}`, body)
-    throw new StreamError(body?.code === 'LINK_DOWN' || body?.code === 'LINK_NOT_FOUND' ? 'source_offline' : 'debrid_unavailable')
-  }
-  console.info('[StreamFlex][alldebrid] lien débridé obtenu')
-  return body.url
-}
-
 export async function resolveStream(supabase: TypedSupabaseClient, params: ResolveParams): Promise<StreamInfo> {
   const { data, error } = await supabase.functions.invoke<StreamInfo>('resolve-stream', { body: params })
   if (error) {
@@ -122,9 +100,6 @@ export async function resolveStream(supabase: TypedSupabaseClient, params: Resol
       throw new StreamError(body.error && body.error in STREAM_ERROR_MESSAGES ? body.error : 'unknown')
     }
     throw new StreamError('network')
-  }
-  if (data && !data.url && data.debridWorker && data.debridToken) {
-    data.url = await unlockViaWorker(data.debridWorker, data.debridToken)
   }
   if (!data?.url) throw new StreamError('unknown')
   return data

@@ -30,6 +30,12 @@ export type Database = {
         Update: { slug?: string; name?: string }
         Relationships: []
       }
+      models: {
+        Row: { id: string; name: string; image_url: string | null; created_at: string }
+        Insert: { name: string; image_url?: string | null }
+        Update: { name?: string; image_url?: string | null }
+        Relationships: []
+      }
       titles: {
         Row: {
           id: string
@@ -53,6 +59,7 @@ export type Database = {
           created_at: string
           updated_at: string
           search: unknown
+          model_id: string | null
         }
         Insert: {
           id?: string
@@ -415,6 +422,12 @@ export type Database = {
     }
     Views: { [_ in never]: never }
     Functions: {
+      admin_list_models: {
+        Args: Record<string, never>
+        Returns: { id: string; name: string; image_url: string | null; titles_count: number }[]
+      }
+      admin_attach_titles: { Args: { p_model: string | null; p_title_ids: string[] }; Returns: number }
+      admin_attach_by_query: { Args: { p_model: string; p_query: string; p_override?: boolean }; Returns: number }
       title_rating_summary: {
         Args: { p_title_id: string }
         Returns: { average: number | null; total: number; r1: number; r2: number; r3: number; r4: number; r5: number }[]

@@ -2,10 +2,7 @@
 # verify_jwt = true : la passerelle Supabase exige un JWT valide (session utilisateur ou clé anon)
 
 [functions.resolve-stream]
-verify_jwt = true    # lecture : utilisateur + abonnement + profil, débridage Alldebrid côté serveur
-
-[functions.debrid-link]
-verify_jwt = true    # test de débridage — admin uniquement (is_admin)
+verify_jwt = true    # lecture : utilisateur + abonnement + profil
 
 [functions.subtitle]
 verify_jwt = true

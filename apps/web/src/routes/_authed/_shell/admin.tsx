@@ -1,5 +1,5 @@
 import { Link, Outlet, createFileRoute, redirect } from '@tanstack/react-router'
-import { Activity, BarChart3, CreditCard, Film, MessageSquarePlus, Shield, ShieldCheck, Users } from 'lucide-react'
+import { Activity, BarChart3, CreditCard, Film, MessageSquarePlus, Shield, UserRound, ShieldCheck, Users } from 'lucide-react'
 
 export const Route = createFileRoute('/_authed/_shell/admin')({
   beforeLoad: ({ context }) => {
@@ -10,6 +10,7 @@ export const Route = createFileRoute('/_authed/_shell/admin')({
 
 const TABS = [
   { to: '/admin', label: 'Catalogue', icon: Film, exact: true },
+  { to: '/admin/models', label: 'Modèles', icon: UserRound, exact: false },
   { to: '/admin/stats', label: 'Statistiques', icon: BarChart3, exact: false },
   { to: '/admin/requests', label: 'Demandes', icon: MessageSquarePlus, exact: false },
   { to: '/admin/users', label: 'Utilisateurs', icon: Users, exact: false },

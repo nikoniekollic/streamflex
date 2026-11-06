@@ -10,7 +10,7 @@ type Props = {
   onBack: () => void
 } & ({ phase: 'resolving'; attempt?: number } | { phase: 'error'; code: StreamErrorCode; onRetry: () => void })
 
-const STEPS = ['Recherche de la meilleure source…', 'Débridage du lien via Alldebrid…', 'Préparation du flux…']
+const STEPS = ['Recherche de la meilleure source…', 'Récupération du lien de lecture…', 'Préparation du flux…']
 
 export function StreamStatus(props: Props) {
   const { title, backdrop, onBack } = props
@@ -53,7 +53,7 @@ function Resolving({ attempt }: { attempt: number }) {
 }
 
 function Failure({ code, onRetry }: { code: StreamErrorCode; onRetry: () => void }) {
-  const Icon = code === 'network' ? WifiOff : code === 'debrid_unavailable' ? Unplug : AlertTriangle
+  const Icon = code === 'network' ? WifiOff : code === 'source_unavailable' ? Unplug : AlertTriangle
   const retryable = RETRYABLE_STREAM_ERRORS.includes(code)
   return (
     <div className="grid gap-4">

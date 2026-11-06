@@ -122,9 +122,6 @@ export function isValidIpOrCidr(v: string): boolean {
 
 // ───────── Clés API (Vault)
 export const API_KEYS: { name: string; label: string; help: string; secret: boolean }[] = [
-  { name: 'ALLDEBRID_API_KEY', label: 'Alldebrid — clé API', help: 'alldebrid.com → Mon compte → Clés API', secret: true },
-  { name: 'ALLDEBRID_AGENT', label: 'Alldebrid — agent', help: "Nom d'application déclaré (ex. streamflex)", secret: false },
-  { name: 'PIXELDRAIN_API_KEY', label: 'Pixeldrain — clé API', help: 'pixeldrain.com → Paramètres → Clés API', secret: true },
   { name: 'ONEFICHIER_API_KEY', label: '1fichier — clé API', help: '1fichier.com → Paramètres → API', secret: true },
   { name: 'UPSTASH_REDIS_REST_URL', label: 'Redis (Upstash) — URL REST', help: 'https://….upstash.io', secret: false },
   { name: 'UPSTASH_REDIS_REST_TOKEN', label: 'Redis (Upstash) — token', help: 'Token REST', secret: true },

@@ -1,15 +1,14 @@
 // Maintenance des fichiers hébergés (admin) : métadonnées officielles (info) ou téléchargement partiel de maintenance (touch).
-// Pixeldrain : GET /api/file/{id}/info · GET /api/file/{id} (Range 1 Mio)
 // 1fichier   : POST /v1/file/info.cgi · POST /v1/download/get_token.cgi → GET lien (Range 1 Mio)
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { corsHeaders, json } from '../_shared/cors.ts'
 import { adminClient } from '../_shared/admin-client.ts'
 import { denyIfBanned } from '../_shared/guard.ts'
 import { getSecret } from '../_shared/secrets.ts'
-import { buildHosterPageUrl, pixeldrainApiFileUrl, pixeldrainInfoUrl } from '../_shared/stream-url.ts'
+import { buildHosterPageUrl } from '../_shared/stream-url.ts'
 
 type Action = 'info' | 'touch'
-type Source = { id: string; provider: 'pixeldrain' | 'onefichier'; file_id: string; size_bytes: number | null }
+type Source = { id: string; provider: 'onefichier'; file_id: string; size_bytes: number | null }
 type Outcome = {
   id: string
   ok: boolean
@@ -45,33 +44,6 @@ async function readPartial(url: string, headers: HeadersInit = {}): Promise<{ st
     }
   }
   return { status: res.status, bytes }
-}
-
-// ───────── Pixeldrain
-async function pixeldrain(src: Source, action: Action): Promise<Outcome> {
-  const key = await getSecret('PIXELDRAIN_API_KEY')
-  const headers: HeadersInit = key ? { Authorization: `Basic ${btoa(`:${key}`)}` } : {}
-  const res = await fetch(pixeldrainInfoUrl(src.file_id), { headers, signal: AbortSignal.timeout(10_000) })
-  if (res.status === 404) return { id: src.id, ok: false, status: 404, state: 'offline', message: 'Fichier supprimé chez Pixeldrain' }
-  if (!res.ok) return { id: src.id, ok: false, status: res.status, state: 'error', message: `Pixeldrain HTTP ${res.status}` }
-  const info = (await res.json()) as { name?: string; size?: number; views?: number; downloads?: number; date_last_view?: string }
-  const out: Outcome = {
-    id: src.id,
-    ok: true,
-    status: 200,
-    state: 'online',
-    name: info.name ?? null,
-    size: info.size ?? null,
-    views: info.views ?? null,
-    downloads: info.downloads ?? null,
-    lastViewAt: info.date_last_view ?? null,
-  }
-  if (action === 'touch') {
-    const r = await readPartial(pixeldrainApiFileUrl(src.file_id), headers)
-    out.bytesRead = r.bytes
-    if (r.status >= 400) Object.assign(out, { ok: false, status: r.status, state: 'error', message: `Téléchargement HTTP ${r.status}` })
-  }
-  return out
 }
 
 // ───────── 1fichier (API officielle, Bearer ; ~1 requête / 2 s recommandée)
@@ -143,14 +115,14 @@ Deno.serve(async (req) => {
     .from('media_sources')
     .select('id, provider, file_id, size_bytes')
     .in('id', ids)
-    .in('provider', ['pixeldrain', 'onefichier'])
+    .eq('provider', 'onefichier')
   if (error) return json({ error: 'db_error' }, 500)
 
   const results: Outcome[] = []
   for (const src of (rows ?? []) as Source[]) {
     let out: Outcome
     try {
-      out = src.provider === 'pixeldrain' ? await pixeldrain(src, action) : await onefichier(src, action)
+      out = await onefichier(src, action)
     } catch (e) {
       out = { id: src.id, ok: false, status: 502, state: 'error', message: `Hébergeur injoignable : ${(e as Error).name}` }
     }
@@ -163,7 +135,7 @@ Deno.serve(async (req) => {
         ...(out.size && !src.size_bytes ? { size_bytes: out.size } : {}),
       })
       .eq('id', src.id)
-    if (src.provider === 'onefichier') await sleep(1500) // espacement API 1fichier
+    await sleep(1500) // espacement API 1fichier
   }
   return json({ action, results })
 })

@@ -43,7 +43,7 @@ export const Route = createFileRoute('/_authed/_shell/admin/monitoring')({
   component: MonitoringPage,
 })
 
-const PROVIDER_LABEL = { pixeldrain: 'Pixeldrain', onefichier: '1fichier', alist: 'AList', other: 'Autre' } as const
+const PROVIDER_LABEL = { pixeldrain: 'Hébergeur retiré', onefichier: '1fichier', alist: 'AList', other: 'Autre' } as const
 
 const SEVERITY: Record<Severity, { label: string; className: string }> = {
   critical: { label: 'Critique', className: 'bg-destructive text-white border-transparent' },
@@ -122,7 +122,6 @@ function MonitoringPage() {
         <div className="w-40">
           <NativeSelect aria-label="Hébergeur" value={search.provider ?? ''} onChange={(e) => update({ provider: (e.target.value || undefined) as MonitoringSearch['provider'] })}>
             <option value="">Tous hébergeurs</option>
-            <option value="pixeldrain">Pixeldrain</option>
             <option value="onefichier">1fichier</option>
           </NativeSelect>
         </div>
@@ -140,7 +139,7 @@ function MonitoringPage() {
       <div className="grid gap-4 md:grid-cols-2">
         {summary.length === 0 && (
           <Card className="md:col-span-2">
-            <CardContent className="py-6 text-sm text-muted-foreground">Aucune source Pixeldrain / 1fichier active.</CardContent>
+            <CardContent className="py-6 text-sm text-muted-foreground">Aucune source 1fichier active.</CardContent>
           </Card>
         )}
         {summary.map((s) => (
@@ -296,7 +295,7 @@ function SourceRow({
   onTouch: () => void
 }) {
   const sev = severity(r, days)
-  const hoster = r.provider === 'pixeldrain' || r.provider === 'onefichier' ? r.provider : null
+  const hoster = r.provider === 'onefichier' ? r.provider : null
   return (
     <TableRow data-state={checked ? 'selected' : undefined}>
       <TableCell>

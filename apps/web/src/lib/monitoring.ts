@@ -5,7 +5,7 @@ export type ColdSource = Database['public']['Functions']['admin_cold_sources']['
 export type ColdSummary = Database['public']['Functions']['admin_cold_sources_summary']['Returns'][number]
 export type MonitoringSearch = {
   days?: number
-  provider?: 'pixeldrain' | 'onefichier'
+  provider?: 'onefichier'
   status?: 'never' | 'offline'
   page?: number
 }
@@ -20,7 +20,7 @@ export function validateMonitoringSearch(s: Record<string, unknown>): Monitoring
   const out: MonitoringSearch = {}
   const days = Number(s.days)
   if (THRESHOLDS.includes(days) && days !== DEFAULT_DAYS) out.days = days
-  if (s.provider === 'pixeldrain' || s.provider === 'onefichier') out.provider = s.provider
+  if (s.provider === 'onefichier') out.provider = s.provider
   if (s.status === 'never' || s.status === 'offline') out.status = s.status
   const page = Number(s.page)
   if (Number.isInteger(page) && page > 1) out.page = page

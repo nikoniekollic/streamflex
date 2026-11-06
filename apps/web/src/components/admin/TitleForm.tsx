@@ -16,7 +16,6 @@ import {
   type TitleFormValues,
 } from '@/lib/admin'
 import type { Tables } from '@/types/database'
-import { DebridTester } from '@/components/admin/DebridTester'
 import { FILE_ID_RE, buildHosterPageUrl, extractFileId, isHoster } from '@/lib/stream-url'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -422,7 +421,6 @@ export function TitleForm({ initial, genres: initialGenres, onSaved, onCancel, e
                             )}
                           />
                         )}
-                        <DebridTester source={form.watch(`sources.${i}`)} />
                       </div>
                     )
                   })}

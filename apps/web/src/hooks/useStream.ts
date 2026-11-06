@@ -14,7 +14,7 @@ const HTTP_HINT: Record<number, string> = {
   410: 'lien expiré',
   429: 'trop de requêtes (limite de débit)',
   451: 'bloqué pour raisons légales',
-  502: 'le CDN ne joint pas Pixeldrain',
+  502: 'le serveur de fichiers est injoignable',
   503: 'CDN indisponible',
 }
 
@@ -66,8 +66,8 @@ type Opts = Pick<ResolveParams, 'quality' | 'audio' | 'refresh' | 'exclude'>
 
 /**
  * Résolution du flux côté serveur (Edge Function `resolve-stream`) :
- * l'origine de la source (Pixeldrain / 1fichier / autre hébergeur) est identifiée serveur,
- * les liens 1fichier & co sont débridés via Alldebrid ; le navigateur ne reçoit que l'URL directe.
+ * l'origine de la source (1fichier / autre) est identifiée serveur,
+ * les liens 1fichier sont obtenus via l'API du compte (régulée) ; le navigateur ne reçoit que l'URL directe.
  */
 export function useStream(supabase: TypedSupabaseClient, profileId: string, titleId: string, episodeId: string | null) {
   const [state, setState] = useState<StreamState>({ status: 'resolving', attempt: 1 })

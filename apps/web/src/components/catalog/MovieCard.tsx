@@ -3,6 +3,8 @@ import { Play } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { CatalogTitle } from '@/lib/catalog'
 import { FavoriteButton } from '@/components/catalog/FavoriteButton'
+import { GeneratedCover, ModelCover } from '@/components/catalog/GeneratedCover'
+import { isModelCover, stripModelMark } from '@/lib/cover'
 
 type MovieCardProps = {
   title: CatalogTitle
@@ -23,7 +25,9 @@ export function MovieCard({ title, variant = 'poster', progress, watch, favorite
 
   const content = (
     <>
-      {src ? (
+      {isModelCover(src) ? (
+        <ModelCover seed={title.id} label={title.title} src={stripModelMark(src)} />
+      ) : src ? (
         <img
           src={src}
           alt={title.title}
@@ -33,7 +37,7 @@ export function MovieCard({ title, variant = 'poster', progress, watch, favorite
           className="size-full object-cover transition-transform duration-500 group-hover/card:scale-110"
         />
       ) : (
-        <div className="flex size-full items-center justify-center p-3 text-center text-sm font-semibold">{title.title}</div>
+        <GeneratedCover seed={title.id} label={title.title} />
       )}
 
       <div className="absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/90 via-black/20 to-transparent p-3 opacity-0 transition-opacity duration-300 group-focus-within/card:opacity-100 group-hover/card:opacity-100">
@@ -74,7 +78,7 @@ export function MovieCard({ title, variant = 'poster', progress, watch, favorite
     </>
   )
 
-  const linkClass = 'block size-full outline-none'
+  const linkClass = 'block size-full cursor-pointer outline-none select-none'
   let link
   if (watch) {
     const search: { episode?: string; t?: number } = {}

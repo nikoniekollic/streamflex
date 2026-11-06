@@ -2,9 +2,6 @@
 import { adminClient } from './admin-client.ts'
 
 export type SecretName =
-  | 'ALLDEBRID_API_KEY'
-  | 'ALLDEBRID_AGENT'
-  | 'PIXELDRAIN_API_KEY'
   | 'ONEFICHIER_API_KEY'
   | 'UPSTASH_REDIS_REST_URL'
   | 'UPSTASH_REDIS_REST_TOKEN'

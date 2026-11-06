@@ -7,7 +7,7 @@ import { background } from '../_shared/background.ts'
 import { ResolveError, resolveSource, type FailureKind, type MediaSource } from '../_shared/providers.ts'
 
 type Body = { profileId?: string; titleId?: string; episodeId?: string | null; quality?: string; audio?: string; refresh?: boolean; exclude?: string[] }
-type CachedStream = { url: string; expiresAt: number; debrid: boolean }
+type CachedStream = { url: string; expiresAt: number }
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!
@@ -96,28 +96,23 @@ async function handle(req: Request): Promise<Response> {
   const errors: string[] = []
   const kinds: FailureKind[] = []
   for (const src of ordered) {
-    const key = `stream:v4:${src.id}` // v4 : domaine cdn.pixeldrain.eu.cc
+    const key = `stream:v5:${src.id}`
     if (!refresh) {
       const hit = await cache.get<CachedStream>(key)
       if (hit && hit.expiresAt > Date.now() + 60_000) {
         await background(admin.rpc('mark_source_streamed', { p_source_id: src.id })) // activité du fichier (monitoring)
-        return json({ url: hit.url, provider: src.provider, quality: src.quality, sourceId: src.id, qualities, audios, audio: src.audio_languages ?? [], expiresAt: hit.expiresAt, debrid: !!hit.debrid, cached: true })
+        return json({ url: hit.url, provider: src.provider, quality: src.quality, sourceId: src.id, qualities, audios, audio: src.audio_languages ?? [], expiresAt: hit.expiresAt, cached: true })
       }
     } else {
       await cache.del(key)
     }
     try {
-      const r = await resolveSource(src, { userId: auth.user.id })
-      if (r.worker) {
-        // Jeton à usage court : jamais mis en cache, le navigateur appelle le Worker
-        await background(admin.rpc('mark_source_streamed', { p_source_id: src.id }))
-        return json({ url: null, debridWorker: r.worker.url, debridToken: r.worker.token, provider: src.provider, quality: src.quality, sourceId: src.id, qualities, audios, audio: src.audio_languages ?? [], expiresAt: Date.now() + r.ttl * 1000, debrid: true, cached: false })
-      }
+      const r = await resolveSource(src)
       const expiresAt = Date.now() + r.ttl * 1000
-      await cache.set(key, { url: r.url, expiresAt, debrid: r.debrid } satisfies CachedStream, r.ttl - 120)
+      await cache.set(key, { url: r.url, expiresAt } satisfies CachedStream, r.ttl - 120)
       await background(admin.rpc('mark_source_streamed', { p_source_id: src.id })) // activité du fichier (monitoring)
       await admin.from('media_sources').update({ last_checked_at: new Date().toISOString(), last_status: 200 }).eq('id', src.id)
-      return json({ url: r.url, provider: src.provider, quality: src.quality, sourceId: src.id, qualities, audios, audio: src.audio_languages ?? [], expiresAt, debrid: r.debrid, cached: false })
+      return json({ url: r.url, provider: src.provider, quality: src.quality, sourceId: src.id, qualities, audios, audio: src.audio_languages ?? [], expiresAt, cached: false })
     } catch (e) {
       const status = e instanceof ResolveError ? e.status : 500
       kinds.push(e instanceof ResolveError ? e.kind : 'unknown')
@@ -130,8 +125,8 @@ async function handle(req: Request): Promise<Response> {
   // Code d'erreur le plus parlant pour l'UI
   const code = kinds.length && kinds.every((k) => k === 'offline')
     ? 'source_offline'
-    : kinds.some((k) => k === 'auth' || k === 'server_blocked' || k === 'unavailable')
-      ? 'debrid_unavailable'
+    : kinds.some((k) => k === 'auth' || k === 'unavailable')
+      ? 'source_unavailable'
       : kinds.some((k) => k === 'host_busy')
         ? 'host_busy'
         : 'all_sources_failed'
