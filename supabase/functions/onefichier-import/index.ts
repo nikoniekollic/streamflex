@@ -10,7 +10,7 @@ import { LANE_ADMIN, OnefichierError, onefichierCall } from '../_shared/onefichi
 const VIDEO_EXT = new Set(['mp4', 'mkv', 'avi', 'mov', 'm4v', 'webm', 'wmv', 'flv', 'mpg', 'mpeg', 'ts', 'm2ts'])
 const MAX_IMPORT = 100
 
-type RemoteFile = { id: string; name: string; size: number | null; date: string | null }
+type RemoteFile = { id: string; name: string; size: number | null; date: string | null; ctype?: string | null }
 type Result = { id: string; name: string; status: 'success' | 'ignored' | 'failed'; reason?: string }
 
 function fileIdOf(url: unknown): string | null {
@@ -19,7 +19,8 @@ function fileIdOf(url: unknown): string | null {
   return m ? (m[1] ?? m[2]) : null
 }
 
-const ext = (name: string) => name.split('.').pop()?.toLowerCase() ?? ''
+const ext = (name: string) => (name.includes('.') ? (name.split('.').pop()?.toLowerCase() ?? '') : '')
+const isVideo = (f: { name: string; ctype?: string | null }) => VIDEO_EXT.has(ext(f.name)) || /^video\//i.test(f.ctype ?? '')
 
 function cleanTitle(filename: string): string {
   const base = filename.replace(/\.[A-Za-z0-9]{2,4}$/, '').replace(/[._]+/g, ' ').replace(/\s+/g, ' ').trim()
@@ -50,10 +51,24 @@ async function knownIds(ids: string[]): Promise<Set<string>> {
 }
 
 async function listFolder(folderId: number) {
+  // 1) sous-dossiers (et fichiers si l'API les inclut déjà)
   const body = await onefichierCall('folder/ls.cgi', { folder_id: folderId }, LANE_ADMIN)
-  const rawItems: Record<string, unknown>[] = Array.isArray(body.items) ? body.items : Array.isArray(body.files) ? body.files : []
+  let rawItems: Record<string, unknown>[] = Array.isArray(body.items) ? body.items : Array.isArray(body.files) ? body.files : []
   const rawFolders: Record<string, unknown>[] = Array.isArray(body.sub_folders) ? body.sub_folders : Array.isArray(body.folders) ? body.folders : []
-  if (!('items' in body) && !('files' in body) && !('sub_folders' in body) && !('folders' in body)) {
+  const hadItems = 'items' in body || 'files' in body
+  const filesBody: { keys: string[] } = { keys: [] }
+  // 2) fichiers du dossier : appel dédié (file/ls.cgi) seulement si le premier n'en contenait pas
+  if (!hadItems) {
+    try {
+      const fb = await onefichierCall('file/ls.cgi', { folder_id: folderId }, LANE_ADMIN)
+      filesBody.keys = Object.keys(fb)
+      rawItems = Array.isArray(fb.items) ? fb.items : Array.isArray(fb.files) ? fb.files : []
+    } catch (e) {
+      // dossier sans fichier : 1fichier peut répondre « KO » plutôt qu'une liste vide
+      if (!(e instanceof OnefichierError) || e.failure !== 'offline') throw e
+    }
+  }
+  if (!hadItems && filesBody.keys.length === 0 && rawFolders.length === 0 && !('sub_folders' in body) && !('folders' in body)) {
     console.error('[onefichier-import] réponse inattendue', Object.keys(body))
     throw new OnefichierError('unavailable', `Réponse 1fichier inattendue (champs : ${Object.keys(body).join(', ') || 'aucun'})`, 502)
   }
@@ -61,21 +76,49 @@ async function listFolder(folderId: number) {
   for (const it of rawItems) {
     const id = fileIdOf(it.url)
     if (!id) continue
-    files.push({ id, name: String(it.filename ?? it.name ?? id), size: Number(it.size) > 0 ? Number(it.size) : null, date: typeof it.date === 'string' ? it.date : null })
+    const ct = it['content-type'] ?? it.content_type ?? it.contentType
+    files.push({ id, name: String(it.filename ?? it.name ?? id), size: Number(it.size) > 0 ? Number(it.size) : null, date: typeof it.date === 'string' ? it.date : null, ctype: typeof ct === 'string' ? ct : null })
   }
   const folders = rawFolders
     .map((f) => ({ id: Number(f.id), name: String(f.name ?? f.id), date: typeof f.create_date === 'string' ? f.create_date : null }))
     .filter((f) => Number.isInteger(f.id))
   const known = await knownIds(files.map((f) => f.id))
-  return { folderName: String(body.name ?? ''), folders, files: files.map((f) => ({ ...f, known: known.has(f.id) })) }
+  const debug = {
+    keys: [...Object.keys(body), ...filesBody.keys.map((k) => `file/ls:${k}`)],
+    items: rawItems.length,
+    withId: files.length,
+    sampleKeys: rawItems[0] ? Object.keys(rawItems[0]) : [],
+    sampleUrl: rawItems[0] ? String(rawItems[0].url ?? '').slice(0, 60) : null,
+  }
+  console.log('[onefichier-import] ls', folderId, JSON.stringify(debug))
+  return { folderName: String(body.name ?? ''), folders, files: files.map((f) => ({ ...f, known: known.has(f.id), video: isVideo(f) })), debug }
 }
 
-async function importOne(f: RemoteFile, publish: boolean): Promise<Result> {
+type Model = { id: string; image_url: string | null }
+
+/** Trouve ou crée le modèle portant le nom du dossier. */
+async function ensureModel(name: string): Promise<Model | null> {
+  const clean = name.replace(/\s+/g, ' ').trim().slice(0, 80)
+  if (!clean) return null
+  const db = adminClient()
+  await db.from('models').upsert({ name: clean }, { onConflict: 'name', ignoreDuplicates: true })
+  const { data } = await db.from('models').select('id, image_url').eq('name', clean).maybeSingle()
+  return data ?? null
+}
+
+async function importOne(f: RemoteFile, publish: boolean, model: Model | null): Promise<Result> {
   const db = adminClient()
   const title = cleanTitle(f.name)
   const { data: t, error: te } = await db
     .from('titles')
-    .insert({ type: 'movie', slug: slugFor(title, f.id), title, is_published: publish, published_at: publish ? new Date().toISOString() : null })
+    .insert({
+      type: 'movie',
+      slug: slugFor(title, f.id),
+      title,
+      is_published: publish,
+      published_at: publish ? new Date().toISOString() : null,
+      ...(model ? { model_id: model.id, poster_url: model.image_url ? `${model.image_url}#model` : null } : {}),
+    })
     .select('id')
     .single()
   if (te || !t) return { id: f.id, name: f.name, status: 'failed', reason: te?.message ?? 'création du titre impossible' }
@@ -97,7 +140,8 @@ async function importOne(f: RemoteFile, publish: boolean): Promise<Result> {
   return { id: f.id, name: f.name, status: 'success' }
 }
 
-async function importFiles(files: RemoteFile[], publish: boolean): Promise<Result[]> {
+async function importFiles(files: RemoteFile[], publish: boolean, modelName: string | null): Promise<Result[]> {
+  const model = modelName ? await ensureModel(modelName) : null
   const known = await knownIds(files.map((f) => f.id))
   const seen = new Set<string>()
   const results: Result[] = []
@@ -107,11 +151,11 @@ async function importFiles(files: RemoteFile[], publish: boolean): Promise<Resul
       continue
     }
     seen.add(f.id)
-    if (!VIDEO_EXT.has(ext(f.name))) {
-      results.push({ id: f.id, name: f.name, status: 'ignored', reason: 'fichier non vidéo' })
+    if (!isVideo(f)) {
+      results.push({ id: f.id, name: f.name, status: 'ignored', reason: `fichier non vidéo (${ext(f.name) || 'sans extension'})` })
       continue
     }
-    results.push(await importOne(f, publish))
+    results.push(await importOne(f, publish, model))
   }
   return results
 }
@@ -149,9 +193,10 @@ Deno.serve(async (req) => {
       for (const x of input as Record<string, unknown>[]) {
         const id = typeof x.id === 'string' && /^[A-Za-z0-9]{4,32}$/.test(x.id) ? x.id : null
         if (!id) return json({ error: 'invalid_file_id' }, 400)
-        files.push({ id, name: String(x.name ?? id).slice(0, 300), size: Number(x.size) > 0 ? Number(x.size) : null, date: null })
+        files.push({ id, name: String(x.name ?? id).slice(0, 300), size: Number(x.size) > 0 ? Number(x.size) : null, date: null, ctype: typeof x.ctype === 'string' ? x.ctype : null })
       }
-      return json({ results: await importFiles(files, body.publish === true) })
+      const modelName = typeof body.model === 'string' && body.model.trim() ? body.model : null
+      return json({ results: await importFiles(files, body.publish === true, modelName) })
     }
     return json({ error: 'invalid_action' }, 400)
   } catch (e) {

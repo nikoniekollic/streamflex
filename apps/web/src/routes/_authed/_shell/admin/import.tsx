@@ -24,6 +24,7 @@ function ImportAdmin() {
   const [pickedFolders, setPickedFolders] = useState<ReadonlyMap<number, string>>(new Map())
   const [pickedFiles, setPickedFiles] = useState<ReadonlySet<string>>(new Set())
   const [publish, setPublish] = useState(false)
+  const [asModels, setAsModels] = useState(true)
 
   const [running, setRunning] = useState(false)
   const [status, setStatus] = useState('')
@@ -54,12 +55,13 @@ function ImportAdmin() {
       failed: [...p.failed, ...rs.filter((r) => r.status === 'failed')],
     }))
 
-  const pushFiles = async (files: Pick<RemoteFile, 'id' | 'name' | 'size'>[], where: string) => {
+  /** model = nom du dossier contenant (null pour la racine ou si l'option est décochée) */
+  const pushFiles = async (files: Pick<RemoteFile, 'id' | 'name' | 'size' | 'ctype'>[], where: string, model: string | null) => {
     for (let i = 0; i < files.length && !stop.current; i += CHUNK) {
       setStatus(`${where} — fichiers ${i + 1}–${Math.min(i + CHUNK, files.length)} / ${files.length}`)
       const chunk = files.slice(i, i + CHUNK)
       try {
-        record(await importFiles(supabase, chunk, publish))
+        record(await importFiles(supabase, chunk, publish, asModels ? model : null))
       } catch (e) {
         record(chunk.map((f) => ({ id: f.id, name: f.name, status: 'failed' as const, reason: (e as Error).message })))
       }
@@ -71,7 +73,7 @@ function ImportAdmin() {
     if (stop.current) return
     setStatus(`Lecture du dossier ${trail}…`)
     const l = await listFolder(supabase, folder.id)
-    await pushFiles(l.files, trail)
+    await pushFiles(l.files, trail, folder.id === 0 ? null : folder.name)
     for (const sub of l.folders) {
       if (stop.current) return
       await walk({ id: sub.id, name: sub.name }, `${trail}/${sub.name}`)
@@ -97,7 +99,8 @@ function ImportAdmin() {
   const importSelection = () =>
     run(async () => {
       const files = (listing?.files ?? []).filter((f) => pickedFiles.has(f.id))
-      await pushFiles(files, path.map((c) => c.name).join('/'))
+      const here = path[path.length - 1]
+      await pushFiles(files, path.map((c) => c.name).join('/'), here.id === 0 ? null : here.name)
       for (const [id, name] of pickedFolders) {
         if (stop.current) break
         await walk({ id, name }, name)
@@ -154,8 +157,18 @@ function ImportAdmin() {
             <label className="ml-2 flex items-center gap-1.5 text-sm">
               <input type="checkbox" checked={publish} onChange={(e) => setPublish(e.target.checked)} disabled={running} /> Publier directement
             </label>
+            <label className="flex items-center gap-1.5 text-sm">
+              <input type="checkbox" checked={asModels} onChange={(e) => setAsModels(e.target.checked)} disabled={running} /> Un modèle par dossier
+            </label>
           </div>
 
+          {listing.debug && (
+            <p className="text-xs text-muted-foreground">
+              {listing.folders.length} dossier(s), {listing.files.length} fichier(s) reconnu(s) sur {listing.debug.items} reçu(s) de 1fichier.
+              {listing.debug.items > 0 && listing.debug.withId === 0 && ` Format de lien inattendu : ${listing.debug.sampleUrl}`}
+              {listing.debug.items === 0 && ` Champs reçus : ${listing.debug.keys.join(', ')}`}
+            </p>
+          )}
           <ul className="max-h-[28rem] divide-y overflow-y-auto rounded-md border">
             {listing.folders.map((f) => (
               <li key={`d${f.id}`} className="flex items-center gap-3 px-3 py-2 text-sm hover:bg-accent">
@@ -172,6 +185,7 @@ function ImportAdmin() {
                 <FileVideo className="size-4 text-muted-foreground" />
                 <span className="min-w-0 flex-1 truncate">{f.name}</span>
                 <span className="text-xs text-muted-foreground tabular-nums">{fmtSize(f.size)}</span>
+                {!f.video && <span className="rounded bg-muted px-1.5 text-xs text-muted-foreground">non vidéo</span>}
                 {f.known && <span className="rounded bg-primary/20 px-1.5 text-xs text-primary">déjà importé</span>}
               </li>
             ))}
