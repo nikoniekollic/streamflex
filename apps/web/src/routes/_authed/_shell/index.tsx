@@ -3,7 +3,7 @@ import { fetchHome } from '@/lib/catalog'
 import { fetchPublicModels } from '@/lib/model-catalog'
 import { ModelsCarousel } from '@/components/catalog/ModelsCarousel'
 import { SortSelect } from '@/components/catalog/SortSelect'
-import { sortTitles, type SortKey } from '@/lib/sort'
+import { fetchLengths, isDurationSort, sortTitles, type SortKey } from '@/lib/sort'
 import { useState } from 'react'
 import { HeroBanner, HeroBannerSkeleton } from '@/components/catalog/HeroBanner'
 import { HeroCarousel } from '@/components/catalog/HeroCarousel'
@@ -31,8 +31,14 @@ export const Route = createFileRoute('/_authed/_shell/')({
 
 function Home() {
   const { hero, latest, continueWatching, rows, isMock, models } = Route.useLoaderData()
+  const { supabase } = Route.useRouteContext()
   const [sort, setSort] = useState<SortKey | undefined>()
-  const sorted = sort ? rows.map((r) => ({ ...r, titles: sortTitles(r.titles, sort) })) : rows
+  const [lens, setLens] = useState<Map<string, number>>()
+  const pick = (v: SortKey | undefined) => {
+    setSort(v)
+    if (isDurationSort(v) && !lens) void fetchLengths(supabase, [...new Set(rows.flatMap((r) => r.titles.map((t) => t.id)))]).then(setLens)
+  }
+  const sorted = sort ? rows.map((r) => ({ ...r, titles: sortTitles(r.titles, sort, lens) })) : rows
   const [trending, ...others] = sorted
 
   if (!hero && rows.length === 0 && continueWatching.length === 0) {
@@ -50,7 +56,7 @@ function Home() {
       <div className={latest.length > 0 ? 'relative z-10 mt-8 flex flex-col gap-4 md:gap-6' : 'relative z-10 -mt-24 flex flex-col gap-4 md:-mt-32 md:gap-6'}>
         <ContinueWatchingCarousel items={continueWatching} />
         <div className="flex justify-end px-6 md:px-12">
-          <SortSelect value={sort} onChange={setSort} defaultLabel="Ordre d’origine" />
+          <SortSelect value={sort} onChange={pick} defaultLabel="Ordre d’origine" />
         </div>
         {trending && <CategoryCarousel label={trending.label} titles={trending.titles} />}
         <ModelsCarousel models={models} />

@@ -60,7 +60,11 @@ export const STREAM_ERROR_TITLES: Record<StreamErrorCode, string> = {
 export const RETRYABLE_STREAM_ERRORS: StreamErrorCode[] = ['source_unavailable', 'host_busy', 'all_sources_failed', 'network', 'unknown']
 
 export class StreamError extends Error {
-  constructor(readonly code: StreamErrorCode) {
+  constructor(
+    readonly code: StreamErrorCode,
+    /** code brut d'Alldebrid, pour comprendre un échec */
+    readonly detail?: string,
+  ) {
     super(code)
   }
 }
@@ -112,7 +116,7 @@ export async function resolveStream(supabase: TypedSupabaseClient, params: Resol
     } catch (e) {
       const f = e instanceof DebridClientError ? e.failure : 'unavailable'
       console.error('[StreamFlex] Alldebrid (navigateur) :', e instanceof DebridClientError ? e.code : e)
-      throw new StreamError(f === 'offline' ? 'source_offline' : f === 'host_busy' ? 'host_busy' : 'source_unavailable')
+      throw new StreamError(f === 'offline' ? 'source_offline' : f === 'host_busy' ? 'host_busy' : 'source_unavailable', e instanceof DebridClientError ? e.code : undefined)
     }
   }
   if (!data?.url) throw new StreamError('unknown')

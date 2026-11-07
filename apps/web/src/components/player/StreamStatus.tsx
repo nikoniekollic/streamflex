@@ -8,7 +8,7 @@ type Props = {
   title: string
   backdrop?: string | null
   onBack: () => void
-} & ({ phase: 'resolving'; attempt?: number } | { phase: 'error'; code: StreamErrorCode; onRetry: () => void })
+} & ({ phase: 'resolving'; attempt?: number } | { phase: 'error'; code: StreamErrorCode; detail?: string; onRetry: () => void })
 
 const STEPS = ['Recherche de la meilleure source…', 'Récupération du lien de lecture…', 'Préparation du flux…']
 
@@ -28,7 +28,7 @@ export function StreamStatus(props: Props) {
 
       <div className="relative w-full max-w-md">
         <p className="mb-4 text-center text-xl font-semibold text-white">{title}</p>
-        {props.phase === 'resolving' ? <Resolving attempt={props.attempt ?? 1} /> : <Failure code={props.code} onRetry={props.onRetry} />}
+        {props.phase === 'resolving' ? <Resolving attempt={props.attempt ?? 1} /> : <Failure code={props.code} detail={props.detail} onRetry={props.onRetry} />}
       </div>
     </div>
   )
@@ -52,7 +52,7 @@ function Resolving({ attempt }: { attempt: number }) {
   )
 }
 
-function Failure({ code, onRetry }: { code: StreamErrorCode; onRetry: () => void }) {
+function Failure({ code, detail, onRetry }: { code: StreamErrorCode; detail?: string; onRetry: () => void }) {
   const Icon = code === 'network' ? WifiOff : code === 'source_unavailable' ? Unplug : AlertTriangle
   const retryable = RETRYABLE_STREAM_ERRORS.includes(code)
   return (
@@ -60,7 +60,10 @@ function Failure({ code, onRetry }: { code: StreamErrorCode; onRetry: () => void
       <Alert variant="destructive" className="border-destructive/40 bg-black/80 backdrop-blur">
         <Icon />
         <AlertTitle>{STREAM_ERROR_TITLES[code]}</AlertTitle>
-        <AlertDescription>{STREAM_ERROR_MESSAGES[code]}</AlertDescription>
+        <AlertDescription>
+          {STREAM_ERROR_MESSAGES[code]}
+          {detail && <span className="mt-1 block text-xs opacity-70">Détail technique : {detail}</span>}
+        </AlertDescription>
       </Alert>
       <div className="flex justify-center gap-3">
         {retryable && (

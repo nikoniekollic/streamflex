@@ -132,7 +132,7 @@ function WatchSession() {
     return <StreamStatus phase="error" code="all_sources_failed" title={title.title} backdrop={title.backdrop_url} onBack={back} onRetry={retry} />
   }
   if (state.status === 'error') {
-    return <StreamStatus phase="error" code={state.code} title={title.title} backdrop={title.backdrop_url} onBack={back} onRetry={retry} />
+    return <StreamStatus phase="error" code={state.code} detail={state.detail} title={title.title} backdrop={title.backdrop_url} onBack={back} onRetry={retry} />
   }
 
   const { stream } = state

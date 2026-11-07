@@ -15,6 +15,7 @@ import {
   isStillSlot,
   markAmbientFailed,
   peekPreviewUrl,
+  reportDuration,
   setAmbientVisible,
   setStillVisible,
   subscribeAmbient,
@@ -444,6 +445,7 @@ export function HoverPreview({ title, active, cardRef }: { title: CatalogTitle; 
             const v = e.currentTarget
             if (v.videoWidth && v.videoHeight) setVideoAspect(v.videoWidth / v.videoHeight)
             const d = v.duration
+            reportDuration(supabase, titleId, d)
             if (Number.isFinite(d) && d > cfg.clipSeconds * 2) v.currentTime = Math.min(d * (0.1 + Math.random() * 0.7), d - cfg.clipSeconds - 1)
           }}
           onSeeked={(e) => {

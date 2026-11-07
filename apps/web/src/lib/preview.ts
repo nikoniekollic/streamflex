@@ -2,17 +2,17 @@ import type { TypedSupabaseClient } from '@/lib/supabase'
 import { resolveStream } from '@/lib/stream'
 
 // Aperçus : le lien Alldebrid (débridé dans le navigateur) est résolu À L'AVANCE pour les jaquettes visibles
-// (3 résolutions en parallèle, espacées de 250 ms), gardé en mémoire ET dans le navigateur (un retour arrière ou
+// (une à la fois, espacées de 0,8 s), gardé en mémoire ET dans le navigateur (un retour arrière ou
 // un rechargement ne refait aucun appel), et le survol passe devant tout.
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-const WARM_GAP_MS = 250 // un lien toutes les 0,25 s au plus (Alldebrid tolère bien plus)
-const WARM_PARALLEL = 3
+const WARM_GAP_MS = 800 // un lien toutes les 0,8 s : on ménage Alldebrid (et, derrière, 1fichier)
+const WARM_PARALLEL = 1
 const HOVER_GAP_MS = 120 // survol : quasi immédiat
-const WARM_MAX = 500 // résolutions réseau préchauffées par session (le cache n'est pas compté)
+const WARM_MAX = 200 // résolutions réseau préchauffées par session (le cache n'est pas compté)
 const OK_TTL_MS = 80 * 60_000 // les liens Alldebrid valent ~2 h : on les jette un peu avant
 const FAIL_TTL_MS = 5 * 60_000
-const BREAKER_AFTER = 6
-const BREAKER_MS = 3 * 60_000
+const BREAKER_AFTER = 3
+const BREAKER_MS = 20 * 60_000 // 3 échecs de suite : Alldebrid limite probablement la clé, on coupe 20 min
 const STORE_KEY = 'sf:preview-links:v1'
 const STORE_MAX = 400
 
@@ -28,6 +28,14 @@ let failStreak = 0
 let pausedUntil = 0
 
 export type Wanted = { cancelled: boolean }
+
+const reported = new Set<string>()
+/** Durée réelle lue par le navigateur → base (une fois par titre et par session) : alimente l'affichage et le tri par durée. */
+export function reportDuration(s: TypedSupabaseClient, titleId: string, seconds: number) {
+  if (!UUID.test(titleId) || reported.has(titleId) || !Number.isFinite(seconds) || seconds < 60 || seconds > 86_400) return
+  reported.add(titleId)
+  void (s as unknown as { rpc: (n: string, a: object) => PromiseLike<unknown> }).rpc('report_title_duration', { p_title: titleId, p_seconds: Math.round(seconds) })
+}
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 

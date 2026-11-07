@@ -5,7 +5,7 @@ import { StreamError, resolveStream, type ResolveParams, type StreamErrorCode, t
 export type StreamState =
   | { status: 'resolving'; attempt: number }
   | { status: 'ready'; stream: StreamInfo }
-  | { status: 'error'; code: StreamErrorCode }
+  | { status: 'error'; code: StreamErrorCode; detail?: string }
 
 
 type Opts = Pick<ResolveParams, 'quality' | 'audio' | 'refresh' | 'exclude'>
@@ -31,7 +31,7 @@ export function useStream(supabase: TypedSupabaseClient, profileId: string, titl
         return stream
       } catch (e) {
         console.error('[StreamFlex] resolve-stream a échoué', e instanceof StreamError ? e.code : e)
-        if (id === req.current) setState({ status: 'error', code: e instanceof StreamError ? e.code : 'unknown' })
+        if (id === req.current) setState({ status: 'error', code: e instanceof StreamError ? e.code : 'unknown', detail: e instanceof StreamError ? e.detail : undefined })
         return null
       }
     },

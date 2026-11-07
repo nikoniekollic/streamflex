@@ -4,7 +4,7 @@ import { MOCK_GENRES, MOCK_TITLES } from '@/lib/mock-catalog'
 import { invokeCatalog } from '@/lib/catalog-api'
 import { env } from '@/lib/env'
 import type { Database } from '@/types/database'
-import { orderSpec, sortTitles, validSort, type SortKey } from '@/lib/sort'
+import { fetchLengths, isDurationSort, orderSpec, sortTitles, validSort, type SortKey } from '@/lib/sort'
 
 type SearchRow = Database['public']['Functions']['search_titles']['Returns'][number]
 
@@ -97,7 +97,9 @@ export async function searchTitles(supabase: TypedSupabaseClient, p: SearchParam
   }
   const out = await searchRanked(supabase, p, kids, limit)
   // Avec un mot-clé : on garde la pertinence pour choisir les résultats, puis on les ordonne
-  return p.sort ? { ...out, results: sortTitles(out.results, p.sort) } : out
+  if (!p.sort) return out
+  const lens = isDurationSort(p.sort) ? await fetchLengths(supabase, out.results.map((t) => t.id)).catch(() => undefined) : undefined
+  return { ...out, results: sortTitles(out.results, p.sort, lens) }
 }
 
 async function searchRanked(supabase: TypedSupabaseClient, p: SearchParams, kids: boolean, limit: number): Promise<SearchResult> {
