@@ -17,21 +17,39 @@ export function CoverThumb({ titleId, coverPos, fallback, className, order = 0 }
   const [ready, setReady] = useState(false)
   const host = useRef<HTMLDivElement>(null)
   const retried = useRef(false)
+  // seules les vignettes proches de l'écran sont préparées (48 cartes de modèles = 48 liens à débrider sinon)
+  const [near, setNear] = useState(() => typeof IntersectionObserver === 'undefined')
+  const [rank, setRank] = useState(order) // rang dans la page (ligne puis colonne) : la première ligne est préparée en premier
+  useEffect(() => {
+    const el = host.current
+    if (!el || typeof IntersectionObserver === 'undefined') return
+    const io = new IntersectionObserver(
+      ([e]) => {
+        if (!e.isIntersecting) return
+        setRank(order || Math.round((e.boundingClientRect.top + window.scrollY) / 20) * 10_000 + Math.round(e.boundingClientRect.left))
+        setNear(true)
+      },
+      { rootMargin: '500px 0px' },
+    )
+    io.observe(el)
+    return () => io.disconnect()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
-    if (url || !profileId) return
+    if (url || !profileId || !near) return
     let alive = true
-    void warmPreview(supabase, profileId, titleId, order).then((u) => alive && u && setUrl(u))
+    void warmPreview(supabase, profileId, titleId, rank).then((u) => alive && u && setUrl(u))
     return () => {
       alive = false
       cancelWarm(titleId)
     }
-  }, [url, profileId, titleId, order])
+  }, [url, profileId, titleId, rank, near])
 
   useEffect(() => {
     const h = host.current
-    if (!h || !url) return
-    const slot = acquireSlot(titleId, url, 30, order, coverPos)
+    if (!h || !url || !near) return
+    const slot = acquireSlot(titleId, url, 30, rank, coverPos)
     slot.el.style.objectFit = 'cover'
     attachSlot(slot, h)
     const sync = () => {
@@ -49,7 +67,7 @@ export function CoverThumb({ titleId, coverPos, fallback, className, order = 0 }
       slot.subs.delete(sync)
       detachSlot(slot)
     }
-  }, [url, titleId, coverPos, order])
+  }, [url, titleId, coverPos, rank, near])
 
   return (
     <div className={cn('relative overflow-hidden bg-neutral-900', className)}>
