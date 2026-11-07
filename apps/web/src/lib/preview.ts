@@ -87,14 +87,22 @@ export function getPreviewUrl(s: TypedSupabaseClient, profileId: string, titleId
   return job
 }
 
-/** Jaquette visible à l'écran : on prépare le lien en arrière-plan, sans jamais gêner un survol. */
-export function warmPreview(s: TypedSupabaseClient, profileId: string, titleId: string): void {
-  if (!UUID.test(titleId) || warmed >= WARM_MAX || Date.now() < pausedUntil) return
-  if (peekPreviewUrl(titleId) || cache.has(titleId) || inflight.has(titleId)) return
+/** Jaquette visible à l'écran : on prépare le lien en arrière-plan, sans jamais gêner un survol. Renvoie le lien (ou null). */
+export function warmPreview(s: TypedSupabaseClient, profileId: string, titleId: string): Promise<string | null> {
+  if (!UUID.test(titleId)) return Promise.resolve(null)
+  const known = cache.get(titleId)
+  if (known && known.until > Date.now()) return Promise.resolve(known.url)
+  const running = inflight.get(titleId)
+  if (running) return running
+  if (warmed >= WARM_MAX || Date.now() < pausedUntil) return Promise.resolve(null)
   warmed++
   const job = warmChain.then(async () => {
     while (hoverPending > 0) await sleep(300) // le survol d'abord
-    if (cache.has(titleId) || inflight.has(titleId) || Date.now() < pausedUntil) return null
+    const again = cache.get(titleId)
+    if (again && again.until > Date.now()) return again.url
+    const other = inflight.get(titleId)
+    if (other) return other
+    if (Date.now() < pausedUntil) return null
     const wait = lastWarmAt + WARM_GAP_MS - Date.now()
     if (wait > 0) await sleep(wait)
     lastWarmAt = Date.now()
@@ -110,4 +118,44 @@ export function warmPreview(s: TypedSupabaseClient, profileId: string, titleId: 
     () => undefined,
     () => undefined,
   )
+  return job
+}
+
+// ───────── Lecture silencieuse « d'ambiance » : seulement quelques cartes visibles à la fois
+const AMBIENT_MAX = 4
+const visibleOrder: string[] = []
+const failed = new Set<string>()
+const ambientListeners = new Set<() => void>()
+let ambientVersion = 0
+const bump = () => {
+  ambientVersion++
+  ambientListeners.forEach((l) => l())
+}
+
+/** Données économisées, mouvement réduit ou petit écran : pas de lecture d'ambiance. */
+export function ambientAllowed(): boolean {
+  if (typeof window === 'undefined') return false
+  const conn = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection
+  return !conn?.saveData && window.matchMedia('(min-width: 768px)').matches && !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+}
+
+export function setAmbientVisible(id: string, visible: boolean) {
+  const i = visibleOrder.indexOf(id)
+  if (visible && i < 0) visibleOrder.push(id)
+  else if (!visible && i >= 0) visibleOrder.splice(i, 1)
+  else return
+  bump()
+}
+
+export function markAmbientFailed(id: string) {
+  if (failed.has(id)) return
+  failed.add(id)
+  bump()
+}
+
+export const isAmbientSlot = (id: string) => visibleOrder.filter((x) => !failed.has(x)).slice(0, AMBIENT_MAX).includes(id)
+export const getAmbientVersion = () => ambientVersion
+export const subscribeAmbient = (l: () => void) => {
+  ambientListeners.add(l)
+  return () => void ambientListeners.delete(l)
 }
