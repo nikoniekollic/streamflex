@@ -32,7 +32,7 @@ export async function onefichierCall(path: string, payload: Record<string, unkno
   const key = await getSecret('ONEFICHIER_API_KEY')
   if (!key) throw new OnefichierError('auth', 'ONEFICHIER_API_KEY non configurée', 503)
 
-  const { data: slot, error } = await admin.rpc('onefichier_acquire', { p_min_gap_ms: lane.gapMs, p_hourly_cap: lane.cap, p_name: lane.name })
+  const { data: slot, error } = await admin.rpc('onefichier_acquire', { p_min_gap_ms: lane.gapMs, p_hourly_cap: lane.cap, p_max_wait_ms: 9000, p_name: lane.name })
   if (error || !slot) throw new OnefichierError('unavailable', 'Régulateur 1fichier indisponible', 503)
   if (!slot.ok) throw new OnefichierError('host_busy', `1fichier en pause (${slot.reason}, ${slot.retry_s}s)`, 503)
   if (slot.wait_ms > 0) await sleep(slot.wait_ms)
