@@ -33,3 +33,29 @@ export async function importFiles(s: TypedSupabaseClient, files: Pick<RemoteFile
   const { results } = await call<{ results: ImportResult[] }>(s, { action: 'import', files, publish, model })
   return results
 }
+
+export type ImportJob = {
+  id: string
+  root_name: string | null
+  status: 'pending' | 'running' | 'waiting' | 'completed' | 'cancelled' | 'error'
+  publish: boolean
+  folders_done: number
+  folders_left: number
+  files_seen: number
+  imported: number
+  ignored: number
+  failed: number
+  current_folder: string | null
+  last_message: string | null
+  resume_at: string | null
+  created_at: string
+  completed_at: string | null
+}
+
+export const startImportJob = (s: TypedSupabaseClient, folderId: number, name: string, publish: boolean, modelPerFolder: boolean) =>
+  call<{ job_id: string }>(s, { action: 'job_start', folder_id: folderId, name, publish, model_per_folder: modelPerFolder })
+
+/** Avancement des derniers jobs ; relance aussi ceux qui sont bloqués (battement de cœur). */
+export const fetchImportJobs = async (s: TypedSupabaseClient) => (await call<{ jobs: ImportJob[] }>(s, { action: 'job_status' })).jobs
+
+export const cancelImportJob = (s: TypedSupabaseClient, jobId: string) => call<{ ok: boolean }>(s, { action: 'job_cancel', job_id: jobId })

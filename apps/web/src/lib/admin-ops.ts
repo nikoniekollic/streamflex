@@ -123,6 +123,8 @@ export function isValidIpOrCidr(v: string): boolean {
 // ───────── Clés API (Vault)
 export const API_KEYS: { name: string; label: string; help: string; secret: boolean }[] = [
   { name: 'ONEFICHIER_API_KEY', label: '1fichier — clé API', help: '1fichier.com → Paramètres → API', secret: true },
+  { name: 'ALLDEBRID_API_KEY', label: 'Alldebrid — clé API', help: 'alldebrid.com/apikeys (autoriser toutes les IP)', secret: true },
+  { name: 'ALLDEBRID_AGENT', label: 'Alldebrid — nom de l’agent', help: 'Ex. StreamApp (optionnel)', secret: false },
   { name: 'UPSTASH_REDIS_REST_URL', label: 'Redis (Upstash) — URL REST', help: 'https://….upstash.io', secret: false },
   { name: 'UPSTASH_REDIS_REST_TOKEN', label: 'Redis (Upstash) — token', help: 'Token REST', secret: true },
   { name: 'REDIS_URL', label: 'Redis — URL TCP (ioredis)', help: 'rediss://user:pass@hôte:port — prioritaire sur Upstash REST', secret: true },

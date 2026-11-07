@@ -5,6 +5,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2'
 import { corsHeaders, json } from '../_shared/cors.ts'
 import { adminClient } from '../_shared/admin-client.ts'
 import { denyIfBanned } from '../_shared/guard.ts'
+import { background } from '../_shared/background.ts'
 import { LANE_ADMIN, OnefichierError, onefichierCall } from '../_shared/onefichier.ts'
 
 const VIDEO_EXT = new Set(['mp4', 'mkv', 'avi', 'mov', 'm4v', 'webm', 'wmv', 'flv', 'mpg', 'mpeg', 'ts', 'm2ts'])
@@ -44,51 +45,30 @@ function guessQuality(name: string): '480p' | '720p' | '1080p' | '2160p' {
 
 async function knownIds(ids: string[]): Promise<Set<string>> {
   const out = new Set<string>()
-  if (ids.length === 0) return out
-  const { data } = await adminClient().from('media_sources').select('file_id').eq('provider', 'onefichier').in('file_id', ids)
-  for (const r of data ?? []) if (r.file_id) out.add(r.file_id)
+  const db = adminClient()
+  for (let i = 0; i < ids.length; i += 200) {
+    const { data } = await db.from('media_sources').select('file_id').eq('provider', 'onefichier').in('file_id', ids.slice(i, i + 200))
+    for (const r of data ?? []) if (r.file_id) out.add(r.file_id)
+  }
   return out
 }
 
-const CAP = 5000 // 1fichier plafonne un listing à 5000 éléments par appel
-let pageVariant: number | null = null // variante de pagination reconnue (mémorisée par instance)
-const VARIANTS: ((offset: number, page: number) => Record<string, unknown>)[] = [
-  (o) => ({ offset: o }),
-  (o) => ({ start: o }),
-  (_o, p) => ({ page: p }),
-]
+const CAP = 5000 // 1fichier : « listing limité à 5 000 résultats et 1 requête par dossier toutes les 30 s » (sans pagination)
+const FOLDER_GAP_S = 30
 
-/** Récupère les pages suivantes d'un dossier de plus de 5000 fichiers. Retourne capped=true si aucune pagination n'est reconnue. */
-async function paginate(folderId: number, first: Record<string, unknown>[]): Promise<{ items: Record<string, unknown>[]; capped: boolean }> {
-  const all = [...first]
-  const firstUrl = String(first[0]?.url ?? '')
-  const order = pageVariant === null ? VARIANTS.map((_, i) => i) : [pageVariant]
-  for (const vi of order) {
-    let page = 2
-    let got: Record<string, unknown>[] = []
-    try {
-      const fb = await onefichierCall('file/ls.cgi', { folder_id: folderId, ...VARIANTS[vi](all.length, page) }, LANE_ADMIN)
-      got = Array.isArray(fb.items) ? fb.items : Array.isArray(fb.files) ? fb.files : []
-    } catch (e) {
-      if (e instanceof OnefichierError && e.failure === 'offline') continue
-      throw e
-    }
-    if (got.length === 0 || String(got[0]?.url ?? '') === firstUrl) continue // variante ignorée par l'API
-    pageVariant = vi
-    all.push(...got)
-    while (got.length >= CAP && all.length < 200_000) {
-      page++
-      const fb = await onefichierCall('file/ls.cgi', { folder_id: folderId, ...VARIANTS[vi](all.length, page) }, LANE_ADMIN)
-      got = Array.isArray(fb.items) ? fb.items : Array.isArray(fb.files) ? fb.files : []
-      if (got.length === 0 || String(got[0]?.url ?? '') === firstUrl) break
-      all.push(...got)
-    }
-    return { items: all, capped: false }
-  }
-  return { items: all, capped: true }
+/** Garde 1fichier : au plus 1 listing par dossier toutes les 30 s (partagé entre instances). */
+async function guardFolder(folderId: number) {
+  const db = adminClient()
+  const name = `ls:${folderId}`
+  const { data } = await db.from('api_governor').select('last_call_at').eq('name', name).maybeSingle()
+  const last = data?.last_call_at ? new Date(data.last_call_at).getTime() : 0
+  const wait = Math.ceil((last + FOLDER_GAP_S * 1000 - Date.now()) / 1000)
+  if (wait > 0) throw new OnefichierError('host_busy', `Ce dossier vient d'être listé : 1fichier n'autorise qu'une requête par dossier toutes les 30 s. Réessaie dans ${wait} s.`, 429)
+  await db.from('api_governor').upsert({ name, last_call_at: new Date().toISOString() })
 }
 
-async function listFolder(folderId: number) {
+async function listFolder(folderId: number, annotate = true) {
+  await guardFolder(folderId)
   // 1) sous-dossiers (et fichiers si l'API les inclut déjà)
   const body = await onefichierCall('folder/ls.cgi', { folder_id: folderId }, LANE_ADMIN)
   let rawItems: Record<string, unknown>[] = Array.isArray(body.items) ? body.items : Array.isArray(body.files) ? body.files : []
@@ -106,12 +86,7 @@ async function listFolder(folderId: number) {
       if (!(e instanceof OnefichierError) || e.failure !== 'offline') throw e
     }
   }
-  let capped = false
-  if (rawItems.length >= CAP) {
-    const r = await paginate(folderId, rawItems)
-    rawItems = r.items
-    capped = r.capped
-  }
+  const capped = rawItems.length >= CAP
   if (!hadItems && filesBody.keys.length === 0 && rawFolders.length === 0 && !('sub_folders' in body) && !('folders' in body)) {
     console.error('[onefichier-import] réponse inattendue', Object.keys(body))
     throw new OnefichierError('unavailable', `Réponse 1fichier inattendue (champs : ${Object.keys(body).join(', ') || 'aucun'})`, 502)
@@ -127,7 +102,7 @@ async function listFolder(folderId: number) {
   const folders = rawFolders
     .map((f) => ({ id: Number(f.id), name: String(f.name ?? f.id), date: typeof f.create_date === 'string' ? f.create_date : null }))
     .filter((f) => Number.isInteger(f.id))
-  const known = await knownIds(files.map((f) => f.id))
+  const known = annotate ? await knownIds(files.map((f) => f.id)) : new Set<string>()
   const debug = {
     keys: [...Object.keys(body), ...filesBody.keys.map((k) => `file/ls:${k}`)],
     items: rawItems.length,
@@ -208,9 +183,158 @@ async function importFiles(files: RemoteFile[], publish: boolean, modelName: str
   return results
 }
 
+// ───────── Import récursif : job persistant, UN dossier par « tick », relance automatique
+const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
+const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!
+const BATCH_ROWS = 500
+const MAX_TRIES = 3
+
+type QueueEntry = { id: number; name: string; model: string | null; tries?: number }
+
+/** Relance le job : le tick répond 202 tout de suite, donc aucun appel imbriqué. */
+function kick(jobId: string): Promise<void> {
+  return background(
+    fetch(`${SUPABASE_URL}/functions/v1/onefichier-import`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SERVICE_KEY}`, apikey: ANON_KEY },
+      body: JSON.stringify({ action: 'job_tick', job_id: jobId }),
+    }).then((r) => r.body?.cancel()),
+  )
+}
+
+function retrySeconds(message: string): number {
+  const m = message.match(/(\d+)\s*s\b/)
+  return Math.min(Math.max(m ? Number(m[1]) + 2 : 60, 10), 600)
+}
+
+/** Traite UN dossier. Retourne true s'il reste du travail à enchaîner tout de suite. */
+async function tickOnce(jobId: string): Promise<boolean> {
+  const db = adminClient()
+  const { data: locked } = await db.rpc('import_job_lock', { p_job: jobId, p_seconds: 150 })
+  if (locked !== true) return false
+  const { data: job } = await db.from('import_jobs').select('*').eq('id', jobId).single()
+  if (!job) return false
+  const queue = (Array.isArray(job.queue) ? job.queue : []) as QueueEntry[]
+  const done = (patch: Record<string, unknown>) =>
+    db.from('import_jobs').update({ locked_until: null, updated_at: new Date().toISOString(), ...patch }).eq('id', jobId)
+
+  if (queue.length === 0) {
+    await done({ status: 'completed', completed_at: new Date().toISOString(), current_folder: null, last_message: 'Terminé' })
+    return false
+  }
+  const entry = queue[0]
+  const rest = queue.slice(1)
+  try {
+    const listing = await listFolder(entry.id, false)
+    const videos = listing.files.filter((f) => f.video)
+    let imported = 0
+    let ignored = listing.files.length - videos.length
+    let failed = 0
+    let model: Model | null = null
+    if (job.model_per_folder && entry.model && videos.length > 0) model = await ensureModel(entry.model)
+    for (let i = 0; i < videos.length; i += BATCH_ROWS) {
+      const rows = videos.slice(i, i + BATCH_ROWS).map((f) => {
+        const title = cleanTitle(f.name)
+        return { id: f.id, slug: slugFor(title, f.id), title, quality: guessQuality(f.name), size: f.size, container: ext(f.name) }
+      })
+      const { data, error } = await db.rpc('import_onefichier_batch', {
+        p_files: rows,
+        p_publish: job.publish === true,
+        p_model_id: model?.id ?? null,
+        p_poster: model?.image_url ? `${model.image_url}#model` : null,
+      })
+      if (error) failed += rows.length
+      else {
+        imported += Number(data?.imported ?? 0)
+        ignored += Number(data?.ignored ?? 0)
+      }
+    }
+    const subs: QueueEntry[] = listing.folders.map((f) => ({ id: f.id, name: f.name, model: f.name }))
+    const next = [...rest, ...subs]
+    const finished = next.length === 0
+    await done({
+      queue: next,
+      status: finished ? 'completed' : 'running',
+      completed_at: finished ? new Date().toISOString() : null,
+      folders_done: job.folders_done + 1,
+      files_seen: Number(job.files_seen) + listing.files.length,
+      imported: Number(job.imported) + imported,
+      ignored: Number(job.ignored) + ignored,
+      failed: Number(job.failed) + failed,
+      current_folder: finished ? null : next[0].name,
+      resume_at: null,
+      last_message: `${entry.name} : ${imported} importés, ${ignored} ignorés${listing.capped ? ' — ⚠ dossier plafonné à 5 000 (répartis en sous-dossiers)' : ''}${failed ? `, ${failed} échecs` : ''}`,
+    })
+    return !finished
+  } catch (e) {
+    const msg = (e as Error).message
+    if (e instanceof OnefichierError && e.failure === 'auth') {
+      await done({ status: 'error', last_message: msg }) // disjoncteur / clé invalide : on s'arrête
+      return false
+    }
+    const tries = (entry.tries ?? 0) + 1
+    const transient = e instanceof OnefichierError && (e.failure === 'host_busy' || e.failure === 'unavailable')
+    if (transient && tries < MAX_TRIES * 3) {
+      const wait = retrySeconds(msg)
+      await done({
+        queue: [{ ...entry, tries }, ...rest],
+        status: 'waiting',
+        resume_at: new Date(Date.now() + wait * 1000).toISOString(),
+        last_message: `${entry.name} : en attente de 1fichier (${wait} s) — ${msg}`,
+      })
+      return false // repris par le battement de cœur de l'interface (job_status)
+    }
+    console.error('[onefichier-import] dossier ignoré', entry.id, msg)
+    await done({
+      queue: rest,
+      status: rest.length ? 'running' : 'completed',
+      completed_at: rest.length ? null : new Date().toISOString(),
+      folders_done: job.folders_done + 1,
+      failed: Number(job.failed) + 1,
+      last_message: `${entry.name} : ignoré — ${msg}`,
+    })
+    return rest.length > 0
+  }
+}
+
+/** Enchaîne les dossiers pendant ~90 s, puis relance un nouveau tick pour la suite. */
+async function runTick(jobId: string) {
+  const t0 = Date.now()
+  while (Date.now() - t0 < 90_000) {
+    if (!(await tickOnce(jobId))) return
+  }
+  await kick(jobId)
+}
+
+/** Relance les jobs actifs bloqués (aucun tick en cours, pause terminée). */
+async function resumeStalled() {
+  const nowIso = new Date().toISOString()
+  const { data } = await adminClient()
+    .from('import_jobs')
+    .select('id')
+    .in('status', ['pending', 'running', 'waiting'])
+    .or(`locked_until.is.null,locked_until.lt.${nowIso}`)
+    .or(`resume_at.is.null,resume_at.lte.${nowIso}`)
+    .lt('updated_at', new Date(Date.now() - 45_000).toISOString())
+    .limit(3)
+  for (const j of data ?? []) await background(runTick(j.id))
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
   if (req.method !== 'POST') return json({ error: 'method_not_allowed' }, 405)
+
+  // Tick interne (relance automatique) : authentifié par la clé service_role, répond tout de suite
+  if (req.headers.get('Authorization') === `Bearer ${SERVICE_KEY}`) {
+    const b = await req.json().catch(() => ({}))
+    if (b.action === 'job_tick' && typeof b.job_id === 'string') {
+      await background(runTick(b.job_id))
+      return json({ accepted: true }, 202)
+    }
+    return json({ error: 'forbidden' }, 403)
+  }
+
   const banned = await denyIfBanned(req)
   if (banned) return banned
 
@@ -233,6 +357,41 @@ Deno.serve(async (req) => {
       const folderId = Number(body.folder_id ?? 0)
       if (!Number.isInteger(folderId) || folderId < 0) return json({ error: 'invalid_folder' }, 400)
       return json(await listFolder(folderId))
+    }
+    if (body.action === 'job_start') {
+      const folderId = Number(body.folder_id ?? 0)
+      if (!Number.isInteger(folderId) || folderId < 0) return json({ error: 'invalid_folder' }, 400)
+      const name = String(body.name ?? 'Racine').slice(0, 120)
+      const { data: uid } = await user.auth.getUser()
+      const { data: job, error } = await adminClient()
+        .from('import_jobs')
+        .insert({
+          created_by: uid.user?.id,
+          root_folder_id: folderId,
+          root_name: name,
+          publish: body.publish === true,
+          model_per_folder: body.model_per_folder !== false,
+          queue: [{ id: folderId, name, model: name }],
+          last_message: 'Démarrage…',
+        })
+        .select('id')
+        .single()
+      if (error || !job) return json({ error: 'internal', message: error?.message }, 500)
+      await background(runTick(job.id)) // directement, sans appel interne
+      return json({ job_id: job.id })
+    }
+    if (body.action === 'job_status') {
+      await resumeStalled()
+      const { data } = await adminClient()
+        .from('import_jobs')
+        .select('id, root_name, status, publish, folders_done, files_seen, imported, ignored, failed, current_folder, last_message, resume_at, created_at, completed_at, queue')
+        .order('created_at', { ascending: false })
+        .limit(5)
+      return json({ jobs: (data ?? []).map(({ queue, ...j }) => ({ ...j, folders_left: Array.isArray(queue) ? queue.length : 0 })) })
+    }
+    if (body.action === 'job_cancel' && typeof body.job_id === 'string') {
+      await adminClient().from('import_jobs').update({ status: 'cancelled', completed_at: new Date().toISOString(), last_message: 'Arrêté' }).eq('id', body.job_id).in('status', ['pending', 'running', 'waiting'])
+      return json({ ok: true })
     }
     if (body.action === 'import') {
       const input: unknown[] = Array.isArray(body.files) ? body.files : []

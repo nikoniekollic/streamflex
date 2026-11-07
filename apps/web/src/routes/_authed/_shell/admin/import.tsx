@@ -4,7 +4,8 @@ import { toast } from 'sonner'
 import { CheckCircle2, ChevronRight, CircleSlash, FileVideo, Folder, FolderDown, Loader2, Square, XCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
-import { importFiles, listFolder, type ImportResult, type Listing, type RemoteFile, type RemoteFolder } from '@/lib/onefichier-import'
+import { ImportJobsPanel } from '@/components/admin/ImportJobsPanel'
+import { importFiles, listFolder, startImportJob, type ImportResult, type Listing, type RemoteFile, type RemoteFolder } from '@/lib/onefichier-import'
 
 export const Route = createFileRoute('/_authed/_shell/admin/import')({
   component: ImportAdmin,
@@ -27,6 +28,7 @@ function ImportAdmin() {
   const [asModels, setAsModels] = useState(true)
 
   const [running, setRunning] = useState(false)
+  const [jobsKey, setJobsKey] = useState(0)
   const [status, setStatus] = useState('')
   const [logs, setLogs] = useState<Record<Tab, ImportResult[]>>({ success: [], ignored: [], failed: [] })
   const [tab, setTab] = useState<Tab>('success')
@@ -116,8 +118,20 @@ function ImportAdmin() {
   const total = logs.success.length + logs.ignored.length + logs.failed.length
   const selCount = pickedFiles.size + pickedFolders.size
 
+  const startServerJob = async () => {
+    const here = path[path.length - 1]
+    try {
+      await startImportJob(supabase, here.id, here.name, publish, asModels)
+      toast.success(`Import de « ${here.name} » lancé sur le serveur`)
+      setJobsKey((k) => k + 1)
+    } catch (e) {
+      toast.error((e as Error).message)
+    }
+  }
+
   return (
     <div className="flex flex-col gap-5">
+      <ImportJobsPanel supabase={supabase} refreshKey={jobsKey} />
       <section className="flex flex-col gap-3 rounded-lg border p-4">
         <h2 className="flex items-center gap-2 font-semibold">
           <FolderDown className="size-5" /> Explorateur du compte 1fichier
@@ -151,8 +165,11 @@ function ImportAdmin() {
             <Button onClick={importSelection} disabled={running || loading || selCount === 0}>
               Importer la sélection ({selCount})
             </Button>
+            <Button onClick={() => void startServerJob()} disabled={running || loading}>
+              Importer tout en arrière-plan (serveur)
+            </Button>
             <Button variant="secondary" onClick={importCurrentFolder} disabled={running || loading}>
-              Importer ce dossier et ses sous-dossiers
+              Importer depuis cet onglet
             </Button>
             <label className="ml-2 flex items-center gap-1.5 text-sm">
               <input type="checkbox" checked={publish} onChange={(e) => setPublish(e.target.checked)} disabled={running} /> Publier directement

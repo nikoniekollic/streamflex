@@ -642,3 +642,58 @@ python scripts/mass_import.py liens.csv --skip 250000              # reprise apr
 1. Local : cloner le bundle → `./scripts/push_and_deploy.sh <url> <ref>`
 2. Vercel : `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_ENABLE_MOCKS=false` → suivre le premier build et corriger les erreurs TS
 3. Secrets Edge Functions : `supabase secrets set --env-file supabase/functions/.env` (fichier local, jamais commité)
+
+---
+
+## ⚠️ Mise à jour 2026-11-07 — l'historique ci-dessus est partiellement OBSOLÈTE
+Pixeldrain et Alldebrid ont été **abandonnés** (étapes 6, 7, 11 : ne plus s'y fier). Stockage et lecture = **1fichier uniquement**, via l'API du compte (clé Bearer). Workers Cloudflare, `alldebrid.ts`, `debrid-token.ts`, fonction `debrid-link`, `DebridTester.tsx` supprimés (aussi sur Supabase).
+
+## Étape 27 — 1fichier direct + régulateur (2026-11-06) ✅
+### Terminé
+- `_shared/onefichier.ts` : `onefichierCall(path, payload, lane)` → `download/get_token.cgi` {url, inline:1}, `folder/ls.cgi`, `file/ls.cgi` ; `onefichierLink(fileId, force)` avec cache 3 min (`onefichier_links`), `force` = lien neuf
+- Régulateur Postgres partagé : tables `api_governor`, `onefichier_links` ; RPC `onefichier_take_slot(p_lane,p_gap_ms,p_cap,p_max_wait_ms)` (service_role) et `onefichier_trip(p_hours,p_reason)` ; migrations 0017, 0019, 0020 (anciennes surcharges `onefichier_acquire` inutilisées)
+- Voies : lecture `onefichier` = 8 s entre appels, 120/h ; admin `onefichier_admin` = 4 s, 240/h ; disjoncteur commun **24 h** (verrou #211/#420, 401/403/429), 1 h pour #236 (compte non premium)
+- `providers.ts` : seulement onefichier + `raw_url` (alist/autre) ; lignes pixeldrain refusées (`invalid_source`) ; `resolve-stream` : clé de cache `stream:v5:<id>`, code `source_unavailable`
+- Clé API stockée dans le Vault Supabase via `/admin/security` (jamais dans le repo ni dans Vercel)
+### Contraintes
+- Le même compte est utilisé par le script PC `1fichier_suite_pro` (watchdog 11) → rester sous les limites, aucun appel API depuis le sandbox
+- Clé exposée dans le chat : **à régénérer avant le lancement**
+
+## Étape 28 — Modèles + jaquettes générées (2026-11-06) ✅
+- Migration 0018 : table `models`, `titles.model_id`, bucket public `model-images`, triggers qui copient l'image du modèle dans `titles.poster_url` (suffixe `#model`), RPC `admin_list_models`, `admin_attach_titles`, `admin_attach_by_query`
+- Page `/admin` onglet Modèles (`models.tsx`, `lib/models.ts`) : image par URL ou envoi, rattacher des titres
+- Jaquette générée si pas d'image (`lib/cover.ts`, `GeneratedCover.tsx`) : couleurs stables par hash de l'id, symbole coloré, nom du fichier
+- Catalogue `browse.tsx` utilise `MovieCard` (posters de nouveau cliquables)
+- Refusé : récupérer photos de profil/couverture de vraies personnes sur OnlyFans (scraping + contournement du hotlink). La photo utilisée en test est à remplacer avant le lancement
+
+## Étape 29 — Explorateur + import du compte 1fichier (2026-11-07) ✅ / ⚠️
+- Edge `onefichier-import` (admin via RPC `is_admin`, `verify_jwt = true`) : `ls` (folder/ls + file/ls) et `import` (≤ 100 fichiers/appel ; films `<slug>-<id10>` + `media_sources` onefichier, qualité devinée, conteneur = extension ; ignoré si déjà connu / doublon / non vidéo ; modèle = nom du dossier)
+- UI `admin/import.tsx` : arbre des dossiers, import de tout ou d'une sélection, compteurs réussis / ignorés / échecs en direct, bouton stop, « Publier directement », « Un modèle par dossier »
+- **Limite 1fichier : 5 000 résultats par listing, pas de pagination, 1 requête par dossier toutes les 30 s.** Les essais de pagination ont été retirés ; garde de 30 s par dossier (`api_governor` ligne `ls:<id>`). Solution : répartir en sous-dossiers < 5 000 fichiers (fonction 16 du script PC) ; l'UI affiche un bandeau orange si un dossier est plafonné
+
+## Étape 30 — Alldebrid rétabli + import récursif serveur (2026-11-07) ⏳ NON DÉPLOYÉ
+> Inspiré de l'ancien projet `streamflex-final-main` : lecture = **Alldebrid d'abord**, 1fichier direct seulement en repli (l'ancien projet ne prouvait pas la lecture directe `get_token`).
+- `_shared/alldebrid.ts` (+ test) restauré depuis git (`e7bf5da^`) ; `providers.ts` : si `ALLDEBRID_API_KEY` → `unlock()`, `offline` = stop, autre échec → repli `onefichierLink` ; clés `ALLDEBRID_API_KEY` / `ALLDEBRID_AGENT` dans `secrets.ts`, `/admin/security` (`API_KEYS`) et `.env.example` (déjà autorisées par `admin_set_api_key`, migrations 0006/0008)
+- `get_token` : `pretty:1` au lieu de `inline:1` (comme l'ancien projet)
+- Retries automatiques du lecteur supprimés (`watch.$id.tsx`) : 1fichier bloque l'IP après trop de requêtes erronées ; seul « Réessayer » relance
+- **Migration `0021_import_jobs.sql`** (testée sur la base réelle dans un bloc annulé) : table `import_jobs` (file de dossiers jsonb, compteurs), RPC `import_onefichier_batch` (titres + sources par lots, ignore les déjà connus), `import_job_lock`
+- Edge `onefichier-import` : actions `job_start` / `job_status` (relance les jobs bloqués = battement de cœur) / `job_cancel` ; un dossier par tick, ~90 s enchaînés puis relance ; pause `waiting` si 1fichier occupé ; `auth` → arrêt ; `knownIds` par paquets de 200
+- UI `admin/import` : bouton « Importer tout en arrière-plan (serveur) » + `ImportJobsPanel` (avancement, arrêt)
+- À déployer : `supabase db push` (0021) ; `supabase functions deploy onefichier-import resolve-stream` ; saisir la clé Alldebrid dans `/admin/security`
+- Limites : 240 appels admin/h → ~120 dossiers/h ; 5 000 fichiers max par dossier ; typecheck complet impossible (`routeTree.gen.ts` absent), syntaxe edge vérifiée seulement par transpilation
+
+## 🔴 Problème ouvert — lecture
+- Fichiers importés : `resolve-stream` renvoie 200 + URL, mais le lecteur reste sur la roue sans démarrer ; avancer dans la vidéo donne « Sources indisponibles »
+- Correctifs déployés : suppression de `probeStream` (double téléchargement), `refresh` → lien neuf (`force`)
+- Hypothèse non confirmée : le lien `get_token` n'accepte qu'une connexion / une requête (Range) → échec du seek et des mp4 dont l'index est en fin de fichier
+- À relever : console `[StreamFlex][video] …` + onglet Network (statut de la requête vers 1fichier : 200/206/403)
+- Piste si confirmé : lien par requête Range via proxy (bande passante à évaluer) ou conversion « faststart » des fichiers ; la capacité d'un seul compte (120 liens/h) ne passera pas à l'échelle avec beaucoup d'abonnés
+
+## Reporté / à faire
+- **Watchdog du compte 1fichier** : surveiller et importer automatiquement les nouveaux fichiers (demandé « plus tard »)
+- Aperçus vidéo (survol 10 s, page 30 s) : reportés
+- Nettoyage restant : enum `pixeldrain` en base, `pipelines/` Python, mentions dans `ARCHITECTURE.md` / `DEPLOY.md`
+- Avant lancement : régénérer la clé 1fichier, remplacer la photo de test, vérifier l'échelle de la lecture
+
+## Conventions
+Réponses en français, concises ; une seule consigne de déploiement à la fois (PowerShell, retour de la dernière ligne ou « vert ») ; ne jamais commiter sans demande (trailers `Co-Authored-By` + `Claude-Session`) ; jamais de clé dans le repo ni `.env*` commité.

@@ -74,7 +74,7 @@ export async function onefichierLink(fileId: string, force = false): Promise<{ u
   if (hit) return { url: hit.url, ttl: Math.max(30, Math.floor((new Date(hit.expires_at).getTime() - Date.now()) / 1000)) }
 
   // 2. Un seul appel régulé
-  const body = await onefichierCall('download/get_token.cgi', { url: `https://1fichier.com/?${fileId}`, inline: 1 }, LANE_PLAY)
+  const body = await onefichierCall('download/get_token.cgi', { url: `https://1fichier.com/?${fileId}`, pretty: 1 }, LANE_PLAY)
   if (!body?.url) throw new OnefichierError('unavailable', '1fichier: réponse sans lien', 502)
   await admin.from('onefichier_links').upsert({ file_id: fileId, url: body.url, expires_at: new Date(Date.now() + LINK_TTL_S * 1000).toISOString() })
   return { url: body.url, ttl: LINK_TTL_S }

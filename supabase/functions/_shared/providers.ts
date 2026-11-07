@@ -1,4 +1,7 @@
 import { onefichierLink, OnefichierError, type OnefichierFailure } from './onefichier.ts'
+import { DebridError, unlock, type DebridFailure } from './alldebrid.ts'
+import { getSecret } from './secrets.ts'
+import { buildStreamUrl } from './stream-url.ts'
 
 // 'pixeldrain' reste dans l'enum de la base mais n'est plus lu : ces sources sont refusées (invalid_source).
 export type Provider = 'pixeldrain' | 'onefichier' | 'alist' | 'other'
@@ -17,7 +20,7 @@ export type MediaSource = {
 
 export type Resolved = { url: string; ttl: number; filename?: string }
 
-export type FailureKind = OnefichierFailure | 'invalid_source' | 'unknown'
+export type FailureKind = OnefichierFailure | DebridFailure | 'invalid_source' | 'unknown'
 
 export class ResolveError extends Error {
   constructor(
@@ -29,9 +32,22 @@ export class ResolveError extends Error {
   }
 }
 
-// ───────── 1fichier : lien direct via l'API du compte (régulée, voir onefichier.ts)
+// ───────── 1fichier : Alldebrid d'abord (si clé configurée), repli sur le lien direct de l'API du compte
 async function resolveOnefichier(src: MediaSource, refresh: boolean): Promise<Resolved> {
   if (!src.file_id) throw new ResolveError('1fichier: file_id manquant', 422, 'invalid_source')
+
+  if (await getSecret('ALLDEBRID_API_KEY')) {
+    try {
+      const u = await unlock(buildStreamUrl('onefichier', src.file_id))
+      return { url: u.url, ttl: u.ttl, filename: u.filename }
+    } catch (e) {
+      if (!(e instanceof DebridError)) throw e
+      // Fichier supprimé : inutile d'insister chez 1fichier
+      if (e.failure === 'offline') throw new ResolveError(`Alldebrid ${e.code}: ${e.message}`, 404, 'offline')
+      console.warn('[resolve-stream] Alldebrid KO → repli 1fichier direct', e.code, e.message)
+    }
+  }
+
   try {
     const l = await onefichierLink(src.file_id, refresh)
     return { url: l.url, ttl: l.ttl }

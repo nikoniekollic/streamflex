@@ -3,6 +3,8 @@ import { adminClient } from './admin-client.ts'
 
 export type SecretName =
   | 'ONEFICHIER_API_KEY'
+  | 'ALLDEBRID_API_KEY'
+  | 'ALLDEBRID_AGENT'
   | 'UPSTASH_REDIS_REST_URL'
   | 'UPSTASH_REDIS_REST_TOKEN'
   | 'REDIS_URL'

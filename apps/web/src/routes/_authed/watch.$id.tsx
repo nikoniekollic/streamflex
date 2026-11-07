@@ -9,7 +9,6 @@ import { StreamError, loadWatch, type Quality } from '@/lib/stream'
 import { loadSubtitleUrl } from '@/lib/subtitles'
 import { requireActiveProfile } from '@/lib/route-guards'
 
-const MAX_MEDIA_RETRIES = 2
 
 type WatchSearch = { episode?: string; t?: number }
 
@@ -85,18 +84,13 @@ function WatchSession() {
     (at: number) => {
       if (state.status !== 'ready') return
       setStartAt(at)
+      // Aucun réessai automatique : 1fichier bloque l'IP après trop de requêtes erronées.
+      // L'utilisateur relance à la main (bouton « Réessayer »).
       mediaRetries.current += 1
-      console.warn(`[StreamFlex] échec de lecture (tentative ${mediaRetries.current}/${MAX_MEDIA_RETRIES})`, state.stream.url)
-      // Plafond strict : plus de boucle infinie de réessais
-      if (mediaRetries.current > MAX_MEDIA_RETRIES) {
-        console.error('[StreamFlex] abandon après', MAX_MEDIA_RETRIES, 'réessais — voir les logs <video> ci-dessus')
-        setPlaybackFailed(true)
-        return
-      }
-      if (mediaRetries.current === 1) void resolve({ quality: state.stream.quality, refresh: true }, 2)
-      else void resolve({ refresh: true, exclude: [state.stream.sourceId] }, 3)
+      console.error('[StreamFlex] échec de lecture — pas de réessai automatique', state.stream.url)
+      setPlaybackFailed(true)
     },
-    [resolve, state],
+    [state],
   )
 
   const loadSubtitle = useCallback((id: string) => loadSubtitleUrl(supabase, id), [supabase])
