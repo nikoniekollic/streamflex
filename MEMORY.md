@@ -748,6 +748,13 @@ Pixeldrain et Alldebrid ont été **abandonnés** (étapes 6, 7, 11 : ne plus s'
 - Mesuré (/browse, cache navigateur vidé) : 1er passage = 18 débridages + 18 liens déposés, 12 jaquettes prêtes en ~12 s ; 2e passage = **0 débridage**, lot de 24 en 0,64 s, 12 jaquettes prêtes en ~5 s (dont ~2,7 s de chargement de page)
 - Risque assumé : un abonné malveillant peut déposer le lien d'un autre fichier debrid.it pour un titre (durée 90 min max)
 
+## Étape 40 — Jaquettes stables (remplace « Captures ») (2026-11-09) ✅ déployé
+- debrid.it n'envoie **aucun en-tête CORS** (testé avec/sans Origin, preflight inclus) → lecture des pixels impossible : l'ancienne page Captures (canvas → fichier) ne pouvait pas marcher
+- `titles.cover_pos` (0–0,95 = fraction de la durée) : la jaquette = image de la vidéo à ce moment, **identique à chaque visite** (vérifié : 12/12 positions identiques sur 2 chargements). Défaut aléatoire 0,12–0,67 pour les nouveaux films, rempli pour les 33 137 existants par la migration (le trigger `updated_at` suspendu pour garder l'ordre de l'admin ; **une mise à jour de 33 000 lignes prend ~23 s : à ne jamais faire depuis l'API**, délai ~8 s)
+- Admin → « Jaquettes » (`captures.tsx`) : stats, bouton par paquets de 2 000, choix du moment film par film (lecteur + curseur)
+- Piège corrigé : avec les liens en cache, la vidéo se plaçait avant d'avoir reçu son `cover_pos` → la jaquette attend maintenant ses métadonnées (`useCoverPos` : undefined = pas chargé)
+- Vrais fichiers image possibles seulement via un script local (ffmpeg, IP domestique) ou la capture d'écran du navigateur ; non fait
+
 ## ~~Problème ouvert — lecture~~ (résolu ci-dessus)
 - Fichiers importés : `resolve-stream` renvoie 200 + URL, mais le lecteur reste sur la roue sans démarrer ; avancer dans la vidéo donne « Sources indisponibles »
 - Correctifs déployés : suppression de `probeStream` (double téléchargement), `refresh` → lien neuf (`force`)
