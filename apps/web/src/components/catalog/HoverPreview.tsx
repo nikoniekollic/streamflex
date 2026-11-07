@@ -29,7 +29,7 @@ type ClipProps = {
   className?: string
 }
 
-const AMBIENT_CLIP_S = 12
+const AMBIENT_CLIP_S = 30 // même durée partout : ~30 s par affiche
 
 /** Extrait vidéo d'un instant aléatoire du film (lien Alldebrid débridé dans le navigateur), lu en boucle. */
 export function PreviewClip({ titleId, active, clipSeconds = 30, delayMs = 700, audio = false, warm = false, className }: ClipProps) {
@@ -171,5 +171,6 @@ export function PreviewClip({ titleId, active, clipSeconds = 30, delayMs = 700, 
 
 /** Jaquette du catalogue : lecture silencieuse sur quelques cartes visibles, aperçu de ~30 s avec le son au survol. */
 export function HoverPreview({ titleId, active }: { titleId: string; active: boolean }) {
-  return <PreviewClip titleId={titleId} active={active} audio warm delayMs={120} className="absolute inset-0 z-[1]" />
+  // object-contain + fond noir : on voit TOUTE l'image de la vidéo dans la jaquette (rien n'est rogné)
+  return <PreviewClip titleId={titleId} active={active} audio warm clipSeconds={30} delayMs={120} className="absolute inset-0 z-[1] bg-black object-contain" />
 }
