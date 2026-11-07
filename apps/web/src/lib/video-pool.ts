@@ -91,7 +91,7 @@ export const peekSlot = (titleId: string, url: string | null): PoolSlot | null =
   (url && pool.get(titleId)?.find((s) => s.url === url && !s.attached && !s.failed)) || null
 
 /** Élément pour une jaquette : un élément libre déjà chargé, sinon un nouveau. */
-export function acquireSlot(titleId: string, url: string, clip: number, order = 0): PoolSlot {
+export function acquireSlot(titleId: string, url: string, clip: number, order = 0, coverPos: number | null = null): PoolSlot {
   const list = pool.get(titleId) ?? []
   // éléments d'une ancienne URL (lien expiré) : jetés
   for (const old of list.filter((s) => s.url !== url && !s.attached)) destroy(old)
@@ -126,7 +126,8 @@ export function acquireSlot(titleId: string, url: string, clip: number, order = 
     reportDuration(supabase, titleId, d)
     // instant aléatoire, assez tôt pour qu'il reste de quoi remplir l'extrait
     if (Number.isFinite(d) && d > slot.clip * 2) {
-      el.currentTime = Math.min(d * (0.1 + Math.random() * 0.7), d - slot.clip - 1)
+      // moment enregistré par l'admin (jaquette stable) ; à défaut, un instant au hasard
+      el.currentTime = Math.min(d * (coverPos ?? 0.1 + Math.random() * 0.7), d - slot.clip - 1)
       // Mesuré : certains fichiers mettent 15 à 20 s à répondre à un saut (l'hébergeur rouvre le fichier à ce décalage).
       // Au bout de 4 s on montre ce qui est déjà tamponné (le début du fichier) au lieu de laisser la jaquette sans image.
       slot.fallback = setTimeout(() => {

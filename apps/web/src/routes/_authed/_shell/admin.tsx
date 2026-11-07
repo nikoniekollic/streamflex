@@ -11,7 +11,7 @@ export const Route = createFileRoute('/_authed/_shell/admin')({
 const TABS = [
   { to: '/admin', label: 'Catalogue', icon: Film, exact: true },
   { to: '/admin/import', label: 'Import 1fichier', icon: FolderDown, exact: false },
-  { to: '/admin/captures', label: 'Captures', icon: Camera, exact: false },
+  { to: '/admin/captures', label: 'Jaquettes', icon: Camera, exact: false },
   { to: '/admin/models', label: 'Modèles', icon: UserRound, exact: false },
   { to: '/admin/appearance', label: 'Apparence', icon: Palette, exact: false },
   { to: '/admin/stats', label: 'Statistiques', icon: BarChart3, exact: false },

@@ -10,7 +10,7 @@ import { isModelCover, stripModelMark } from '@/lib/cover'
 import { ModelName } from '@/components/catalog/ModelName'
 import { HoverPreview } from '@/components/catalog/HoverPreview'
 import { PlaylistMenu } from '@/components/catalog/PlaylistMenu'
-import { formatMinutes, useTitleLength } from '@/lib/model-names'
+import { formatMinutes, useCoverPos, useTitleLength } from '@/lib/model-names'
 
 type MovieCardProps = {
   title: CatalogTitle
@@ -31,6 +31,7 @@ export function MovieCard({ title, variant = 'poster', progress, watch, favorite
   const navigate = useNavigate()
   const isMovie = title.type === 'movie'
   const length = useTitleLength(title.id, title.runtime_minutes)
+  const coverPos = useCoverPos(title.id)
   const src = isBackdrop ? (title.backdrop_url ?? title.poster_url) : (title.poster_url ?? title.backdrop_url)
 
   const content = (
@@ -51,7 +52,7 @@ export function MovieCard({ title, variant = 'poster', progress, watch, favorite
       )}
 
       <ModelName titleId={title.id} />
-      {isMovie && <HoverPreview title={title} active={hovered} />}
+      {isMovie && <HoverPreview title={title} active={hovered} coverPos={coverPos} />}
 
       <div className="absolute inset-0 z-[3] flex flex-col justify-end bg-gradient-to-t from-black/90 via-black/20 to-transparent p-3 opacity-0 transition-opacity duration-300 group-focus-within/card:opacity-100 group-hover/card:opacity-100">
         <div className="flex items-center gap-2">

@@ -10,6 +10,8 @@ const nameOfTitle = new Map<string, string | null>()
 /** minutes : durée réelle si connue, sinon estimée d'après la taille du fichier (estimated = true) */
 export type TitleLength = { minutes: number; estimated: boolean }
 const lengthOfTitle = new Map<string, TitleLength | null>()
+/** moment (fraction de la durée) de l'image de la jaquette, null = au hasard */
+const coverOfTitle = new Map<string, number | null>()
 const listeners = new Set<() => void>()
 let version = 0
 let modelsPromise: Promise<Map<string, string>> | null = null
@@ -46,15 +48,16 @@ async function flush() {
   const models = await loadModels()
   for (let i = 0; i < ids.length; i += 150) {
     const chunk = ids.slice(i, i + 150)
-    const { data, error } = await (supabase as unknown as SupabaseClient).from('titles').select('id, model_id, runtime_minutes, len_key').in('id', chunk)
+    const { data, error } = await (supabase as unknown as SupabaseClient).from('titles').select('id, model_id, runtime_minutes, len_key, cover_pos').in('id', chunk)
     if (error) continue
-    type Row = { id: string; model_id: string | null; runtime_minutes: number | null; len_key: number | null }
+    type Row = { id: string; model_id: string | null; runtime_minutes: number | null; len_key: number | null; cover_pos: number | null }
     const found = new Map(((data ?? []) as Row[]).map((r) => [r.id, r]))
     for (const id of chunk) {
       const r = found.get(id)
       nameOfTitle.set(id, r?.model_id ? (models.get(r.model_id) ?? null) : null)
       const minutes = r?.runtime_minutes ?? (r?.len_key ? Math.max(1, Math.round(r.len_key)) : null)
       lengthOfTitle.set(id, minutes ? { minutes, estimated: r?.runtime_minutes == null } : null)
+      coverOfTitle.set(id, r?.cover_pos ?? null)
     }
   }
   notify()
@@ -97,4 +100,11 @@ export function formatMinutes(m: number): string {
   const h = Math.floor(m / 60)
   const r = m % 60
   return r ? `${h} h ${String(r).padStart(2, '0')}` : `${h} h`
+}
+
+/** Moment de l'image de la jaquette (fraction de la durée), chargé par lots avec le nom du modèle. */
+export function useCoverPos(titleId: string): number | null {
+  useSyncExternalStore(subscribe, () => version)
+  useEffect(() => request(titleId), [titleId])
+  return coverOfTitle.get(titleId) ?? null
 }

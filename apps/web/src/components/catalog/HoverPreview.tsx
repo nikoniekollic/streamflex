@@ -91,7 +91,7 @@ const KEEP_SLOT_MS = 3000 // une carte qui sort de l'écran garde sa place 3 s (
 /** Rang d'une jaquette dans la page : ligne par ligne, de gauche à droite (première ligne = chargée en premier). */
 const pageOrder = (r: DOMRect) => Math.round((r.top + window.scrollY) / 20) * 10_000 + Math.round(r.left)
 
-export function HoverPreview({ title, active }: { title: CatalogTitle; active: boolean }) {
+export function HoverPreview({ title, active, coverPos = null }: { title: CatalogTitle; active: boolean; coverPos?: number | null }) {
   const titleId = title.id
   // Un même film peut apparaître dans plusieurs rangées : visibilité et élément vidéo sont propres à chaque carte
   const visKey = `${titleId}#${useId()}`
@@ -107,6 +107,8 @@ export function HoverPreview({ title, active }: { title: CatalogTitle; active: b
   const retries = useRef(0)
   const activeRef = useRef(active)
   activeRef.current = active
+  const coverRef = useRef(coverPos)
+  coverRef.current = coverPos
 
   useSyncExternalStore(subscribeAmbient, getAmbientVersion)
   const known = peekSlot(titleId, url)
@@ -180,7 +182,7 @@ export function HoverPreview({ title, active }: { title: CatalogTitle; active: b
   useEffect(() => {
     const h = host.current
     if (!show || !url || !h) return
-    const slot = acquireSlot(titleId, url, cfg.clipSeconds, pageOrder(h.getBoundingClientRect()))
+    const slot = acquireSlot(titleId, url, cfg.clipSeconds, pageOrder(h.getBoundingClientRect()), coverRef.current)
     slotRef.current = slot
     attachSlot(slot, h)
     const sync = () => {
