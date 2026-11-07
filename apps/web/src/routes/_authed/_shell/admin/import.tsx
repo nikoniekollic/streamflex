@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { ImportJobsPanel } from '@/components/admin/ImportJobsPanel'
 import { WatchPanel } from '@/components/admin/WatchPanel'
-import { importFiles, listFolder, startImportJob, type ImportResult, type Listing, type RemoteFile, type RemoteFolder } from '@/lib/onefichier-import'
+import { importFiles, listFolder, startImportJob, type ImportResult, type ModelMode, type Listing, type RemoteFile, type RemoteFolder } from '@/lib/onefichier-import'
 
 export const Route = createFileRoute('/_authed/_shell/admin/import')({
   component: ImportAdmin,
@@ -27,6 +27,8 @@ function ImportAdmin() {
   const [pickedFiles, setPickedFiles] = useState<ReadonlySet<string>>(new Set())
   const [publish, setPublish] = useState(false)
   const [asModels, setAsModels] = useState(true)
+  const [modelMode, setModelMode] = useState<ModelMode>('children')
+  const [reassign, setReassign] = useState(false)
 
   const [running, setRunning] = useState(false)
   const [jobsKey, setJobsKey] = useState(0)
@@ -122,7 +124,7 @@ function ImportAdmin() {
   const startServerJob = async () => {
     const here = path[path.length - 1]
     try {
-      await startImportJob(supabase, here.id, here.name, publish, asModels)
+      await startImportJob(supabase, here.id, here.name, publish, asModels, modelMode, reassign)
       toast.success(`Import de « ${here.name} » lancé sur le serveur`)
       setJobsKey((k) => k + 1)
     } catch (e) {
@@ -179,6 +181,23 @@ function ImportAdmin() {
             <label className="flex items-center gap-1.5 text-sm">
               <input type="checkbox" checked={asModels} onChange={(e) => setAsModels(e.target.checked)} disabled={running} /> Un modèle par dossier
             </label>
+            {asModels && (
+              <>
+                <select
+                  value={modelMode}
+                  onChange={(e) => setModelMode(e.target.value as ModelMode)}
+                  disabled={running}
+                  aria-label="Nom du modèle"
+                  className="h-9 rounded-md border bg-background px-2 text-sm"
+                >
+                  <option value="children">Ce dossier contient des modèles (1 sous-dossier = 1 modèle)</option>
+                  <option value="inherit">Ce dossier EST le modèle (tout dessous en hérite)</option>
+                </select>
+                <label className="flex items-center gap-1.5 text-sm" title="Rattache aussi au bon modèle les fichiers déjà importés (ex. ceux rangés sous un faux modèle « video »)">
+                  <input type="checkbox" checked={reassign} onChange={(e) => setReassign(e.target.checked)} disabled={running} /> Corriger les fichiers déjà importés
+                </label>
+              </>
+            )}
           </div>
 
           {listing.capped && (

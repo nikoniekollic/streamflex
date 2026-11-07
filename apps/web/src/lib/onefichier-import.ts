@@ -52,8 +52,18 @@ export type ImportJob = {
   completed_at: string | null
 }
 
-export const startImportJob = (s: TypedSupabaseClient, folderId: number, name: string, publish: boolean, modelPerFolder: boolean) =>
-  call<{ job_id: string }>(s, { action: 'job_start', folder_id: folderId, name, publish, model_per_folder: modelPerFolder })
+export type ModelMode = 'children' | 'inherit'
+
+/** modelMode : « children » = chaque sous-dossier direct est un modèle ; « inherit » = le dossier choisi est LE modèle. reassign = corrige aussi les fichiers déjà importés. */
+export const startImportJob = (
+  s: TypedSupabaseClient,
+  folderId: number,
+  name: string,
+  publish: boolean,
+  modelPerFolder: boolean,
+  modelMode: ModelMode = 'children',
+  reassign = false,
+) => call<{ job_id: string }>(s, { action: 'job_start', folder_id: folderId, name, publish, model_per_folder: modelPerFolder, model_mode: modelMode, reassign })
 
 /** Avancement des derniers jobs ; relance aussi ceux qui sont bloqués (battement de cœur). */
 export const fetchImportJobs = async (s: TypedSupabaseClient) => (await call<{ jobs: ImportJob[] }>(s, { action: 'job_status' })).jobs

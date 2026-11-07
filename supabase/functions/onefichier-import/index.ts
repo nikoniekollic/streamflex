@@ -190,7 +190,18 @@ const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!
 const BATCH_ROWS = 500
 const MAX_TRIES = 3
 
-type QueueEntry = { id: number; name: string; model: string | null; tries?: number }
+type QueueEntry = { id: number; name: string; model: string | null; depth?: number; tries?: number }
+
+// Dossiers « génériques » (video, photos…) : jamais un modèle, ils héritent du dossier parent (miroir SQL : is_generic_folder)
+const GENERIC_FOLDER =
+  /^(videos?|vid[eé]os?|vids?|clips?|movies?|films?|photos?|pics?|images?|media|medias|m[eé]dias?|new|news|nouveau|nouveaux|nouveaut[eé]s?|hd|fhd|uhd|4k|1080p?|720p?|480p?|full ?hd|originaux?|originals?|sources?|exclusive?s?|bonus|divers|autres?|misc|other|archives?|old|part ?[0-9]+|[0-9]{4})$/i
+
+/** Nom du modèle d'un sous-dossier : seul le dossier situé juste sous la racine est un modèle, le reste en hérite. */
+function childModel(parent: QueueEntry, childName: string, mode: string): string | null {
+  const depth = parent.depth ?? 0
+  if (GENERIC_FOLDER.test(childName.trim()) || mode === 'inherit' || depth >= 1) return parent.model
+  return childName
+}
 
 /** Relance le job : le tick répond 202 tout de suite, donc aucun appel imbriqué. */
 function kick(jobId: string): Promise<void> {
@@ -209,11 +220,12 @@ function retrySeconds(message: string): number {
 }
 
 /** Importe les vidéos d'un dossier par lots (titres + sources) ; les fichiers déjà connus sont ignorés. */
-async function importVideos(videos: { id: string; name: string; size: number | null }[], modelName: string | null, publish: boolean) {
+async function importVideos(videos: { id: string; name: string; size: number | null }[], modelName: string | null, publish: boolean, reassign = false) {
   const db = adminClient()
   let imported = 0
   let ignored = 0
   let failed = 0
+  let fixed = 0
   const model = modelName && videos.length > 0 && modelName !== 'Racine' ? await ensureModel(modelName) : null
   for (let i = 0; i < videos.length; i += BATCH_ROWS) {
     const rows = videos.slice(i, i + BATCH_ROWS).map((f) => {
@@ -225,14 +237,16 @@ async function importVideos(videos: { id: string; name: string; size: number | n
       p_publish: publish,
       p_model_id: model?.id ?? null,
       p_poster: model?.image_url ? `${model.image_url}#model` : null,
+      p_reassign: reassign,
     })
     if (error) failed += rows.length
     else {
       imported += Number(data?.imported ?? 0)
       ignored += Number(data?.ignored ?? 0)
+      fixed += Number(data?.fixed ?? 0)
     }
   }
-  return { imported, ignored, failed }
+  return { imported, ignored, failed, fixed }
 }
 
 /** Traite UN dossier. Retourne true s'il reste du travail à enchaîner tout de suite. */
@@ -255,11 +269,11 @@ async function tickOnce(jobId: string): Promise<boolean> {
   try {
     const listing = await listFolder(entry.id, false)
     const videos = listing.files.filter((f) => f.video)
-    const r = await importVideos(videos, job.model_per_folder ? entry.model : null, job.publish === true)
+    const r = await importVideos(videos, job.model_per_folder ? entry.model : null, job.publish === true, job.reassign === true)
     const imported = r.imported
     const ignored = listing.files.length - videos.length + r.ignored
     const failed = r.failed
-    const subs: QueueEntry[] = listing.folders.map((f) => ({ id: f.id, name: f.name, model: f.name }))
+    const subs: QueueEntry[] = listing.folders.map((f) => ({ id: f.id, name: f.name, model: childModel(entry, f.name, job.model_mode), depth: (entry.depth ?? 0) + 1 }))
     const next = [...rest, ...subs]
     const finished = next.length === 0
     await done({
@@ -273,7 +287,7 @@ async function tickOnce(jobId: string): Promise<boolean> {
       failed: Number(job.failed) + failed,
       current_folder: finished ? null : next[0].name,
       resume_at: null,
-      last_message: `${entry.name} : ${imported} importés, ${ignored} ignorés${listing.capped ? ' — ⚠ dossier plafonné à 5 000 (répartis en sous-dossiers)' : ''}${failed ? `, ${failed} échecs` : ''}`,
+      last_message: `${entry.name}${entry.model && entry.model !== entry.name ? ` (modèle ${entry.model})` : ''} : ${imported} importés${r.fixed ? `, ${r.fixed} corrigés` : ''}, ${ignored} ignorés${listing.capped ? ' — ⚠ dossier plafonné à 5 000 (répartis en sous-dossiers)' : ''}${failed ? `, ${failed} échecs` : ''}`,
     })
     return !finished
   } catch (e) {
@@ -344,7 +358,7 @@ async function watchTick(): Promise<string> {
 
   const { data: due } = await db
     .from('watch_folders')
-    .select('folder_id, name, interval_min')
+    .select('folder_id, parent_id, name, model_name, interval_min')
     .eq('active', true)
     .lte('next_scan_at', new Date().toISOString())
     .order('next_scan_at', { ascending: true })
@@ -359,12 +373,20 @@ async function watchTick(): Promise<string> {
     try {
       const listing = await listFolder(f.folder_id, false, LANE_WATCH)
       const videos = listing.files.filter((x) => x.video)
-      const r = await importVideos(videos, cfg.model_per_folder ? f.name : null, cfg.publish === true)
+      const r = await importVideos(videos, cfg.model_per_folder ? f.model_name : null, cfg.publish === true)
       let fresh = 0
       if (listing.folders.length > 0) {
         const { data } = await db
           .from('watch_folders')
-          .upsert(listing.folders.map((x) => ({ folder_id: x.id, parent_id: f.folder_id, name: x.name })), { onConflict: 'folder_id', ignoreDuplicates: true })
+          .upsert(
+            listing.folders.map((x) => ({
+              folder_id: x.id,
+              parent_id: f.folder_id,
+              name: x.name,
+              // juste sous la racine : le dossier est un modèle ; plus bas (ou dossier générique) : il hérite
+              model_name: f.folder_id === 0 || f.parent_id == null ? (GENERIC_FOLDER.test(x.name.trim()) ? null : x.name) : f.model_name,
+            })),
+            { onConflict: 'folder_id', ignoreDuplicates: true })
           .select('folder_id')
         fresh = data?.length ?? 0
       }
@@ -469,7 +491,9 @@ Deno.serve(async (req) => {
           root_name: name,
           publish: body.publish === true,
           model_per_folder: body.model_per_folder !== false,
-          queue: [{ id: folderId, name, model: name }],
+          model_mode: body.model_mode === 'inherit' ? 'inherit' : 'children',
+          reassign: body.reassign === true,
+          queue: [{ id: folderId, name, model: name, depth: 0 }],
           last_message: 'Démarrage…',
         })
         .select('id')

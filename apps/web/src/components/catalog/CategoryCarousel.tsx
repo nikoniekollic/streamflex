@@ -6,11 +6,14 @@ import type { CatalogTitle, ContinueItem } from '@/lib/catalog'
 const POSTER_ITEM = 'basis-[38%] sm:basis-[28%] md:basis-[22%] lg:basis-[16.66%] xl:basis-[14.28%] 2xl:basis-[12.5%]'
 const BACKDROP_ITEM = 'basis-[70%] sm:basis-[45%] md:basis-[33.33%] lg:basis-[25%] xl:basis-[20%]'
 
-function Row({ label, children }: { label: string; children: ReactNode }) {
+export function Row({ label, children, memoryKey, action }: { label: string; children: ReactNode; memoryKey?: string; action?: ReactNode }) {
   return (
     <section className="relative">
-      <h2 className="mb-2 px-6 text-lg font-semibold text-neutral-100 md:px-12 md:text-xl">{label}</h2>
-      <Carousel>
+      <div className="mb-2 flex items-baseline gap-4 px-6 md:px-12">
+        <h2 className="text-lg font-semibold text-neutral-100 md:text-xl">{label}</h2>
+        {action}
+      </div>
+      <Carousel memoryKey={memoryKey}>
         {/* py/px laissent la place au scale du hover */}
         <CarouselContent className="gap-2 px-6 py-4 md:px-12">{children}</CarouselContent>
         <CarouselPrevious />
@@ -23,7 +26,7 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 export function CategoryCarousel({ label, titles }: { label: string; titles: CatalogTitle[] }) {
   if (titles.length === 0) return null
   return (
-    <Row label={label}>
+    <Row label={label} memoryKey={`home:${label}`}>
       {titles.map((t) => (
         <CarouselItem key={t.id} className={POSTER_ITEM}>
           <MovieCard title={t} />
@@ -36,7 +39,7 @@ export function CategoryCarousel({ label, titles }: { label: string; titles: Cat
 export function ContinueWatchingCarousel({ items }: { items: ContinueItem[] }) {
   if (items.length === 0) return null
   return (
-    <Row label="Reprendre la lecture">
+    <Row label="Reprendre la lecture" memoryKey="home:continue">
       {items.map((i) => (
         <CarouselItem key={i.id} className={BACKDROP_ITEM}>
           <MovieCard

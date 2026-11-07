@@ -22,7 +22,9 @@ function useCarousel() {
   return ctx
 }
 
-function Carousel({ className, children, ...props }: React.ComponentProps<'div'>) {
+const MEMORY_PREFIX = 'sf:row:'
+
+function Carousel({ className, children, memoryKey, ...props }: React.ComponentProps<'div'> & { memoryKey?: string }) {
   const viewportRef = React.useRef<HTMLDivElement | null>(null)
   const [canScrollPrev, setCanScrollPrev] = React.useState(false)
   const [canScrollNext, setCanScrollNext] = React.useState(false)
@@ -42,6 +44,39 @@ function Carousel({ className, children, ...props }: React.ComponentProps<'div'>
 
   const scrollPrev = React.useCallback(() => scrollBy(-1), [scrollBy])
   const scrollNext = React.useCallback(() => scrollBy(1), [scrollBy])
+
+  // Mémoire de position : on retrouve la rangée là où on l'avait laissée (retour arrière, navigation)
+  React.useLayoutEffect(() => {
+    const el = viewportRef.current
+    if (!el || !memoryKey) return
+    let saved = 0
+    try {
+      saved = Number(sessionStorage.getItem(MEMORY_PREFIX + memoryKey)) || 0
+    } catch {
+      /* stockage indisponible */
+    }
+    if (saved > 0) {
+      el.style.scrollBehavior = 'auto'
+      el.scrollLeft = saved
+      el.style.scrollBehavior = ''
+    }
+    let raf = 0
+    const save = () => {
+      cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(() => {
+        try {
+          sessionStorage.setItem(MEMORY_PREFIX + memoryKey, String(Math.round(el.scrollLeft)))
+        } catch {
+          /* ignoré */
+        }
+      })
+    }
+    el.addEventListener('scroll', save, { passive: true })
+    return () => {
+      el.removeEventListener('scroll', save)
+      cancelAnimationFrame(raf)
+    }
+  }, [memoryKey])
 
   React.useEffect(() => {
     const el = viewportRef.current

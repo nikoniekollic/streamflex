@@ -39,6 +39,11 @@ export function AppHeader() {
         <Link to="/browse" activeProps={{ className: 'font-semibold text-white' }}>
           Catalogue
         </Link>
+        {!isKids && (
+          <Link to="/models" activeProps={{ className: 'font-semibold text-white' }}>
+            Modèles
+          </Link>
+        )}
         <Link to="/my-list" activeProps={{ className: 'font-semibold text-white' }}>
           Ma liste
         </Link>

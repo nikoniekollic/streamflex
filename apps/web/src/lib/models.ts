@@ -68,3 +68,17 @@ export async function attachByQuery(s: TypedSupabaseClient, model: string, q: st
   if (error) fail(error)
   return data ?? 0
 }
+
+/** Déplace tous les titres de « from » vers « into » puis supprime « from » (ex. un faux modèle « video »). */
+export async function mergeModels(s: TypedSupabaseClient, from: string, into: string) {
+  const { data, error } = await (s as unknown as { rpc: (n: string, a: object) => Promise<{ data: number | null; error: { message: string } | null }> }).rpc('admin_merge_models', { p_from: from, p_into: into })
+  if (error) fail(error)
+  return data ?? 0
+}
+
+/** Supprime les modèles sans aucun titre rattaché. */
+export async function deleteEmptyModels(s: TypedSupabaseClient) {
+  const { data, error } = await (s as unknown as { rpc: (n: string) => Promise<{ data: number | null; error: { message: string } | null }> }).rpc('admin_delete_empty_models')
+  if (error) fail(error)
+  return data ?? 0
+}

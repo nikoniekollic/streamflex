@@ -11,7 +11,9 @@ import {
   attachByQuery,
   attachTitles,
   createModel,
+  deleteEmptyModels,
   deleteModel,
+  mergeModels,
   listModels,
   modelSchema,
   searchTitlesForModel,
@@ -110,10 +112,32 @@ function ModelsAdmin() {
             </li>
           ))}
         </ul>
+        {models.some((m) => m.titles_count === 0) && (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={busy}
+            onClick={async () => {
+              setBusy(true)
+              try {
+                const n = await deleteEmptyModels(supabase)
+                toast.success(`${n} modèle${n > 1 ? 's' : ''} vide${n > 1 ? 's' : ''} supprimé${n > 1 ? 's' : ''}`)
+                setSelectedId(null)
+                await refresh()
+              } catch (err) {
+                toast.error(msg(err))
+              } finally {
+                setBusy(false)
+              }
+            }}
+          >
+            <Trash2 className="size-4" /> Supprimer les modèles vides ({models.filter((m) => m.titles_count === 0).length})
+          </Button>
+        )}
       </div>
 
       {selected ? (
-        <ModelDetail key={selected.id} model={selected} onChanged={refresh} onDeleted={() => (setSelectedId(null), refresh())} />
+        <ModelDetail key={selected.id} model={selected} others={models.filter((m) => m.id !== selected.id)} onMerged={(id) => (setSelectedId(id), refresh())} onChanged={refresh} onDeleted={() => (setSelectedId(null), refresh())} />
       ) : (
         <p className="rounded-lg border border-dashed p-10 text-center text-muted-foreground">Crée ou sélectionne un modèle.</p>
       )}
@@ -131,7 +155,7 @@ function Avatar({ url }: { url: string | null }) {
   )
 }
 
-function ModelDetail({ model, onChanged, onDeleted }: { model: AdminModel; onChanged: () => unknown; onDeleted: () => void }) {
+function ModelDetail({ model, others, onMerged, onChanged, onDeleted }: { model: AdminModel; others: AdminModel[]; onMerged: (intoId: string) => unknown; onChanged: () => unknown; onDeleted: () => void }) {
   const { supabase } = Route.useRouteContext()
   const [name, setName] = useState(model.name)
   const [url, setUrl] = useState(model.image_url ?? '')
@@ -141,6 +165,7 @@ function ModelDetail({ model, onChanged, onDeleted }: { model: AdminModel; onCha
   const [searched, setSearched] = useState(false)
   const [picked, setPicked] = useState<ReadonlySet<string>>(new Set())
   const [override, setOverride] = useState(false)
+  const [mergeInto, setMergeInto] = useState('')
 
   const run = async (fn: () => Promise<unknown>, ok: string) => {
     setBusy(true)
@@ -243,6 +268,44 @@ function ModelDetail({ model, onChanged, onDeleted }: { model: AdminModel; onCha
             </div>
           </div>
         </div>
+        {others.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 rounded-md bg-muted/40 p-2 text-sm">
+            <span className="text-muted-foreground">Ce n’est pas un vrai modèle (ex. « video ») ? Fusionner dans :</span>
+            <select
+              value={mergeInto}
+              onChange={(e) => setMergeInto(e.target.value)}
+              disabled={busy}
+              aria-label="Modèle de destination"
+              className="h-9 min-w-40 rounded-md border bg-background px-2"
+            >
+              <option value="">Choisir un modèle…</option>
+              {others.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name} ({m.titles_count})
+                </option>
+              ))}
+            </select>
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={busy || !mergeInto}
+              onClick={async () => {
+                if (!window.confirm(`Déplacer les ${model.titles_count} jaquette(s) de « ${model.name} » puis supprimer « ${model.name} » ?`)) return
+                setBusy(true)
+                try {
+                  const n = await mergeModels(supabase, model.id, mergeInto)
+                  toast.success(`${n} jaquette(s) déplacée(s), « ${model.name} » supprimé`)
+                  await onMerged(mergeInto)
+                } catch (err) {
+                  toast.error(msg(err))
+                  setBusy(false)
+                }
+              }}
+            >
+              Fusionner
+            </Button>
+          </div>
+        )}
         <p className="text-xs text-muted-foreground">{model.titles_count} jaquette(s) rattachée(s). Chacune garde son propre symbole coloré et son nom de fichier par-dessus l’image du modèle.</p>
       </section>
 

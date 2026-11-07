@@ -2,6 +2,7 @@ import { Link, Outlet, createFileRoute, useRouteContext } from '@tanstack/react-
 import { KeyRound } from 'lucide-react'
 import { AppHeader } from '@/components/layout/AppHeader'
 import { requireActiveProfile } from '@/lib/route-guards'
+import { useSiteSettings } from '@/lib/site-settings'
 
 export const Route = createFileRoute('/_authed/_shell')({
   beforeLoad: ({ context, location }) => requireActiveProfile(context, location.href),
@@ -10,6 +11,7 @@ export const Route = createFileRoute('/_authed/_shell')({
 
 function Shell() {
   const { hasAccess, subscription } = useRouteContext({ from: '/_authed' })
+  useSiteSettings() // charge et applique le thème choisi par l'admin
   return (
     <>
       <AppHeader />

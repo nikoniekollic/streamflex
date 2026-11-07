@@ -1,5 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { fetchHome } from '@/lib/catalog'
+import { fetchPublicModels } from '@/lib/model-catalog'
+import { ModelsCarousel } from '@/components/catalog/ModelsCarousel'
 import { HeroBanner, HeroBannerSkeleton } from '@/components/catalog/HeroBanner'
 import { HeroCarousel } from '@/components/catalog/HeroCarousel'
 import {
@@ -9,14 +11,23 @@ import {
 } from '@/components/catalog/CategoryCarousel'
 
 export const Route = createFileRoute('/_authed/_shell/')({
-  loader: ({ context }) => fetchHome(context.supabase, context.activeProfile!),
-  staleTime: 60_000,
+  loader: async ({ context }) => {
+    const profile = context.activeProfile!
+    const [home, models] = await Promise.all([
+      fetchHome(context.supabase, profile),
+      profile.is_kids_profile ? Promise.resolve(null) : fetchPublicModels(context.supabase, 1, 24).catch(() => null),
+    ])
+    return { ...home, models: models?.models ?? [] }
+  },
+  // données gardées 10 min : un retour arrière retrouve la page telle qu'on l'a quittée (position comprise)
+  staleTime: 10 * 60_000,
+  gcTime: 30 * 60_000,
   pendingComponent: HomeSkeleton,
   component: Home,
 })
 
 function Home() {
-  const { hero, latest, continueWatching, rows, isMock } = Route.useLoaderData()
+  const { hero, latest, continueWatching, rows, isMock, models } = Route.useLoaderData()
   const [trending, ...others] = rows
 
   if (!hero && rows.length === 0 && continueWatching.length === 0) {
@@ -34,6 +45,7 @@ function Home() {
       <div className={latest.length > 0 ? 'relative z-10 mt-8 flex flex-col gap-4 md:gap-6' : 'relative z-10 -mt-24 flex flex-col gap-4 md:-mt-32 md:gap-6'}>
         <ContinueWatchingCarousel items={continueWatching} />
         {trending && <CategoryCarousel label={trending.label} titles={trending.titles} />}
+        <ModelsCarousel models={models} />
         {others.map((r) => (
           <CategoryCarousel key={r.key} label={r.label} titles={r.titles} />
         ))}

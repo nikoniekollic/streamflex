@@ -1,3 +1,5 @@
+import { DEFAULT_SETTINGS, NAME_PALETTES, type SiteSettings } from '@/lib/site-settings'
+
 // Jaquettes générées : couleurs et symbole déterministes (aléatoires d'un fichier à l'autre, stables pour un même fichier).
 export const MODEL_MARK = '#model'
 
@@ -32,18 +34,18 @@ export function coverStyle(seed: string): CoverStyle {
 }
 
 // ───────── Nom du modèle au centre de la jaquette : police et couleurs propres à chaque modèle
-// (polices système uniquement : la CSP interdit les polices distantes)
-const NAME_FONTS = [
-  { family: "Impact, 'Arial Narrow', sans-serif", weight: 400, style: 'normal', upper: true, spacing: '0.04em' },
-  { family: "Georgia, 'Times New Roman', serif", weight: 700, style: 'italic', upper: false, spacing: '0' },
-  { family: "'Courier New', monospace", weight: 700, style: 'normal', upper: true, spacing: '0.02em' },
-  { family: "'Trebuchet MS', Helvetica, sans-serif", weight: 800, style: 'normal', upper: false, spacing: '0' },
-  { family: "'Brush Script MT', 'Segoe Script', cursive", weight: 700, style: 'italic', upper: false, spacing: '0.02em' },
-  { family: "'Palatino Linotype', Palatino, serif", weight: 700, style: 'normal', upper: true, spacing: '0.12em' },
-  { family: 'Verdana, Geneva, sans-serif', weight: 700, style: 'normal', upper: true, spacing: '0.18em' },
-  { family: "'Comic Sans MS', 'Chalkboard SE', cursive", weight: 700, style: 'normal', upper: false, spacing: '0' },
-  { family: "'Arial Black', Gadget, sans-serif", weight: 900, style: 'normal', upper: true, spacing: '0' },
-  { family: "'Lucida Console', Monaco, monospace", weight: 700, style: 'normal', upper: false, spacing: '0.05em' },
+// (polices système uniquement : la CSP interdit les polices distantes). Réglable depuis l'admin (Apparence).
+export const NAME_FONTS = [
+  { key: 'impact', label: 'Impact', family: "Impact, 'Arial Narrow', sans-serif", weight: 400, style: 'normal', upper: true, spacing: '0.04em' },
+  { key: 'georgia', label: 'Georgia italique', family: "Georgia, 'Times New Roman', serif", weight: 700, style: 'italic', upper: false, spacing: '0' },
+  { key: 'courier', label: 'Machine à écrire', family: "'Courier New', monospace", weight: 700, style: 'normal', upper: true, spacing: '0.02em' },
+  { key: 'trebuchet', label: 'Trebuchet', family: "'Trebuchet MS', Helvetica, sans-serif", weight: 800, style: 'normal', upper: false, spacing: '0' },
+  { key: 'script', label: 'Manuscrit', family: "'Brush Script MT', 'Segoe Script', cursive", weight: 700, style: 'italic', upper: false, spacing: '0.02em' },
+  { key: 'palatino', label: 'Palatino', family: "'Palatino Linotype', Palatino, serif", weight: 700, style: 'normal', upper: true, spacing: '0.12em' },
+  { key: 'verdana', label: 'Verdana espacée', family: 'Verdana, Geneva, sans-serif', weight: 700, style: 'normal', upper: true, spacing: '0.18em' },
+  { key: 'comic', label: 'Comic', family: "'Comic Sans MS', 'Chalkboard SE', cursive", weight: 700, style: 'normal', upper: false, spacing: '0' },
+  { key: 'arialblack', label: 'Arial Black', family: "'Arial Black', Gadget, sans-serif", weight: 900, style: 'normal', upper: true, spacing: '0' },
+  { key: 'lucida', label: 'Lucida', family: "'Lucida Console', Monaco, monospace", weight: 700, style: 'normal', upper: false, spacing: '0.05em' },
 ] as const
 
 export type ModelNameStyle = {
@@ -58,20 +60,34 @@ export type ModelNameStyle = {
   fontSize: string
 }
 
-export function modelNameStyle(name: string): ModelNameStyle {
+export function modelNameStyle(name: string, cfg: SiteSettings['names'] = DEFAULT_SETTINGS.names): ModelNameStyle {
   const h = hash(name.toLowerCase())
-  const f = NAME_FONTS[h % NAME_FONTS.length]
+  const f = NAME_FONTS.find((x) => x.key === cfg.font) ?? NAME_FONTS[h % NAME_FONTS.length]
   const hue = (h >>> 8) % 360
   const len = name.length
+  const px = (len <= 8 ? 1.7 : len <= 14 ? 1.35 : len <= 22 ? 1.1 : 0.95) * cfg.size
+  let color = `hsl(${hue} 95% 80%)`
+  let stroke = `hsl(${(hue + 180) % 360} 85% 14%)`
+  let glow = `hsl(${(hue + 30) % 360} 100% 55%)`
+  if (cfg.colorMode === 'palette') {
+    const colors = NAME_PALETTES.find((p) => p.key === cfg.palette)?.colors ?? NAME_PALETTES[0].colors
+    color = colors[(h >>> 8) % colors.length]
+    stroke = '#0d0d0dcc'
+    glow = color
+  } else if (cfg.colorMode === 'fixed') {
+    color = cfg.color
+    stroke = cfg.stroke
+    glow = cfg.color
+  }
   return {
     fontFamily: f.family,
     fontWeight: f.weight,
     fontStyle: f.style,
-    textTransform: f.upper ? 'uppercase' : 'none',
+    textTransform: cfg.upper === 'auto' ? (f.upper ? 'uppercase' : 'none') : cfg.upper === 'on' ? 'uppercase' : 'none',
     letterSpacing: f.spacing,
-    color: `hsl(${hue} 95% 80%)`,
-    stroke: `hsl(${(hue + 180) % 360} 85% 14%)`,
-    glow: `hsl(${(hue + 30) % 360} 100% 55%)`,
-    fontSize: len <= 8 ? '1.7rem' : len <= 14 ? '1.35rem' : len <= 22 ? '1.1rem' : '0.95rem',
+    color,
+    stroke,
+    glow: cfg.glow ? glow : 'transparent',
+    fontSize: `${px.toFixed(2)}rem`,
   }
 }

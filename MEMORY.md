@@ -696,6 +696,15 @@ Pixeldrain et Alldebrid ont été **abandonnés** (étapes 6, 7, 11 : ne plus s'
 - **Carrousel des nouveautés** (accueil) : `HeroCarousel.tsx` — 10 titres les plus récents (`pickLatest`, ceux avec image d'abord), bloc arrondi, fondu, points avec progression 8 s, pause/lecture, flèches, clavier, swipe, extrait vidéo muet sur la slide active (même circuit que l'aperçu) ; remplace `HeroBanner` quand `latest` n'est pas vide
 - À déployer : `npx supabase db push --linked` ; `npx supabase functions deploy onefichier-import resolve-stream` ; push Vercel. Un import en cours reprend via le battement de cœur de la page Import
 
+## Étape 32 — Modèles, apparence, pagination, aperçus (2026-11-08) ⏳ NON DÉPLOYÉ
+- **Migration** `20261108120000_models_appearance.sql` : `site_settings` (jsonb, lecture tous / écriture admin via `admin_save_site_settings`), RPC `catalog_models` (modèles avec vidéos publiées), `admin_merge_models`, `admin_delete_empty_models`, `import_onefichier_batch(..., p_reassign)`, `is_generic_folder`, colonnes `import_jobs.model_mode/reassign`, `watch_folders.model_name` (rempli par récursion pour l'existant)
+- **Règle du nom de modèle** : seul le dossier situé juste sous la racine importée est un modèle ; dessous (et dossiers « génériques » video, photos, 2024…) tout hérite. Import : choix « ce dossier contient des modèles » / « ce dossier EST le modèle » + case « corriger les fichiers déjà importés » ; surveillance : `model_name` hérité
+- **Pages** : `/models` (grille paginée) et `/models/$id` (titres paginés), rangée « Modèles » sur l'accueil, lien dans l'en-tête ; masqué aux profils enfants. `PaginationBar` (1 … n) sur Catalogue et Modèles
+- **Mémoire de position** : retour arrière retrouve le scroll (router) + la position horizontale de chaque rangée (`Carousel memoryKey`, sessionStorage) ; accueil gardé 10 min
+- **Aperçus** : cache des liens persistant (localStorage 80 min), 3 résolutions en parallèle / 250 ms, 14 vidéos max en même temps, libération différée 3 s, nouvelle tentative si lien expiré
+- **Admin → Apparence** (`/admin/appearance`) : thème (palettes, couleurs, police, arrondi), nom des modèles (police, palettes, couleur fixe, taille, halo), aperçu (adapté / remplir / étirer, ratio, largeur, durée, volume, pause, lecture silencieuse), simulation en direct ; bouton pause dans le panneau de survol
+- À déployer : `npx supabase db push --linked` ; `npx supabase functions deploy onefichier-import` ; push Vercel. Pour réparer les faux modèles : Admin → Modèles → « Fusionner », ou relancer un import avec « Corriger les fichiers déjà importés »
+
 ## ~~Problème ouvert — lecture~~ (résolu ci-dessus)
 - Fichiers importés : `resolve-stream` renvoie 200 + URL, mais le lecteur reste sur la roue sans démarrer ; avancer dans la vidéo donne « Sources indisponibles »
 - Correctifs déployés : suppression de `probeStream` (double téléchargement), `refresh` → lien neuf (`force`)
