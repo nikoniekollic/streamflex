@@ -730,6 +730,13 @@ Pixeldrain et Alldebrid ont été **abandonnés** (étapes 6, 7, 11 : ne plus s'
 - Jaquettes modèles : montage ~30 s de 5 vidéos aléatoires du modèle (`ModelPreview`, 2 éléments en alternance)
 - Admin : onglets sur plusieurs lignes ; « Aléatoire » placé après « Historique »
 
+## Étape 37 — Optimisation mesurée sur le site réel (2026-11-08)
+- Méthode : navigateur intégré connecté en admin, `fetch` instrumenté + `performance` ; cache `sf:preview-links:v1` vidé pour mesurer à froid (page /browse, 48 jaquettes)
+- Mesures Alldebrid (rejouées) : 1 débridage en parallèle = 1,5 lien/s, 3 = 2,4/s, 6 = 5,5/s (pas de sérialisation) ; latence d'un lien neuf 1–4 s, d'un lien déjà connu 0,3–1,3 s ; **jusqu'à 20 s pour un saut (seek) sur certains fichiers** → image de repli après 4 s
+- Corrigé : `resolve-stream` parallélise ses vérifications (IP / session / abonnement / corps) et ses requêtes SQL, lit la clé Alldebrid une fois par lot (promesse en cache) ; lots de 24 ; débridage 8 en parallèle, budget 360/min (limite 600/min) ; lecture réutilise le lien de l'aperçu (1 source par titre, vérifié en base) ; pas de préchargement de la page détail sur les jaquettes de films ; contrôle d'IP non bloquant ; Aléatoire préparé au survol
+- Résultats à froid : lot de 24 films 3,5 s → 1,0 s ; 12 jaquettes visibles avec image ≥ 13 s (6 bloquées) → 7,5 s ; clic jaquette → image 2,2 s → 1,4 s ; suivant dans la file ≈ 0,5 s, sans message de chargement
+- Reste (non résolu) : latence propre à Alldebrid pour les liens neufs (1–4 s), un seul hôte lent suffit à retarder une jaquette ; piste : cache partagé des liens débridés côté serveur si les liens ne sont pas liés à l'IP (non testé) ; la clé Alldebrid reste visible dans les requêtes du navigateur
+
 ## ~~Problème ouvert — lecture~~ (résolu ci-dessus)
 - Fichiers importés : `resolve-stream` renvoie 200 + URL, mais le lecteur reste sur la roue sans démarrer ; avancer dans la vidéo donne « Sources indisponibles »
 - Correctifs déployés : suppression de `probeStream` (double téléchargement), `refresh` → lien neuf (`force`)
