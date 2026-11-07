@@ -72,7 +72,7 @@ export const RANDOM_LIST_SIZE = 100
  * Lecture aléatoire : une liste de 100 vidéos tirées au hasard (catalogue entier ou un modèle), jamais déjà lancées
  * par « Aléatoire » sur ce profil. Si tout a été vu, l'historique repart de zéro.
  */
-export async function startRandomQueue(s: TypedSupabaseClient, opts: { profileId: string; label: string; modelId?: string | null; kids?: boolean }): Promise<string | null> {
+export async function drawRandomIds(s: TypedSupabaseClient, opts: { profileId: string; modelId?: string | null; kids?: boolean }): Promise<string[]> {
   const draw = (exclude: string[]) => randomTitleIds(s, { limit: RANDOM_LIST_SIZE, modelId: opts.modelId, kids: opts.kids, exclude })
   let ids = await draw(playedIds(opts.profileId).slice(-1500))
   if (ids.length < RANDOM_LIST_SIZE && playedIds(opts.profileId).length > 0) {
@@ -81,7 +81,13 @@ export async function startRandomQueue(s: TypedSupabaseClient, opts: { profileId
     const more = await draw(ids)
     ids = [...ids, ...more].slice(0, RANDOM_LIST_SIZE)
   }
-  return startQueue({ label: opts.label, ids: shuffled(ids), shuffle: false, track: true })
+  return shuffled(ids)
+}
+
+/** `ids` : liste déjà tirée (au survol du bouton) ; sinon tirage immédiat. */
+export async function startRandomQueue(s: TypedSupabaseClient, opts: { profileId: string; label: string; modelId?: string | null; kids?: boolean; ids?: string[] }): Promise<string | null> {
+  const ids = opts.ids?.length ? opts.ids : await drawRandomIds(s, opts)
+  return startQueue({ label: opts.label, ids, shuffle: false, track: true })
 }
 
 export const getQueue = () => queue

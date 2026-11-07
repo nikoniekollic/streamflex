@@ -4,8 +4,13 @@ import { toast } from 'sonner'
 import { Dices, Loader2, Play, Shuffle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
-import { RANDOM_LIST_SIZE, startQueue, startRandomQueue } from '@/lib/queue'
+import { RANDOM_LIST_SIZE, drawRandomIds, startQueue, startRandomQueue } from '@/lib/queue'
+import { prefetchAround, prefetchWatch } from '@/lib/prefetch'
 import { openPlayer } from '@/lib/player-overlay'
+
+// Au survol du bouton : la liste de 100 est déjà tirée et les 2 premières vidéos sont préparées (lien débridé, données) → le clic démarre presque aussitôt
+let prepared: { key: string; ids: string[]; at: number } | null = null
+const PREPARED_TTL_MS = 90_000
 
 /**
  * Bouton « Aléatoire » (deux dés) : lance, en premier plan, une liste de 100 vidéos tirées au hasard
@@ -27,11 +32,26 @@ export function RandomPlayButton({
   const { supabase, activeProfile } = useRouteContext({ from: '/_authed' })
   const [busy, setBusy] = useState(false)
 
+  const key = `${activeProfile?.id}:${modelId ?? ''}`
+  const prepare = () => {
+    if (!activeProfile || (prepared?.key === key && Date.now() - prepared.at < PREPARED_TTL_MS)) return
+    prepared = { key, ids: [], at: Date.now() }
+    void drawRandomIds(supabase, { profileId: activeProfile.id, modelId, kids: !!activeProfile.is_kids_profile })
+      .then((ids) => {
+        prepared = { key, ids, at: Date.now() }
+        ids.slice(0, 2).forEach((id) => prefetchWatch(supabase, activeProfile.id, id, 'zero'))
+        void prefetchAround(supabase, activeProfile.id, ids.slice(0, 2))
+      })
+      .catch(() => (prepared = null))
+  }
+
   const go = async () => {
     if (!activeProfile) return
     setBusy(true)
     try {
-      const first = await startRandomQueue(supabase, { profileId: activeProfile.id, label, modelId, kids: !!activeProfile.is_kids_profile })
+      const ready = prepared?.key === key && Date.now() - prepared.at < PREPARED_TTL_MS ? prepared.ids : []
+      prepared = null // une liste tirée ne sert qu'une fois : le prochain clic en tire une nouvelle (sans reprendre ce qui vient d'être lancé)
+      const first = await startRandomQueue(supabase, { profileId: activeProfile.id, label, modelId, kids: !!activeProfile.is_kids_profile, ids: ready })
       if (!first) return void toast.error('Aucune vidéo à lire.')
       openPlayer({ titleId: first, t: 0 })
     } catch (e) {
@@ -46,6 +66,8 @@ export function RandomPlayButton({
       variant={variant}
       size={size}
       onClick={() => void go()}
+      onPointerEnter={prepare}
+      onFocus={prepare}
       disabled={busy}
       className={cn(className)}
       title={`Lance ${RANDOM_LIST_SIZE} vidéos au hasard, sans reprendre celles déjà lancées`}
