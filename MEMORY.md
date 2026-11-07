@@ -742,9 +742,10 @@ Pixeldrain et Alldebrid ont été **abandonnés** (étapes 6, 7, 11 : ne plus s'
 - La clé Alldebrid donnée au navigateur ouvre tout le compte : `/v4/user` renvoie e-mail, abonnement, points, **historique** ; elle est lisible en une ligne de JS (`performance.getEntriesByType('resource')`). Aucun chiffrement côté navigateur ne tient : il faut la clé en clair pour appeler Alldebrid. `Authorization: Bearer` fonctionne en CORS (clé hors URL) mais ne change rien au fond
 - Vraies protections : (1) compte Alldebrid dédié au site (fuite sans conséquence personnelle, rotation facile) ; (2) relais côté serveur sur une IP acceptée par Alldebrid (VPN déclaré dans le compte, cf. blog ElfHosted) → la clé ne quitte plus le serveur, mais le lien débridé peut alors être lié à l'IP du relais
 
-## Étape 39 — Cache partagé des liens débridés (2026-11-09) ⏳ migration `20261109100000_shared_links.sql` + `resolve-stream` À DÉPLOYER, puis front
+## Étape 39 — Cache partagé des liens débridés (2026-11-09) ✅ déployé
 - Test du 8 nov. : lien débridé depuis une IP, ouvert depuis un téléphone en 5G → **fonctionne : non lié à l'IP**. Projet « compte Alldebrid séparé / relais » abandonné par l'utilisateur
 - `unlocked_links` (titre → url, expire 90 min, lecture service_role seulement) ; RPC `share_unlocked_links` (abonnés actifs, URL `https://*.debrid.it|alld.io|alldebrid.com/dl/…` seulement, premier arrivé premier servi, `replace` si le lien en place est mort) ; `resolve-stream` (lot et lecture) renvoie le lien partagé sans débridage ; `refreshIds` = liens que le client a vus mourir ; lecteur : un nouvel essai automatique si un lien venu du cache échoue
+- Mesuré (/browse, cache navigateur vidé) : 1er passage = 18 débridages + 18 liens déposés, 12 jaquettes prêtes en ~12 s ; 2e passage = **0 débridage**, lot de 24 en 0,64 s, 12 jaquettes prêtes en ~5 s (dont ~2,7 s de chargement de page)
 - Risque assumé : un abonné malveillant peut déposer le lien d'un autre fichier debrid.it pour un titre (durée 90 min max)
 
 ## ~~Problème ouvert — lecture~~ (résolu ci-dessus)
