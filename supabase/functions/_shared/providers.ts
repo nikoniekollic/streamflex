@@ -1,5 +1,5 @@
 import { onefichierLink, OnefichierError, type OnefichierFailure } from './onefichier.ts'
-import { DebridError, unlock, type DebridFailure } from './alldebrid.ts'
+import type { DebridFailure } from './alldebrid.ts'
 import { getSecret } from './secrets.ts'
 import { buildStreamUrl } from './stream-url.ts'
 
@@ -18,7 +18,8 @@ export type MediaSource = {
   audio_languages: string[]
 }
 
-export type Resolved = { url: string; ttl: number; filename?: string }
+/** clientDebrid : Alldebrid refuse les IP de serveurs (NO_SERVER) → le navigateur de l'abonné débride lui-même. */
+export type Resolved = { url: string; ttl: number; filename?: string; clientDebrid?: { link: string; key: string; agent: string } }
 
 export type FailureKind = OnefichierFailure | DebridFailure | 'invalid_source' | 'unknown'
 
@@ -32,20 +33,14 @@ export class ResolveError extends Error {
   }
 }
 
-// ───────── 1fichier : Alldebrid d'abord (si clé configurée), repli sur le lien direct de l'API du compte
+// ───────── 1fichier : Alldebrid via le navigateur (si clé configurée), sinon lien direct de l'API du compte
 async function resolveOnefichier(src: MediaSource, refresh: boolean): Promise<Resolved> {
   if (!src.file_id) throw new ResolveError('1fichier: file_id manquant', 422, 'invalid_source')
 
-  if (await getSecret('ALLDEBRID_API_KEY')) {
-    try {
-      const u = await unlock(buildStreamUrl('onefichier', src.file_id))
-      return { url: u.url, ttl: u.ttl, filename: u.filename }
-    } catch (e) {
-      if (!(e instanceof DebridError)) throw e
-      // Fichier supprimé : inutile d'insister chez 1fichier
-      if (e.failure === 'offline') throw new ResolveError(`Alldebrid ${e.code}: ${e.message}`, 404, 'offline')
-      console.warn('[resolve-stream] Alldebrid KO → repli 1fichier direct', e.code, e.message)
-    }
+  const key = await getSecret('ALLDEBRID_API_KEY')
+  if (key) {
+    const agent = (await getSecret('ALLDEBRID_AGENT')) ?? 'streamflex'
+    return { url: '', ttl: 0, clientDebrid: { link: buildStreamUrl('onefichier', src.file_id), key, agent } }
   }
 
   try {

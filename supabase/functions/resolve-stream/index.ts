@@ -96,7 +96,7 @@ async function handle(req: Request): Promise<Response> {
   const errors: string[] = []
   const kinds: FailureKind[] = []
   for (const src of ordered) {
-    const key = `stream:v5:${src.id}`
+    const key = `stream:v6:${src.id}`
     if (!refresh) {
       const hit = await cache.get<CachedStream>(key)
       if (hit && hit.expiresAt > Date.now() + 60_000) {
@@ -108,6 +108,11 @@ async function handle(req: Request): Promise<Response> {
     }
     try {
       const r = await resolveSource(src, { refresh })
+      if (r.clientDebrid) {
+        // Débridage côté navigateur : rien à mettre en cache (la clé ne doit pas traîner dans Redis)
+        await background(admin.rpc('mark_source_streamed', { p_source_id: src.id }))
+        return json({ url: '', clientDebrid: r.clientDebrid, provider: src.provider, quality: src.quality, sourceId: src.id, qualities, audios, audio: src.audio_languages ?? [], expiresAt: Date.now() + 2 * 3600 * 1000, cached: false })
+      }
       const expiresAt = Date.now() + r.ttl * 1000
       await cache.set(key, { url: r.url, expiresAt } satisfies CachedStream, r.ttl - 120)
       await background(admin.rpc('mark_source_streamed', { p_source_id: src.id })) // activité du fichier (monitoring)

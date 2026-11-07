@@ -3,6 +3,7 @@ import { FunctionsHttpError } from '@supabase/supabase-js'
 import type { TypedSupabaseClient } from '@/lib/supabase'
 import type { Enums, Tables } from '@/types/database'
 import { fetchSubtitles, type SubtitleTrack } from '@/lib/subtitles'
+import { DebridClientError, unlockInBrowser, type ClientDebrid } from '@/lib/alldebrid'
 
 export type Quality = Enums<'video_quality'>
 
@@ -93,13 +94,24 @@ export type ResolveParams = {
 }
 
 export async function resolveStream(supabase: TypedSupabaseClient, params: ResolveParams): Promise<StreamInfo> {
-  const { data, error } = await supabase.functions.invoke<StreamInfo>('resolve-stream', { body: params })
+  const { data, error } = await supabase.functions.invoke<StreamInfo & { clientDebrid?: ClientDebrid }>('resolve-stream', { body: params })
   if (error) {
     if (error instanceof FunctionsHttpError) {
       const body = (await error.context.json().catch(() => ({}))) as { error?: StreamErrorCode }
       throw new StreamError(body.error && body.error in STREAM_ERROR_MESSAGES ? body.error : 'unknown')
     }
     throw new StreamError('network')
+  }
+  if (data?.clientDebrid) {
+    try {
+      const u = await unlockInBrowser(data.clientDebrid)
+      const { clientDebrid: _omit, ...info } = data
+      return { ...info, url: u.url, expiresAt: Date.now() + u.ttl * 1000 }
+    } catch (e) {
+      const f = e instanceof DebridClientError ? e.failure : 'unavailable'
+      console.error('[StreamFlex] Alldebrid (navigateur) :', e instanceof DebridClientError ? e.code : e)
+      throw new StreamError(f === 'offline' ? 'source_offline' : f === 'host_busy' ? 'host_busy' : 'source_unavailable')
+    }
   }
   if (!data?.url) throw new StreamError('unknown')
   return data
