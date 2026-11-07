@@ -737,6 +737,11 @@ Pixeldrain et Alldebrid ont été **abandonnés** (étapes 6, 7, 11 : ne plus s'
 - Résultats à froid : lot de 24 films 3,5 s → 1,0 s ; 12 jaquettes visibles avec image ≥ 13 s (6 bloquées) → 7,5 s ; clic jaquette → image 2,2 s → 1,4 s ; suivant dans la file ≈ 0,5 s, sans message de chargement
 - Reste (non résolu) : latence propre à Alldebrid pour les liens neufs (1–4 s), un seul hôte lent suffit à retarder une jaquette ; piste : cache partagé des liens débridés côté serveur si les liens ne sont pas liés à l'IP (non testé) ; la clé Alldebrid reste visible dans les requêtes du navigateur
 
+## Étape 38 — Tests : liens débridés partagés, clé Alldebrid (2026-11-08)
+- Lien débridé (`*.debrid.it/dl/…`) : accepte les Range (206) depuis l'IP de l'utilisateur ; **refusé depuis un serveur** (503 « Serveur non autorisé », testé via `net.http_get` de Supabase) → seuls les navigateurs peuvent télécharger. **Non tranché : lien lié ou non à l'IP qui l'a débridé** (aucune 2e IP résidentielle disponible ; test à faire depuis un téléphone en 4G). Un cache serveur de liens ne sert que si le lien n'est pas lié à l'IP
+- La clé Alldebrid donnée au navigateur ouvre tout le compte : `/v4/user` renvoie e-mail, abonnement, points, **historique** ; elle est lisible en une ligne de JS (`performance.getEntriesByType('resource')`). Aucun chiffrement côté navigateur ne tient : il faut la clé en clair pour appeler Alldebrid. `Authorization: Bearer` fonctionne en CORS (clé hors URL) mais ne change rien au fond
+- Vraies protections : (1) compte Alldebrid dédié au site (fuite sans conséquence personnelle, rotation facile) ; (2) relais côté serveur sur une IP acceptée par Alldebrid (VPN déclaré dans le compte, cf. blog ElfHosted) → la clé ne quitte plus le serveur, mais le lien débridé peut alors être lié à l'IP du relais
+
 ## ~~Problème ouvert — lecture~~ (résolu ci-dessus)
 - Fichiers importés : `resolve-stream` renvoie 200 + URL, mais le lecteur reste sur la roue sans démarrer ; avancer dans la vidéo donne « Sources indisponibles »
 - Correctifs déployés : suppression de `probeStream` (double téléchargement), `refresh` → lien neuf (`force`)
