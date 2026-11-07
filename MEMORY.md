@@ -769,6 +769,9 @@ Pixeldrain et Alldebrid ont été **abandonnés** (étapes 6, 7, 11 : ne plus s'
 - Liste de lecture à droite : image de chaque vidéo (`CoverThumb`) — **bug** : la préparation des liens était coupée tant que le lecteur était ouvert → plus de coupure
 - Lien d'aperçu réutilisé pour la lecture seulement s'il n'y a qu'une qualité (le lot renvoie `qualities`) : l'aperçu prend la plus légère, la lecture la plus haute
 
+## Piège PostgREST (2026-11-10)
+- `models.cover_title_id → titles` a créé une **2e relation** entre `titles` et `models` : tout embed `models(...)` depuis `titles` devient ambigu (PGRST201, page admin « Something went wrong »). Toujours nommer la clé : `models!titles_model_id_fkey(name)`. Ajouter une clé étrangère entre deux tables déjà liées = vérifier les embeds du code
+
 ## ~~Problème ouvert — lecture~~ (résolu ci-dessus)
 - Fichiers importés : `resolve-stream` renvoie 200 + URL, mais le lecteur reste sur la roue sans démarrer ; avancer dans la vidéo donne « Sources indisponibles »
 - Correctifs déployés : suppression de `probeStream` (double téléchargement), `refresh` → lien neuf (`force`)
