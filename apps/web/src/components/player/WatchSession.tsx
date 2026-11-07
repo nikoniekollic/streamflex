@@ -64,12 +64,19 @@ export function WatchSession({ data, mode, onBack, onSwitch }: { data: WatchData
     (at: number) => {
       if (state.status !== 'ready') return
       setStartAt(at)
+      // Lien venu du cache (aperçu ou lien partagé par un autre abonné) probablement expiré : un lien neuf, une seule fois, sans écran d'erreur
+      if (state.stream.cached && autoRetries.current < 1) {
+        autoRetries.current++
+        forgetStream(title.id)
+        void resolve({ refresh: true }, 2)
+        return
+      }
       // Aucun réessai automatique : l'hébergeur peut bloquer l'IP après trop de requêtes erronées.
       mediaRetries.current += 1
       console.error('[StreamFlex] échec de lecture — pas de réessai automatique', state.stream.url)
       setPlaybackFailed(true)
     },
-    [state],
+    [state, resolve, title.id],
   )
 
   const loadSubtitle = useCallback((id: string) => loadSubtitleUrl(supabase, id), [supabase])

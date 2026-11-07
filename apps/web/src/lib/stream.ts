@@ -4,6 +4,7 @@ import type { TypedSupabaseClient } from '@/lib/supabase'
 import type { Enums, Tables } from '@/types/database'
 import { fetchSubtitles, type SubtitleTrack } from '@/lib/subtitles'
 import { DebridClientError, unlockInBrowser, type ClientDebrid } from '@/lib/alldebrid'
+import { shareLink } from '@/lib/shared-links'
 
 export type Quality = Enums<'video_quality'>
 
@@ -111,6 +112,7 @@ export async function resolveStream(supabase: TypedSupabaseClient, params: Resol
   if (data?.clientDebrid) {
     try {
       const u = await unlockInBrowser(data.clientDebrid)
+      if (!params.episodeId) shareLink(supabase, params.titleId, u.url, !!params.refresh) // cache partagé des liens débridés
       const { clientDebrid: _omit, ...info } = data
       return { ...info, url: u.url, expiresAt: Date.now() + u.ttl * 1000 }
     } catch (e) {

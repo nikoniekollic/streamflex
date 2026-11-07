@@ -6,7 +6,7 @@ import { denyIfBanned, denyIfNoSubscription } from '../_shared/guard.ts'
 import { background } from '../_shared/background.ts'
 import { ResolveError, resolveSource, type FailureKind, type MediaSource } from '../_shared/providers.ts'
 
-type Body = { profileId?: string; titleId?: string; titleIds?: unknown; episodeId?: string | null; quality?: string; audio?: string; refresh?: boolean; exclude?: string[]; preview?: boolean }
+type Body = { profileId?: string; titleId?: string; titleIds?: unknown; refreshIds?: unknown; episodeId?: string | null; quality?: string; audio?: string; refresh?: boolean; exclude?: string[]; preview?: boolean }
 type CachedStream = { url: string; expiresAt: number }
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
@@ -18,12 +18,28 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
  * Aperçus : résout jusqu'à 24 films d'un coup (une seule vérification d'identité / d'abonnement, deux requêtes SQL),
  * au lieu d'un appel complet par jaquette. Source choisie : la plus légère (qualité la plus basse), sans compter de lecture.
  */
-async function handleBatch(userClient: ReturnType<typeof createClient>, profileId: string, raw: unknown[]): Promise<Response> {
+const SHARED_MARGIN_MS = 5 * 60_000 // un lien partagé qui expire dans moins de 5 min n'est plus servi
+
+/** Liens déjà débridés par un autre abonné (table unlocked_links) : aucun nouveau débridage nécessaire. */
+async function sharedLinks(ids: string[]): Promise<Map<string, { url: string; expiresAt: number }>> {
+  const out = new Map<string, { url: string; expiresAt: number }>()
+  if (ids.length === 0) return out
+  const { data } = await adminClient()
+    .from('unlocked_links')
+    .select('title_id, url, expires_at')
+    .in('title_id', ids)
+    .gt('expires_at', new Date(Date.now() + SHARED_MARGIN_MS).toISOString())
+  for (const r of (data ?? []) as { title_id: string; url: string; expires_at: string }[]) out.set(r.title_id, { url: r.url, expiresAt: Date.parse(r.expires_at) })
+  return out
+}
+
+async function handleBatch(userClient: ReturnType<typeof createClient>, profileId: string, raw: unknown[], refreshIds: unknown): Promise<Response> {
   const ids = [...new Set(raw.filter((x): x is string => typeof x === 'string' && UUID.test(x)))].slice(0, 24)
   if (ids.length === 0) return json({ items: [] })
 
   // Profil, titres visibles (RLS = publiés, films) et sources : trois requêtes indépendantes, lancées ensemble
-  const [profRes, titlesRes, srcRes] = await Promise.all([
+  const refresh = new Set(Array.isArray(refreshIds) ? refreshIds.filter((x): x is string => typeof x === 'string') : [])
+  const [profRes, titlesRes, srcRes, shared] = await Promise.all([
     userClient.from('viewer_profiles').select('is_kids_profile').eq('id', profileId).maybeSingle(),
     userClient.from('titles').select('id').in('id', ids).eq('type', 'movie'),
     adminClient()
@@ -33,6 +49,7 @@ async function handleBatch(userClient: ReturnType<typeof createClient>, profileI
       .or('is_active.is.null,is_active.eq.true')
       .order('priority', { ascending: true })
       .range(0, 499),
+    sharedLinks(ids.filter((id) => !refresh.has(id))), // ceux dont le client a vu le lien mourir sont re-débridés
   ])
   const prof = profRes.data
   if (!prof) return json({ error: 'profile_required' }, 403)
@@ -56,6 +73,8 @@ async function handleBatch(userClient: ReturnType<typeof createClient>, profileI
   const items = (
     await Promise.all(
       [...best.values()].map(async (src) => {
+        const hit = shared.get(src.title_id)
+        if (hit) return [{ titleId: src.title_id, sourceId: src.id, url: hit.url, clientDebrid: null, shared: true }]
         try {
           const r = await resolveSource(src)
           return [{ titleId: src.title_id, sourceId: src.id, url: r.url, clientDebrid: r.clientDebrid ?? null }]
@@ -90,7 +109,7 @@ async function handle(req: Request): Promise<Response> {
   const { profileId, titleId, episodeId = null, quality, audio, refresh = false, exclude = [], preview = false } = body
   if (audio !== undefined && !/^[a-z]{2,3}(-[A-Za-z0-9]{2,8})?$/.test(audio)) return json({ error: 'invalid_audio' }, 400)
   if (!profileId || !UUID.test(profileId)) return json({ error: 'profile_required' }, 400)
-  if (Array.isArray(body.titleIds)) return await handleBatch(userClient, profileId, body.titleIds)
+  if (Array.isArray(body.titleIds)) return await handleBatch(userClient, profileId, body.titleIds, body.refreshIds)
   if (!titleId || !UUID.test(titleId) || (episodeId && !UUID.test(episodeId))) return json({ error: 'invalid_ids' }, 400)
 
   // 3. Titre visible par l'utilisateur (RLS) → publié ; droits du profil (Enfants) ; sources — en parallèle pour un film
@@ -146,6 +165,16 @@ async function handle(req: Request): Promise<Response> {
   if (ordered.length === 0) {
     console.warn('[resolve-stream] exclusion de toutes les sources → nouvelle tentative sur la liste complète', { titleId, episodeId })
     ordered.push(...sources.slice().sort((a, b) => QUALITY_ORDER.indexOf(a.quality) - QUALITY_ORDER.indexOf(b.quality) || a.priority - b.priority))
+  }
+
+  // 4b. Film : un autre abonné a peut-être déjà débridé ce fichier (lien partagé, sans lien à l'IP) → rien à débrider
+  if (!episodeId && !refresh && ordered.length > 0) {
+    const hit = (await sharedLinks([titleId])).get(titleId)
+    if (hit) {
+      const src = ordered[0]
+      if (!preview) await background(admin.rpc('mark_source_streamed', { p_source_id: src.id }))
+      return json({ url: hit.url, provider: src.provider, quality: src.quality, sourceId: src.id, qualities, audios, audio: src.audio_languages ?? [], expiresAt: hit.expiresAt, cached: true, shared: true })
+    }
   }
 
   // 5. Résolution avec cache + fallback multi-provider

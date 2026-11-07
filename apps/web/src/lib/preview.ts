@@ -1,6 +1,7 @@
 import type { TypedSupabaseClient } from '@/lib/supabase'
 import { StreamError } from '@/lib/stream'
 import { DebridClientError, unlockInBrowser, type ClientDebrid } from '@/lib/alldebrid'
+import { shareLink } from '@/lib/shared-links'
 
 // Aperçus : les liens (Alldebrid, débridés dans le navigateur) sont préparés PAR VAGUES DE 6 jaquettes, de la première ligne
 // à la dernière (ordre de la page) :
@@ -23,6 +24,7 @@ const STORE_KEY = 'sf:preview-links:v1'
 const STORE_MAX = 600
 
 type Entry = { url: string | null; until: number }
+const stale = new Set<string>()
 const cache = new Map<string, Entry>()
 const inflight = new Map<string, Promise<string | null>>()
 let warmed = 0
@@ -77,6 +79,7 @@ export const peekPreviewUrl = (titleId: string): string | null => {
 
 /** Le lien ne marche plus (expiré) : on l'oublie pour en demander un neuf au prochain besoin. */
 export function invalidatePreview(titleId: string) {
+  stale.add(titleId) // le lien partagé de ce film est peut-être mort : prochaine demande = nouveau débridage, qui le remplace
   if (cache.delete(titleId)) persist()
 }
 
@@ -129,7 +132,8 @@ function noteFailure(message: string) {
 type BatchItem = { titleId: string; sourceId: string; url: string; clientDebrid: ClientDebrid | null }
 
 async function fetchBatch(s: TypedSupabaseClient, profileId: string, ids: string[]): Promise<BatchItem[]> {
-  const { data, error } = await s.functions.invoke<{ items?: BatchItem[] }>('resolve-stream', { body: { profileId, titleIds: ids, preview: true } })
+  const refreshIds = ids.filter((id) => stale.has(id))
+  const { data, error } = await s.functions.invoke<{ items?: BatchItem[] }>('resolve-stream', { body: { profileId, titleIds: ids, preview: true, ...(refreshIds.length ? { refreshIds } : {}) } })
   if (error) throw new StreamError('network')
   return data?.items ?? []
 }
@@ -161,7 +165,9 @@ function resolveBatch(s: TypedSupabaseClient, profileId: string, ids: string[], 
         if (!it.clientDebrid) return finish(id, it.url || null)
         await acquireUnlock(high, orders?.get(id) ?? 0)
         try {
-          finish(id, (await unlockInBrowser(it.clientDebrid)).url)
+          const unlocked = (await unlockInBrowser(it.clientDebrid)).url
+          shareLink(s, id, unlocked, stale.delete(id)) // dépôt dans le cache partagé : les autres abonnés n'auront rien à débrider
+          finish(id, unlocked)
           failStreak = 0
         } catch (e) {
           // un fichier hors ligne n'est pas une panne d'Alldebrid : on ne coupe pas tous les aperçus pour ça
