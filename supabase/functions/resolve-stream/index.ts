@@ -22,29 +22,32 @@ async function handleBatch(userClient: ReturnType<typeof createClient>, profileI
   const ids = [...new Set(raw.filter((x): x is string => typeof x === 'string' && UUID.test(x)))].slice(0, 24)
   if (ids.length === 0) return json({ items: [] })
 
-  const { data: prof } = await userClient.from('viewer_profiles').select('is_kids_profile').eq('id', profileId).maybeSingle()
+  // Profil, titres visibles (RLS = publiés, films) et sources : trois requêtes indépendantes, lancées ensemble
+  const [profRes, titlesRes, srcRes] = await Promise.all([
+    userClient.from('viewer_profiles').select('is_kids_profile').eq('id', profileId).maybeSingle(),
+    userClient.from('titles').select('id').in('id', ids).eq('type', 'movie'),
+    adminClient()
+      .from('media_sources')
+      .select('id, title_id, provider, file_id, raw_url, quality, priority, audio_languages')
+      .in('title_id', ids)
+      .or('is_active.is.null,is_active.eq.true')
+      .order('priority', { ascending: true })
+      .range(0, 499),
+  ])
+  const prof = profRes.data
   if (!prof) return json({ error: 'profile_required' }, 403)
-
-  // Titres visibles par l'utilisateur (RLS = publiés), films seulement
-  const { data: titles } = await userClient.from('titles').select('id').in('id', ids).eq('type', 'movie')
-  let allowed = (titles ?? []).map((t: { id: string }) => t.id)
+  let allowed = (titlesRes.data ?? []).map((t: { id: string }) => t.id)
   if (prof.is_kids_profile) {
     const verdicts = await Promise.all(allowed.map((id) => userClient.rpc('can_profile_watch', { p_profile_id: profileId, p_title_id: id })))
     allowed = allowed.filter((_, i) => verdicts[i].data !== 'kids_restricted' && verdicts[i].data !== 'profile_not_found')
   }
   if (allowed.length === 0) return json({ items: [] })
 
-  const { data: rows, error } = await adminClient()
-    .from('media_sources')
-    .select('id, title_id, provider, file_id, raw_url, quality, priority, audio_languages')
-    .in('title_id', allowed)
-    .or('is_active.is.null,is_active.eq.true')
-    .order('priority', { ascending: true })
-    .range(0, 499)
-  if (error) return json({ error: 'db_error' }, 500)
+  if (srcRes.error) return json({ error: 'db_error' }, 500)
 
   const best = new Map<string, MediaSource & { title_id: string }>()
-  for (const r of (rows ?? []) as (MediaSource & { title_id: string })[]) {
+  const okIds = new Set(allowed)
+  for (const r of ((srcRes.data ?? []) as (MediaSource & { title_id: string })[]).filter((x) => okIds.has(x.title_id))) {
     const cur = best.get(r.title_id)
     // priorité à la qualité la plus basse (aperçu plus léger), puis à la priorité de la source
     if (!cur || QUALITY_ORDER.indexOf(r.quality) > QUALITY_ORDER.indexOf(cur.quality)) best.set(r.title_id, r)
@@ -70,38 +73,44 @@ async function handle(req: Request): Promise<Response> {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
   if (req.method !== 'POST') return json({ error: 'method_not_allowed' }, 405)
 
-  // 0. Middleware IP
-  const banned = await denyIfBanned(req)
-  if (banned) return banned
-
-  // 1. Auth utilisateur
+  // 0-2. IP bannie ? session ? abonnement actif ? corps de la requête ? — quatre vérifications INDÉPENDANTES lancées ensemble
   const authHeader = req.headers.get('Authorization') ?? ''
   const userClient = createClient(SUPABASE_URL, ANON_KEY, { global: { headers: { Authorization: authHeader } } })
-  const { data: auth } = await userClient.auth.getUser()
-  if (!auth.user) return json({ error: 'unauthorized' }, 401)
-
-  // 1b. Abonnement actif requis pour lire
-  const noSub = await denyIfNoSubscription(userClient)
+  const [banned, authRes, noSub, parsed] = await Promise.all([
+    denyIfBanned(req),
+    userClient.auth.getUser(),
+    denyIfNoSubscription(userClient),
+    req.json().then((b: Body) => b, () => null),
+  ])
+  if (banned) return banned
+  if (!authRes.data.user) return json({ error: 'unauthorized' }, 401)
   if (noSub) return noSub
-
-  // 2. Entrée
-  let body: Body
-  try {
-    body = await req.json()
-  } catch {
-    return json({ error: 'invalid_body' }, 400)
-  }
+  if (!parsed) return json({ error: 'invalid_body' }, 400)
+  const body: Body = parsed
   const { profileId, titleId, episodeId = null, quality, audio, refresh = false, exclude = [], preview = false } = body
   if (audio !== undefined && !/^[a-z]{2,3}(-[A-Za-z0-9]{2,8})?$/.test(audio)) return json({ error: 'invalid_audio' }, 400)
   if (!profileId || !UUID.test(profileId)) return json({ error: 'profile_required' }, 400)
   if (Array.isArray(body.titleIds)) return await handleBatch(userClient, profileId, body.titleIds)
   if (!titleId || !UUID.test(titleId) || (episodeId && !UUID.test(episodeId))) return json({ error: 'invalid_ids' }, 400)
 
-  // 3. Titre visible par l'utilisateur (RLS) → publié
-  const { data: title } = await userClient.from('titles').select('id, type').eq('id', titleId).maybeSingle()
+  // 3. Titre visible par l'utilisateur (RLS) → publié ; droits du profil (Enfants) ; sources — en parallèle pour un film
+  const admin = adminClient()
+  const sourcesQuery = () =>
+    admin
+      .from('media_sources')
+      .select('id, provider, file_id, raw_url, quality, priority, audio_languages')
+      .or('is_active.is.null,is_active.eq.true')
+      .eq(episodeId ? 'episode_id' : 'title_id', (episodeId ?? titleId) as string)
+      .order('priority', { ascending: true })
+      .range(0, 49)
+  const [titleRes, verdictRes, earlySources] = await Promise.all([
+    userClient.from('titles').select('id, type').eq('id', titleId).maybeSingle(),
+    userClient.rpc('can_profile_watch', { p_profile_id: profileId, p_title_id: titleId }),
+    episodeId ? Promise.resolve(null) : sourcesQuery(),
+  ])
+  const title = titleRes.data
   if (!title) return json({ error: 'title_not_found' }, 404)
-  // Profil du compte + restriction Enfants (contenus familiaux uniquement)
-  const { data: verdict } = await userClient.rpc('can_profile_watch', { p_profile_id: profileId, p_title_id: titleId })
+  const verdict = verdictRes.data
   if (verdict === 'profile_not_found') return json({ error: 'profile_required' }, 403)
   if (verdict === 'kids_restricted') return json({ error: 'kids_restricted' }, 403)
 
@@ -111,14 +120,8 @@ async function handle(req: Request): Promise<Response> {
     if (!ep) return json({ error: 'episode_not_found' }, 404)
   }
 
-  // 4. Sources (service_role : media_sources invisible aux clients)
-  const admin = adminClient()
-  let q = admin
-    .from('media_sources')
-    .select('id, provider, file_id, raw_url, quality, priority, audio_languages')
-    .or('is_active.is.null,is_active.eq.true')
-  q = episodeId ? q.eq('episode_id', episodeId) : q.eq('title_id', titleId)
-  const { data: rows, error } = await q.order('priority', { ascending: true }).range(0, 49)
+  // 4. Sources (service_role : media_sources invisible aux clients) — déjà lues pour un film, après la vérification de l'épisode sinon
+  const { data: rows, error } = earlySources ?? (await sourcesQuery())
   if (error) return json({ error: 'db_error' }, 500)
 
   const sources = (rows ?? []) as MediaSource[]

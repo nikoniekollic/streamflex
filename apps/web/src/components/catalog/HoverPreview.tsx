@@ -22,6 +22,7 @@ import {
   type Wanted,
 } from '@/lib/preview'
 import { acquireSlot, attachSlot, detachSlot, dropSlot, peekSlot, type PoolSlot } from '@/lib/video-pool'
+import { prefetchWatch } from '@/lib/prefetch'
 
 export const CSS_FIT: Record<CardFit, 'cover' | 'contain' | 'fill'> = { cover: 'cover', contain: 'contain', stretch: 'fill' }
 /** Réglage « ajustement » de l'admin → mode CSS (adapté = vidéo entière, remplir = rogne, étirer = déforme) */
@@ -118,35 +119,50 @@ export function HoverPreview({ title, active }: { title: CatalogTitle; active: b
     if (!el || !profileId || !('IntersectionObserver' in window)) return
     let alive = true
     let leave: ReturnType<typeof setTimeout> | undefined
-    const io = new IntersectionObserver(
+    // 1) Préparation du lien : zone élargie (700 px sous l'écran) → les jaquettes du bas sont prêtes avant d'arriver
+    const warmIo = new IntersectionObserver(
       ([entry]) => {
         if (entry.isIntersecting) {
-          clearTimeout(leave)
-          setStillVisible(visKey, true)
           const cached = peekPreviewUrl(titleId)
           if (cached) setUrl(cached)
           else
             void warmPreview(supabase, profileId, titleId, pageOrder(entry.boundingClientRect)).then((u) => {
               if (u && alive) setUrl(u)
             })
-        } else {
-          cancelWarm(titleId)
-          leave = setTimeout(() => !activeRef.current && setStillVisible(visKey, false), KEEP_SLOT_MS)
-        }
+        } else cancelWarm(titleId)
+      },
+      { rootMargin: '700px 0px', threshold: 0 },
+    )
+    // 2) Ce qui est réellement à l'écran : image figée, lecture silencieuse (≥ 60 % visible)
+    const viewIo = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          clearTimeout(leave)
+          setStillVisible(visKey, true)
+        } else leave = setTimeout(() => !activeRef.current && setStillVisible(visKey, false), KEEP_SLOT_MS)
         setAmbientVisible(visKey, entry.isIntersecting && entry.intersectionRatio >= 0.6 && ambientAllowed())
       },
-      { rootMargin: '300px', threshold: [0, 0.6] },
+      { rootMargin: '0px', threshold: [0, 0.6] },
     )
-    io.observe(el)
+    warmIo.observe(el)
+    viewIo.observe(el)
     return () => {
       alive = false
-      io.disconnect()
+      warmIo.disconnect()
+      viewIo.disconnect()
       clearTimeout(leave)
       cancelWarm(titleId)
       setAmbientVisible(visKey, false)
       setStillVisible(visKey, false)
     }
   }, [profileId, titleId, visKey])
+
+  // Survol : les données de la page de lecture (titre, position, sous-titres) sont demandées d'avance → le clic ouvre le lecteur sans attente
+  useEffect(() => {
+    if (!active || !profileId) return
+    const t = setTimeout(() => prefetchWatch(supabase, profileId, titleId, 'saved'), 150)
+    return () => clearTimeout(t)
+  }, [active, profileId, titleId])
 
   // Survol d'une jaquette dont le lien n'est pas encore prêt : prioritaire
   useEffect(() => {

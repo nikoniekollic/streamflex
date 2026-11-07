@@ -9,11 +9,11 @@ import { DebridClientError, unlockInBrowser, type ClientDebrid } from '@/lib/all
 //  • budget Alldebrid : limite officielle 12 requêtes/s et 600/min → on reste à 240/min pour les aperçus,
 //  • liens gardés en mémoire ET dans le navigateur (retour sur une page = aucun nouvel appel).
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-const BATCH = 6 // une vague = 6 jaquettes (6 connexions par hôte et par navigateur en HTTP/1.1)
-const UNLOCK_BUDGET_PER_MIN = 240 // marge sous la limite d'Alldebrid (600/min, 12/s)
+const BATCH = 24 // une requête serveur prépare jusqu'à 24 films (le coût fixe d'un appel est ~0,6 s)
+const UNLOCK_BUDGET_PER_MIN = 300 // moitié de la limite d'Alldebrid (600/min, 12/s)
 const FLUSH_DELAY_MS = 150 // regroupe les jaquettes qui apparaissent ensemble
-const UNLOCK_PARALLEL = 3
-const UNLOCK_GAP_MS = 150
+const UNLOCK_PARALLEL = 6 // un débridage dure ~1,2 s : 6 en parallèle = ~5 par seconde, sous les 12/s autorisés
+const UNLOCK_GAP_MS = 80
 const WARM_MAX = 600 // titres préparés par session (le cache n'est pas compté)
 const OK_TTL_MS = 100 * 60_000 // les liens Alldebrid valent ~2 h : on les jette un peu avant
 const FAIL_TTL_MS = 5 * 60_000
@@ -86,12 +86,13 @@ let lastUnlockAt = 0
 const unlockTimes: number[] = []
 let rateLimitedUntil = 0
 const waitHigh: (() => void)[] = []
-const waitLow: (() => void)[] = []
-async function acquireUnlock(high: boolean) {
+const waitLow: { order: number; go: () => void }[] = []
+async function acquireUnlock(high: boolean, order = 0) {
   if (unlockActive < UNLOCK_PARALLEL) {
     unlockActive++
   } else {
-    await new Promise<void>((r) => (high ? waitHigh : waitLow).push(r)) // créneau transmis tel quel
+    // créneau transmis tel quel ; les aperçus passent dans l'ordre de la page (première ligne d'abord)
+    await new Promise<void>((go) => (high ? waitHigh.push(go) : waitLow.push({ order, go })))
   }
   // budget par minute (les aperçus seulement : le survol passe devant)
   const now = Date.now()
@@ -103,9 +104,14 @@ async function acquireUnlock(high: boolean) {
   if (at > Date.now()) await sleep(at - Date.now())
 }
 function releaseUnlock() {
-  const next = waitHigh.shift() ?? waitLow.shift()
-  if (next) next()
-  else unlockActive--
+  const hi = waitHigh.shift()
+  if (hi) return hi()
+  if (waitLow.length) {
+    let best = 0
+    for (let i = 1; i < waitLow.length; i++) if (waitLow[i].order < waitLow[best].order) best = i
+    return waitLow.splice(best, 1)[0].go()
+  }
+  unlockActive--
 }
 
 function noteFailure(message: string) {
@@ -129,7 +135,7 @@ async function fetchBatch(s: TypedSupabaseClient, profileId: string, ids: string
 }
 
 /** Résout un lot de titres : un appel serveur, puis débridage espacé. Chaque titre finit dans `inflight` / le cache. */
-function resolveBatch(s: TypedSupabaseClient, profileId: string, ids: string[], high: boolean) {
+function resolveBatch(s: TypedSupabaseClient, profileId: string, ids: string[], high: boolean, orders?: Map<string, number>) {
   const done = new Map<string, (u: string | null) => void>()
   for (const id of ids) inflight.set(id, new Promise<string | null>((res) => done.set(id, res)))
   const finish = (id: string, url: string | null) => {
@@ -153,7 +159,7 @@ function resolveBatch(s: TypedSupabaseClient, profileId: string, ids: string[], 
         const it = byId.get(id)
         if (!it) return finish(id, null)
         if (!it.clientDebrid) return finish(id, it.url || null)
-        await acquireUnlock(high)
+        await acquireUnlock(high, orders?.get(id) ?? 0)
         try {
           finish(id, (await unlockInBrowser(it.clientDebrid)).url)
           failStreak = 0
@@ -213,15 +219,16 @@ function scheduleFlush(delay = FLUSH_DELAY_MS) {
       return
     }
     // première ligne d'abord, puis la suivante… (ordre de la page, de gauche à droite)
-    const ids = [...pending.entries()].sort((a, b) => a[1].order - b[1].order).slice(0, BATCH).map(([id]) => id)
-    const waiters = ids.map((id) => pending.get(id)?.resolvers ?? [])
+    const picked = [...pending.entries()].sort((a, b) => a[1].order - b[1].order).slice(0, BATCH)
+    const ids = picked.map(([id]) => id)
+    const orders = new Map(picked.map(([id, p]) => [id, p.order]))
+    const waiters = picked.map(([, p]) => p.resolvers)
     ids.forEach((id) => pending.delete(id))
     if (ids.length) {
-      resolveBatch(ctx.s, ctx.profileId, ids, false)
+      resolveBatch(ctx.s, ctx.profileId, ids, false, orders)
       ids.forEach((id, i) => waiters[i].forEach((r) => void inflight.get(id)?.then(r)))
-      // vague suivante quand celle-ci est prête (ou après 8 s au plus)
-      void Promise.race([Promise.all(ids.map((id) => inflight.get(id))), sleep(8000)]).then(() => pending.size && scheduleFlush(100))
-    } else if (pending.size) scheduleFlush(350)
+    }
+    if (pending.size) scheduleFlush(120)
   }, delay)
 }
 

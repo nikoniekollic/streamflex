@@ -3,7 +3,7 @@ import { useRouteContext } from '@tanstack/react-router'
 import { StreamStatus } from '@/components/player/StreamStatus'
 import { WatchSession } from '@/components/player/WatchSession'
 import { StreamError, loadWatch, type StreamErrorCode, type WatchData } from '@/lib/stream'
-import { takeWatch } from '@/lib/prefetch'
+import { prefetchStream, takeWatch } from '@/lib/prefetch'
 import { closePlayer, openPlayer, usePlayerOverlay } from '@/lib/player-overlay'
 
 type Load = { status: 'loading' } | { status: 'ready'; data: WatchData } | { status: 'error'; code: StreamErrorCode }
@@ -22,7 +22,10 @@ export function PlayerHost() {
     }
     let alive = true
     // données déjà préchargées (file de lecture) : affichage immédiat ; sinon on garde l'image précédente jusqu'à l'arrivée
-    const pre = !o.episodeId && o.t === 0 ? takeWatch(o.titleId) : undefined
+    const mode = o.episodeId ? null : o.t == null ? 'saved' : o.t === 0 ? 'zero' : null
+    const pre = mode ? takeWatch(o.titleId, mode) : undefined
+    // lien de lecture résolu EN PARALLÈLE du chargement des données de la page (au lieu d'à la suite)
+    void prefetchStream(supabase, profileId, o.titleId)
     setLoad((cur) => (cur.status === 'ready' ? cur : { status: 'loading' }))
     ;(pre ?? loadWatch(supabase, profileId, o.titleId, o.episodeId ?? undefined, o.t ?? undefined))
       .then((data) => alive && setLoad({ status: 'ready', data }))

@@ -5,10 +5,10 @@ import { reportDuration } from '@/lib/preview'
 // avoir quitté l'écran ou la page. Au retour, l'élément est simplement remis dans la carte : aucune relecture.
 // Un même film peut figurer dans plusieurs rangées (Tendances, Films…) : chaque carte prend alors son propre élément.
 //
-// Chargement : au plus 6 vidéos en cours de chargement à la fois (limite de 6 connexions par hôte en HTTP/1.1), servies
+// Chargement : au plus 12 vidéos en cours de chargement à la fois (6 connexions par hôte en HTTP/1.1, ~3 hôtes), servies
 // dans l'ordre de la page (première ligne d'abord) — au-delà, tout reste en attente et les jaquettes restent noires.
 const POOL_MAX = 48
-const MAX_LOADING = 6
+const MAX_LOADING = 12 // mesuré : les liens Alldebrid se répartissent sur ~3 hôtes (6 connexions chacun)
 const LOAD_TIMEOUT_MS = 12_000
 
 export type PoolSlot = {

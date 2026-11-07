@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { TypedSupabaseClient } from '@/lib/supabase'
-import { peekStream } from '@/lib/prefetch'
+import { peekStream, streamInFlight } from '@/lib/prefetch'
 import { StreamError, resolveStream, type ResolveParams, type StreamErrorCode, type StreamInfo } from '@/lib/stream'
 
 export type StreamState =
@@ -26,12 +26,22 @@ export function useStream(supabase: TypedSupabaseClient, profileId: string, titl
   const resolve = useCallback(
     async (opts: Opts = {}, attempt = 1) => {
       const id = ++req.current
-      const hit = !episodeId && !opts.refresh && !opts.quality && !opts.audio ? peekStream(titleId) : null
+      const plain = !episodeId && !opts.refresh && !opts.quality && !opts.audio
+      let hit = plain ? peekStream(titleId) : null
       if (hit) {
-        setState({ status: 'ready', stream: hit }) // préchargé : aucun écran d'attente
+        setState({ status: 'ready', stream: hit }) // préchargé / déjà débridé pour l'aperçu : aucun écran d'attente
         return hit
       }
       setState({ status: 'resolving', attempt })
+      const running = plain ? streamInFlight(titleId) : undefined
+      if (running) {
+        await running // résolution lancée à l'ouverture du lecteur : on l'attend au lieu de la doubler
+        hit = peekStream(titleId)
+        if (hit && id === req.current) {
+          setState({ status: 'ready', stream: hit })
+          return hit
+        }
+      }
       try {
         const stream = await resolveStream(supabase, { profileId, titleId, episodeId, ...opts })
         console.info('[StreamFlex] URL de lecture', stream.url, { source: stream.sourceId, quality: stream.quality })
