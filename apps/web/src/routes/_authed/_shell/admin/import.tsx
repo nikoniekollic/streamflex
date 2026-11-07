@@ -162,6 +162,11 @@ function ImportAdmin() {
             </label>
           </div>
 
+          {listing.capped && (
+            <p className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-300">
+              Ce dossier dépasse 5000 fichiers et 1fichier ne renvoie que les 5000 premiers : les suivants ne sont pas listés. Répartis-les dans des sous-dossiers sur 1fichier pour tous les importer.
+            </p>
+          )}
           {listing.debug && (
             <p className="text-xs text-muted-foreground">
               {listing.folders.length} dossier(s), {listing.files.length} fichier(s) reconnu(s) sur {listing.debug.items} reçu(s) de 1fichier.
@@ -189,7 +194,17 @@ function ImportAdmin() {
                 {f.known && <span className="rounded bg-primary/20 px-1.5 text-xs text-primary">déjà importé</span>}
               </li>
             ))}
-            {listing.folders.length === 0 && listing.files.length === 0 && <li className="p-6 text-center text-sm text-muted-foreground">Dossier vide.</li>}
+            {listing.folders.length === 0 && listing.files.length === 0 && (
+              <li className="p-6 text-center text-sm text-muted-foreground">
+                Dossier vide.
+                {listing.debug && (
+                  <span className="mt-2 block break-all text-xs">
+                    Réponse 1fichier : champs [{listing.debug.keys.join(', ')}] · {listing.debug.items} fichier(s) reçu(s), {listing.debug.foldersRaw ?? 0} dossier(s) reçu(s)
+                    {listing.debug.sample ? ` · exemple : ${listing.debug.sample}` : ''}
+                  </span>
+                )}
+              </li>
+            )}
           </ul>
         </section>
       )}

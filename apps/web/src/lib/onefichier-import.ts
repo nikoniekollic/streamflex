@@ -3,8 +3,8 @@ import type { TypedSupabaseClient } from '@/lib/supabase'
 
 export type RemoteFolder = { id: number; name: string; date: string | null }
 export type RemoteFile = { id: string; name: string; size: number | null; date: string | null; known: boolean; video: boolean; ctype?: string | null }
-export type ListingDebug = { keys: string[]; items: number; withId: number; sampleKeys: string[]; sampleUrl: string | null }
-export type Listing = { folderName: string; folders: RemoteFolder[]; files: RemoteFile[]; debug?: ListingDebug }
+export type ListingDebug = { keys: string[]; items: number; withId: number; sampleKeys: string[]; sampleUrl: string | null; sample?: string | null; foldersRaw?: number; hadItems?: boolean }
+export type Listing = { folderName: string; folders: RemoteFolder[]; files: RemoteFile[]; debug?: ListingDebug; capped?: boolean }
 export type ImportResult = { id: string; name: string; status: 'success' | 'ignored' | 'failed'; reason?: string }
 
 const MESSAGES: Record<string, string> = {

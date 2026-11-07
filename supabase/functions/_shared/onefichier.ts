@@ -32,7 +32,7 @@ export async function onefichierCall(path: string, payload: Record<string, unkno
   const key = await getSecret('ONEFICHIER_API_KEY')
   if (!key) throw new OnefichierError('auth', 'ONEFICHIER_API_KEY non configurée', 503)
 
-  const { data: slot, error } = await admin.rpc('onefichier_acquire', { p_min_gap_ms: lane.gapMs, p_hourly_cap: lane.cap, p_max_wait_ms: 9000, p_name: lane.name })
+  const { data: slot, error } = await admin.rpc('onefichier_take_slot', { p_lane: lane.name, p_gap_ms: lane.gapMs, p_cap: lane.cap, p_max_wait_ms: 9000 })
   if (error || !slot) throw new OnefichierError('unavailable', 'Régulateur 1fichier indisponible', 503)
   if (!slot.ok) throw new OnefichierError('host_busy', `1fichier en pause (${slot.reason}, ${slot.retry_s}s)`, 503)
   if (slot.wait_ms > 0) await sleep(slot.wait_ms)
@@ -64,12 +64,13 @@ export async function onefichierCall(path: string, payload: Record<string, unkno
   throw new OnefichierError('unavailable', `1fichier: ${msg}`, 502)
 }
 
-export async function onefichierLink(fileId: string): Promise<{ url: string; ttl: number }> {
+export async function onefichierLink(fileId: string, force = false): Promise<{ url: string; ttl: number }> {
   const admin = adminClient()
   const now = new Date().toISOString()
 
-  // 1. Cache (aucun appel API)
-  const { data: hit } = await admin.from('onefichier_links').select('url, expires_at').eq('file_id', fileId).gt('expires_at', now).maybeSingle()
+  // 1. Cache (aucun appel API) — ignoré si le lecteur demande un lien neuf (lien refusé / expiré)
+  if (force) await admin.from('onefichier_links').delete().eq('file_id', fileId)
+  const { data: hit } = force ? { data: null } : await admin.from('onefichier_links').select('url, expires_at').eq('file_id', fileId).gt('expires_at', now).maybeSingle()
   if (hit) return { url: hit.url, ttl: Math.max(30, Math.floor((new Date(hit.expires_at).getTime() - Date.now()) / 1000)) }
 
   // 2. Un seul appel régulé

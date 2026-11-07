@@ -107,7 +107,7 @@ async function handle(req: Request): Promise<Response> {
       await cache.del(key)
     }
     try {
-      const r = await resolveSource(src)
+      const r = await resolveSource(src, { refresh })
       const expiresAt = Date.now() + r.ttl * 1000
       await cache.set(key, { url: r.url, expiresAt } satisfies CachedStream, r.ttl - 120)
       await background(admin.rpc('mark_source_streamed', { p_source_id: src.id })) // activité du fichier (monitoring)

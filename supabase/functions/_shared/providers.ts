@@ -30,10 +30,10 @@ export class ResolveError extends Error {
 }
 
 // ───────── 1fichier : lien direct via l'API du compte (régulée, voir onefichier.ts)
-async function resolveOnefichier(src: MediaSource): Promise<Resolved> {
+async function resolveOnefichier(src: MediaSource, refresh: boolean): Promise<Resolved> {
   if (!src.file_id) throw new ResolveError('1fichier: file_id manquant', 422, 'invalid_source')
   try {
-    const l = await onefichierLink(src.file_id)
+    const l = await onefichierLink(src.file_id, refresh)
     return { url: l.url, ttl: l.ttl }
   } catch (e) {
     if (e instanceof OnefichierError) throw new ResolveError(e.message, e.status, e.failure)
@@ -42,8 +42,8 @@ async function resolveOnefichier(src: MediaSource): Promise<Resolved> {
 }
 
 // ───────── Point d'entrée : identifie l'origine puis résout
-export async function resolveSource(src: MediaSource): Promise<Resolved> {
-  if (src.provider === 'onefichier') return resolveOnefichier(src)
+export async function resolveSource(src: MediaSource, opts: { refresh?: boolean } = {}): Promise<Resolved> {
+  if (src.provider === 'onefichier') return resolveOnefichier(src, opts.refresh === true)
   if (src.provider === 'pixeldrain') throw new ResolveError('Hébergeur non pris en charge', 422, 'invalid_source')
   if (!src.raw_url) throw new ResolveError(`${src.provider}: raw_url manquant`, 422, 'invalid_source')
   return { url: src.raw_url, ttl: 3600 } // AList signé / URL directe

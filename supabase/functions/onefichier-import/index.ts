@@ -50,6 +50,44 @@ async function knownIds(ids: string[]): Promise<Set<string>> {
   return out
 }
 
+const CAP = 5000 // 1fichier plafonne un listing à 5000 éléments par appel
+let pageVariant: number | null = null // variante de pagination reconnue (mémorisée par instance)
+const VARIANTS: ((offset: number, page: number) => Record<string, unknown>)[] = [
+  (o) => ({ offset: o }),
+  (o) => ({ start: o }),
+  (_o, p) => ({ page: p }),
+]
+
+/** Récupère les pages suivantes d'un dossier de plus de 5000 fichiers. Retourne capped=true si aucune pagination n'est reconnue. */
+async function paginate(folderId: number, first: Record<string, unknown>[]): Promise<{ items: Record<string, unknown>[]; capped: boolean }> {
+  const all = [...first]
+  const firstUrl = String(first[0]?.url ?? '')
+  const order = pageVariant === null ? VARIANTS.map((_, i) => i) : [pageVariant]
+  for (const vi of order) {
+    let page = 2
+    let got: Record<string, unknown>[] = []
+    try {
+      const fb = await onefichierCall('file/ls.cgi', { folder_id: folderId, ...VARIANTS[vi](all.length, page) }, LANE_ADMIN)
+      got = Array.isArray(fb.items) ? fb.items : Array.isArray(fb.files) ? fb.files : []
+    } catch (e) {
+      if (e instanceof OnefichierError && e.failure === 'offline') continue
+      throw e
+    }
+    if (got.length === 0 || String(got[0]?.url ?? '') === firstUrl) continue // variante ignorée par l'API
+    pageVariant = vi
+    all.push(...got)
+    while (got.length >= CAP && all.length < 200_000) {
+      page++
+      const fb = await onefichierCall('file/ls.cgi', { folder_id: folderId, ...VARIANTS[vi](all.length, page) }, LANE_ADMIN)
+      got = Array.isArray(fb.items) ? fb.items : Array.isArray(fb.files) ? fb.files : []
+      if (got.length === 0 || String(got[0]?.url ?? '') === firstUrl) break
+      all.push(...got)
+    }
+    return { items: all, capped: false }
+  }
+  return { items: all, capped: true }
+}
+
 async function listFolder(folderId: number) {
   // 1) sous-dossiers (et fichiers si l'API les inclut déjà)
   const body = await onefichierCall('folder/ls.cgi', { folder_id: folderId }, LANE_ADMIN)
@@ -58,7 +96,7 @@ async function listFolder(folderId: number) {
   const hadItems = 'items' in body || 'files' in body
   const filesBody: { keys: string[] } = { keys: [] }
   // 2) fichiers du dossier : appel dédié (file/ls.cgi) seulement si le premier n'en contenait pas
-  if (!hadItems) {
+  if (rawItems.length === 0) {
     try {
       const fb = await onefichierCall('file/ls.cgi', { folder_id: folderId }, LANE_ADMIN)
       filesBody.keys = Object.keys(fb)
@@ -68,13 +106,20 @@ async function listFolder(folderId: number) {
       if (!(e instanceof OnefichierError) || e.failure !== 'offline') throw e
     }
   }
+  let capped = false
+  if (rawItems.length >= CAP) {
+    const r = await paginate(folderId, rawItems)
+    rawItems = r.items
+    capped = r.capped
+  }
   if (!hadItems && filesBody.keys.length === 0 && rawFolders.length === 0 && !('sub_folders' in body) && !('folders' in body)) {
     console.error('[onefichier-import] réponse inattendue', Object.keys(body))
     throw new OnefichierError('unavailable', `Réponse 1fichier inattendue (champs : ${Object.keys(body).join(', ') || 'aucun'})`, 502)
   }
   const files: RemoteFile[] = []
   for (const it of rawItems) {
-    const id = fileIdOf(it.url)
+    const link = it.url ?? it.link ?? it.download_url ?? Object.values(it).find((v) => typeof v === 'string' && /1fichier\.com/.test(v))
+    const id = fileIdOf(link)
     if (!id) continue
     const ct = it['content-type'] ?? it.content_type ?? it.contentType
     files.push({ id, name: String(it.filename ?? it.name ?? id), size: Number(it.size) > 0 ? Number(it.size) : null, date: typeof it.date === 'string' ? it.date : null, ctype: typeof ct === 'string' ? ct : null })
@@ -89,9 +134,12 @@ async function listFolder(folderId: number) {
     withId: files.length,
     sampleKeys: rawItems[0] ? Object.keys(rawItems[0]) : [],
     sampleUrl: rawItems[0] ? String(rawItems[0].url ?? '').slice(0, 60) : null,
+    sample: rawItems[0] ? JSON.stringify(rawItems[0]).slice(0, 400) : null,
+    foldersRaw: rawFolders.length,
+    hadItems,
   }
   console.log('[onefichier-import] ls', folderId, JSON.stringify(debug))
-  return { folderName: String(body.name ?? ''), folders, files: files.map((f) => ({ ...f, known: known.has(f.id), video: isVideo(f) })), debug }
+  return { folderName: String(body.name ?? ''), folders, files: files.map((f) => ({ ...f, known: known.has(f.id), video: isVideo(f) })), debug, capped }
 }
 
 type Model = { id: string; image_url: string | null }
