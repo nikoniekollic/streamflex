@@ -693,6 +693,7 @@ Pixeldrain et Alldebrid ont été **abandonnés** (étapes 6, 7, 11 : ne plus s'
 - **Captures** : `/admin/captures` (`lib/captures.ts`) — débride (Alldebrid navigateur), capture un instant aléatoire (canvas, `crossOrigin=anonymous`), envoie dans le bucket public `covers`, remplace `poster_url`. S'arrête après 3 échecs de suite (**CORS Alldebrid non vérifié**). Le trigger du modèle n'écrase plus une vraie jaquette (seulement null / `#model`)
 - **Nom du modèle** au centre des cartes : `lib/model-names.ts` (titres→model_id par lots de 150 + table models en cache), `ModelName.tsx`, police/couleurs par hash (`modelNameStyle`, polices système : la CSP interdit les polices distantes)
 - **Aperçu au survol** : `HoverPreview.tsx` + `lib/preview.ts` — film seulement, souris seulement, délai 700 ms, file unique ≥ 1,2 s d'écart, cache 90 min, disjoncteur après 5 échecs ; `resolve-stream` accepte `preview:true` (ne compte pas comme lecture)
+- **Carrousel des nouveautés** (accueil) : `HeroCarousel.tsx` — 10 titres les plus récents (`pickLatest`, ceux avec image d'abord), bloc arrondi, fondu, points avec progression 8 s, pause/lecture, flèches, clavier, swipe, extrait vidéo muet sur la slide active (même circuit que l'aperçu) ; remplace `HeroBanner` quand `latest` n'est pas vide
 - À déployer : `npx supabase db push --linked` ; `npx supabase functions deploy onefichier-import resolve-stream` ; push Vercel. Un import en cours reprend via le battement de cœur de la page Import
 
 ## ~~Problème ouvert — lecture~~ (résolu ci-dessus)

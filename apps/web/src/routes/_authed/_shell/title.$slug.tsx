@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { NativeSelect } from '@/components/ui/native-select'
 import { FavoriteButton } from '@/components/catalog/FavoriteButton'
 import { ReviewsSection } from '@/components/catalog/ReviewsSection'
+import { PreviewClip } from '@/components/catalog/HoverPreview'
 import { fetchTitleDetail, type SeasonItem } from '@/lib/title'
 
 export const Route = createFileRoute('/_authed/_shell/title/$slug')({
@@ -47,6 +48,8 @@ function TitlePage() {
     <div className="pb-16">
       <section className="relative -mt-16 flex min-h-[70vh] items-end overflow-hidden">
         {bg && <img src={bg} alt="" aria-hidden className="absolute inset-0 size-full object-cover object-top" />}
+        {/* Lecteur en fond : ~30 s aléatoires du film en boucle, sans son ; « Lecture » lance la vidéo complète */}
+        {t.type === 'movie' && <PreviewClip titleId={t.id} active clipSeconds={30} delayMs={400} className="absolute inset-0" />}
         <div aria-hidden className="absolute inset-0 bg-gradient-to-r from-black/90 via-black/50 to-transparent" />
         <div aria-hidden className="absolute inset-x-0 bottom-0 h-48 bg-gradient-to-t from-background to-transparent" />
         <div className="relative z-10 flex max-w-3xl flex-col gap-4 px-6 pt-32 pb-12 md:px-12">

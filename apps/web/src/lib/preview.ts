@@ -38,7 +38,8 @@ export function getPreviewUrl(s: TypedSupabaseClient, profileId: string, titleId
       failStreak = 0
       cache.set(titleId, { url: info.url, until: Date.now() + OK_TTL_MS })
       return info.url
-    } catch {
+    } catch (e) {
+      console.warn('[StreamFlex][preview] aperçu indisponible :', (e as Error).message)
       cache.set(titleId, { url: null, until: Date.now() + FAIL_TTL_MS })
       if (++failStreak >= BREAKER_AFTER) {
         pausedUntil = Date.now() + BREAKER_MS

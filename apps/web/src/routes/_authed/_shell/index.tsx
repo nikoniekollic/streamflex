@@ -1,6 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { fetchHome } from '@/lib/catalog'
 import { HeroBanner, HeroBannerSkeleton } from '@/components/catalog/HeroBanner'
+import { HeroCarousel } from '@/components/catalog/HeroCarousel'
 import {
   CategoryCarousel,
   CategoryCarouselSkeleton,
@@ -15,7 +16,7 @@ export const Route = createFileRoute('/_authed/_shell/')({
 })
 
 function Home() {
-  const { hero, continueWatching, rows, isMock } = Route.useLoaderData()
+  const { hero, latest, continueWatching, rows, isMock } = Route.useLoaderData()
   const [trending, ...others] = rows
 
   if (!hero && rows.length === 0 && continueWatching.length === 0) {
@@ -29,8 +30,8 @@ function Home() {
 
   return (
     <div className="pb-16">
-      {hero && <HeroBanner title={hero} />}
-      <div className="relative z-10 -mt-24 flex flex-col gap-4 md:-mt-32 md:gap-6">
+      {latest.length > 0 ? <HeroCarousel titles={latest} /> : hero && <HeroBanner title={hero} />}
+      <div className={latest.length > 0 ? 'relative z-10 mt-8 flex flex-col gap-4 md:gap-6' : 'relative z-10 -mt-24 flex flex-col gap-4 md:-mt-32 md:gap-6'}>
         <ContinueWatchingCarousel items={continueWatching} />
         {trending && <CategoryCarousel label={trending.label} titles={trending.titles} />}
         {others.map((r) => (

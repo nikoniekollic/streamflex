@@ -106,8 +106,8 @@ export function MovieCard({ title, variant = 'poster', progress, watch, favorite
 
   return (
     <div
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      onPointerEnter={(e) => e.pointerType === 'mouse' && setHovered(true)}
+      onPointerLeave={() => setHovered(false)}
       className={cn(
         'group/card relative overflow-hidden rounded-md bg-neutral-900',
         'transition-all duration-300 ease-out will-change-transform',

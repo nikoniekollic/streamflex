@@ -31,6 +31,8 @@ export type CategoryRow = { key: string; label: string; titles: CatalogTitle[] }
 
 export type HomeData = {
   hero: CatalogTitle | null
+  /** nouveautés (les plus récemment publiées), pour le carrousel de l'accueil */
+  latest: CatalogTitle[]
   continueWatching: ContinueItem[]
   rows: CategoryRow[]
   isMock: boolean
@@ -56,6 +58,15 @@ export function buildRows(titles: CatalogTitle[], genreOrder: { slug: string; na
   return rows
 }
 
+const LATEST_COUNT = 10
+/** Les titres les plus récents, ceux qui ont une image d'abord (le carrousel est visuel). */
+export function pickLatest(titles: CatalogTitle[]): CatalogTitle[] {
+  const byDate = [...titles].sort((a, b) => (b.published_at ?? '').localeCompare(a.published_at ?? ''))
+  const withImage = byDate.filter((t) => t.backdrop_url || t.poster_url)
+  const pool = withImage.length >= 3 ? withImage : byDate
+  return pool.slice(0, LATEST_COUNT)
+}
+
 function pickHero(titles: CatalogTitle[]): CatalogTitle | null {
   const pool = titles.slice(0, 10).filter((t) => t.backdrop_url)
   if (pool.length === 0) return titles[0] ?? null
@@ -66,6 +77,7 @@ function mockHome(kids = false): HomeData {
   const titles = kids ? MOCK_TITLES.filter((t) => KIDS_RATINGS.includes(t.maturity_rating ?? '')) : MOCK_TITLES
   return {
     hero: pickHero(titles),
+    latest: pickLatest(titles),
     continueWatching: kids ? [] : MOCK_PROGRESS,
     rows: buildRows(titles, MOCK_GENRES),
     isMock: true,
@@ -102,7 +114,7 @@ export async function fetchHome(
 
   if (catalog.titles.length === 0) {
     if (env.enableMocks) return mockHome(kids)
-    return { hero: null, continueWatching: [], rows: [], isMock: false }
+    return { hero: null, latest: [], continueWatching: [], rows: [], isMock: false }
   }
 
   const titles: CatalogTitle[] = catalog.titles.map((t) => ({ ...t, genres: Array.isArray(t.genres) ? (t.genres as CatalogTitle['genres']) : [] }))
@@ -116,5 +128,5 @@ export async function fetchHome(
     caption: episodeLabel(h),
   }))
 
-  return { hero: pickHero(titles), continueWatching: progress, rows: buildRows(titles, catalog.genres), isMock: false }
+  return { hero: pickHero(titles), latest: pickLatest(titles), continueWatching: progress, rows: buildRows(titles, catalog.genres), isMock: false }
 }
