@@ -126,7 +126,7 @@ export async function fetchAdminList(supabase: TypedSupabaseClient, s: AdminList
   const query = applyAdminFilters(
     supabase
       .from('titles')
-      .select(`id, type, slug, title, release_year, poster_url, is_published, updated_at, cover_pos, title_genres(genres(name)), media_sources(count), models(name)${genreJoin(s)}`, {
+      .select(`id, type, slug, title, release_year, poster_url, is_published, updated_at, cover_pos, title_genres(genres(name)), media_sources(count), models!titles_model_id_fkey(name)${genreJoin(s)}`, {
         count: 'exact',
       }),
     s,
