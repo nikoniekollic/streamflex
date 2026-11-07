@@ -1,13 +1,13 @@
-import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type RefObject } from 'react'
-import { Link } from '@tanstack/react-router'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { Pause, Play } from 'lucide-react'
-import { useSiteSettings, type CardFit } from '@/lib/site-settings'
 import type { CatalogTitle } from '@/lib/catalog'
 import { cn } from '@/lib/utils'
 import { supabase } from '@/lib/supabase'
 import { useActiveProfile } from '@/components/profile/ActiveProfileContext'
+import { useSiteSettings, type CardFit, type Fit } from '@/lib/site-settings'
 import {
   ambientAllowed,
+  cancelWarm,
   getAmbientVersion,
   getPreviewUrl,
   invalidatePreview,
@@ -15,316 +15,137 @@ import {
   isStillSlot,
   markAmbientFailed,
   peekPreviewUrl,
-  reportDuration,
   setAmbientVisible,
   setStillVisible,
   subscribeAmbient,
   warmPreview,
   type Wanted,
 } from '@/lib/preview'
+import { acquireSlot, attachSlot, detachSlot, dropSlot, peekSlot, type PoolSlot } from '@/lib/video-pool'
 
-type ClipProps = {
-  titleId: string
-  active: boolean
-  /** extrait lu en boucle, en secondes */
-  clipSeconds?: number
-  /** attente avant de lancer quoi que ce soit */
-  delayMs?: number
-  /** son activé (aperçu au survol) ou muet (fond de la page d'un titre) */
-  audio?: boolean
-  /** prépare le lien dès que l'élément est visible, et autorise la lecture silencieuse d'ambiance (quelques cartes seulement) */
-  warm?: boolean
-  className?: string
-}
+export const CSS_FIT: Record<CardFit, 'cover' | 'contain' | 'fill'> = { cover: 'cover', contain: 'contain', stretch: 'fill' }
+/** Réglage « ajustement » de l'admin → mode CSS (adapté = vidéo entière, remplir = rogne, étirer = déforme) */
+export const hoverFit = (f: Fit): CardFit => (f === 'auto' ? 'contain' : f === 'cover' ? 'cover' : 'stretch')
 
-const AMBIENT_CLIP_S = 30 // même durée partout : ~30 s par affiche
-
-/** Extrait vidéo d'un instant aléatoire du film (lien Alldebrid débridé dans le navigateur), lu en boucle. */
-export function PreviewClip({ titleId, active, clipSeconds = 30, delayMs = 700, audio = false, warm = false, className }: ClipProps) {
+// ───────── Fond vidéo d'une page (titre) : extrait en boucle, sans son, réglages de l'admin (Apparence)
+export function PreviewClip({ titleId, active, delayMs = 400, className }: { titleId: string; active: boolean; delayMs?: number; className?: string }) {
   const { activeProfile } = useActiveProfile()
-  const [src, setSrc] = useState<string | null>(null)
+  const { preview: cfg } = useSiteSettings()
+  const profileId = activeProfile?.id
+  const [src, setSrc] = useState<string | null>(() => peekPreviewUrl(titleId))
   const [playing, setPlaying] = useState(false)
   const start = useRef(0)
+
+  useEffect(() => {
+    if (!active || !profileId) return
+    if (src) return
+    const wanted: Wanted = { cancelled: false }
+    const t = setTimeout(() => void getPreviewUrl(supabase, profileId, titleId, wanted).then((u) => !wanted.cancelled && u && setSrc(u)), delayMs)
+    return () => {
+      wanted.cancelled = true
+      clearTimeout(t)
+    }
+  }, [active, profileId, titleId, delayMs, src])
+
+  if (!src || !active) return null
+  return (
+    <video
+      src={src}
+      muted
+      playsInline
+      autoPlay
+      preload="auto"
+      aria-hidden
+      onLoadedMetadata={(e) => {
+        const v = e.currentTarget
+        const d = v.duration
+        start.current = Number.isFinite(d) && d > cfg.clipSeconds * 2 ? Math.min(d * (0.08 + Math.random() * 0.7), d - cfg.clipSeconds - 1) : 0
+        if (start.current > 0) v.currentTime = start.current
+      }}
+      onPlaying={() => setPlaying(true)}
+      onTimeUpdate={(e) => {
+        const v = e.currentTarget
+        if (v.currentTime >= start.current + cfg.clipSeconds) v.currentTime = start.current
+      }}
+      onEnded={(e) => {
+        e.currentTarget.currentTime = start.current
+        void e.currentTarget.play().catch(() => undefined)
+      }}
+      onError={() => {
+        invalidatePreview(titleId)
+        setSrc(null)
+      }}
+      style={{ objectFit: CSS_FIT[hoverFit(cfg.fit)] }}
+      className={cn('pointer-events-none size-full transition-opacity duration-500', playing ? 'opacity-100' : 'opacity-0', className)}
+    />
+  )
+}
+
+// ───────── Jaquette du catalogue : l'aperçu reste DANS la miniature (cœur et liste de lecture restent cliquables)
+//  • visible → image figée de la vidéo ; quelques jaquettes visibles → lecture silencieuse (réglable)
+//  • survol → même élément, avec le son ; bouton pause
+//  • l'élément vidéo de chaque jaquette est gardé en mémoire (lib/video-pool) : retour sur une page = rien à relire
+const KEEP_SLOT_MS = 3000 // une carte qui sort de l'écran garde sa place 3 s (défilement aller-retour)
+
+export function HoverPreview({ title, active }: { title: CatalogTitle; active: boolean }) {
+  const titleId = title.id
+  const { activeProfile } = useActiveProfile()
   const profileId = activeProfile?.id
+  const { preview: cfg } = useSiteSettings()
+  const [url, setUrl] = useState<string | null>(() => peekPreviewUrl(titleId))
+  const [ready, setReady] = useState(false)
+  const [paused, setPaused] = useState(false)
   const sentinel = useRef<HTMLSpanElement>(null)
-  const video = useRef<HTMLVideoElement>(null)
-  // Image figée tirée de la vidéo (lue par le navigateur, sans rien stocker) : distingue les films entre eux
-  const [stillUrl, setStillUrl] = useState<string | null>(null)
-  const [stillReady, setStillReady] = useState(false)
+  const host = useRef<HTMLDivElement>(null)
+  const slotRef = useRef<PoolSlot | null>(null)
+  const retries = useRef(0)
+  const activeRef = useRef(active)
+  activeRef.current = active
 
-  // Ce titre a-t-il une place parmi les quelques cartes qui jouent en silence ?
   useSyncExternalStore(subscribeAmbient, getAmbientVersion)
-  const ambient = warm && !active && isAmbientSlot(titleId)
-  const mode: 'hover' | 'ambient' | null = active ? 'hover' : ambient ? 'ambient' : null
+  const known = peekSlot(titleId, url)
+  const show = !!url && (active || isStillSlot(titleId) || !!known)
+  const mode: 'hover' | 'ambient' | 'still' = active ? 'hover' : cfg.ambient && isAmbientSlot(titleId, cfg.ambientMax) ? 'ambient' : 'still'
 
-  // Visibilité : ≥ 1,2 s à l'écran → lien préparé ; ≥ 60 % visible → candidat à la lecture d'ambiance
+  // Visibilité : lien préparé (par lots avec les autres jaquettes) ; ≥ 60 % visible → candidate à la lecture d'ambiance
   useEffect(() => {
     const el = sentinel.current
-    if (!warm || !el || !profileId || !('IntersectionObserver' in window)) return
-    let timer: ReturnType<typeof setTimeout> | null = null
+    if (!el || !profileId || !('IntersectionObserver' in window)) return
     let alive = true
+    let leave: ReturnType<typeof setTimeout> | undefined
     const io = new IntersectionObserver(
       ([entry]) => {
-        if (timer) clearTimeout(timer)
-        timer = null
         if (entry.isIntersecting) {
-          timer = setTimeout(() => {
-            void warmPreview(supabase, profileId, titleId).then((url) => {
-              if (url && alive) setStillUrl(url)
+          clearTimeout(leave)
+          setStillVisible(titleId, true)
+          const cached = peekPreviewUrl(titleId)
+          if (cached) setUrl(cached)
+          else
+            void warmPreview(supabase, profileId, titleId).then((u) => {
+              if (u && alive) setUrl(u)
             })
-          }, 1200)
         } else {
-          setStillUrl(null) // hors écran : on libère la connexion
-          setStillReady(false)
+          cancelWarm(titleId)
+          leave = setTimeout(() => !activeRef.current && setStillVisible(titleId, false), KEEP_SLOT_MS)
         }
         setAmbientVisible(titleId, entry.isIntersecting && entry.intersectionRatio >= 0.6 && ambientAllowed())
       },
-      { rootMargin: '100px', threshold: [0, 0.6] },
+      { rootMargin: '300px', threshold: [0, 0.6] },
     )
     io.observe(el)
     return () => {
       alive = false
       io.disconnect()
-      if (timer) clearTimeout(timer)
-      setAmbientVisible(titleId, false)
-    }
-  }, [warm, profileId, titleId])
-
-  // Résolution du lien selon le mode
-  useEffect(() => {
-    if (!mode || !profileId) {
-      setSrc(null)
-      setPlaying(false)
-      return
-    }
-    const ready = peekPreviewUrl(titleId)
-    if (ready) {
-      setSrc(ready) // lien déjà préparé : démarrage immédiat
-      return () => {
-        setSrc(null)
-        setPlaying(false)
-      }
-    }
-    const wanted: Wanted = { cancelled: false }
-    const t = setTimeout(
-      () => {
-        const job = mode === 'hover' ? getPreviewUrl(supabase, profileId, titleId, wanted) : warmPreview(supabase, profileId, titleId)
-        void job.then((url) => {
-          if (wanted.cancelled) return
-          if (url) setSrc(url)
-          else if (mode === 'ambient') markAmbientFailed(titleId) // laisse sa place à une autre carte
-        })
-      },
-      mode === 'hover' ? delayMs : 0,
-    )
-    return () => {
-      wanted.cancelled = true
-      clearTimeout(t)
-      setSrc(null)
-      setPlaying(false)
-    }
-  }, [mode, profileId, titleId, delayMs])
-
-  // Onglet masqué : on met en pause
-  useEffect(() => {
-    const on = () => {
-      const v = video.current
-      if (!v) return
-      if (document.hidden) v.pause()
-      else void v.play().catch(() => undefined)
-    }
-    document.addEventListener('visibilitychange', on)
-    return () => document.removeEventListener('visibilitychange', on)
-  }, [])
-
-  const withSound = mode === 'hover' && audio
-  const clip = mode === 'ambient' ? AMBIENT_CLIP_S : clipSeconds
-  const sentinelEl = warm ? <span ref={sentinel} aria-hidden className="pointer-events-none absolute inset-0" /> : null
-
-  // Structure stable : le repère observé ne doit jamais être recréé quand la vidéo apparaît
-  return (
-    <>
-      {sentinelEl}
-      {stillUrl && warm && !(src && playing) && (
-        <video
-          key={stillUrl}
-          src={stillUrl}
-          muted
-          playsInline
-          preload="metadata"
-          aria-hidden
-          onLoadedMetadata={(e) => {
-            const v = e.currentTarget
-            if (Number.isFinite(v.duration) && v.duration > 20) v.currentTime = v.duration * (0.1 + Math.random() * 0.75)
-          }}
-          onSeeked={() => setStillReady(true)}
-          onError={() => setStillUrl(null)}
-          className={cn('pointer-events-none absolute inset-0 z-[1] size-full object-cover transition-opacity duration-500', stillReady ? 'opacity-100' : 'opacity-0')}
-        />
-      )}
-      {src && mode && (
-        <video
-          key={mode}
-          ref={video}
-          src={src}
-          playsInline
-          preload="auto"
-          aria-hidden
-          onLoadedMetadata={(e) => {
-            const v = e.currentTarget
-            v.muted = !withSound
-            v.volume = withSound ? 0.7 : 0
-            const d = v.duration
-            // début aléatoire, assez tôt pour qu'il reste de quoi remplir l'extrait
-            start.current = Number.isFinite(d) && d > clip * 2 ? Math.min(d * (0.08 + Math.random() * 0.7), d - clip - 1) : 0
-            if (start.current > 0) v.currentTime = start.current
-          }}
-          onCanPlay={(e) => {
-            const v = e.currentTarget
-            // Son refusé par le navigateur (aucune interaction préalable) : on retombe en muet plutôt que de ne rien montrer
-            void v.play().catch(() => {
-              v.muted = true
-              return v.play().catch(() => undefined)
-            })
-          }}
-          onPlaying={() => setPlaying(true)}
-          onTimeUpdate={(e) => {
-            const v = e.currentTarget
-            if (v.currentTime >= start.current + clip) v.currentTime = start.current
-          }}
-          onEnded={(e) => {
-            e.currentTarget.currentTime = start.current
-            void e.currentTarget.play().catch(() => undefined)
-          }}
-          onError={() => {
-            console.warn('[StreamFlex][preview] la vidéo ne se charge pas')
-            if (mode === 'ambient') markAmbientFailed(titleId)
-            setSrc(null)
-          }}
-          className={cn('pointer-events-none size-full object-cover transition-opacity duration-300', playing ? 'opacity-100' : 'opacity-0', className)}
-        />
-      )}
-    </>
-  )
-}
-
-// ───────── Jaquette du catalogue : UN seul élément <video> par carte
-//  • visible à l'écran → image figée de la vidéo (instant aléatoire, lue par le navigateur, sans stockage)
-//  • quelques cartes visibles → la même vidéo joue en silence
-//  • survol → le MÊME élément (déjà chargé, déjà positionné) passe en lecture avec le son dans un panneau dont le
-//    format, l'ajustement (adapté / remplir / étirer), la durée et le volume se règlent dans l'admin (Apparence)
-const INFO_H = 84
-const KEEP_SLOT_MS = 3000 // une carte qui sort de l'écran garde sa vidéo 3 s (défilement aller-retour sans recharger)
-
-type PanelRect = { left: number; top: number; width: number; height: number; videoH: number }
-
-function parseRatio(r: string): number | null {
-  const m = r.match(/^(\d+):(\d+)$/)
-  return m ? Number(m[1]) / Number(m[2]) : null
-}
-
-function computeRect(card: DOMRect, aspect: number, widthPref: number): PanelRect {
-  const vw = window.innerWidth
-  const vh = window.innerHeight
-  const width = Math.min(Math.max(widthPref, card.width * 1.4), vw - 16)
-  const videoH = Math.min(width / aspect, vh * 0.62)
-  const height = Math.max(videoH + INFO_H, card.height)
-  return {
-    left: Math.min(Math.max(card.left + card.width / 2 - width / 2, 8), vw - width - 8),
-    top: Math.min(Math.max(card.top + card.height / 2 - height / 2, 8), vh - height - 8),
-    width,
-    height,
-    videoH,
-  }
-}
-
-const FIT_CLASS = { cover: 'object-cover', contain: 'object-contain', stretch: 'object-fill' } as const
-
-export function HoverPreview({ title, active, cardRef }: { title: CatalogTitle; active: boolean; cardRef: RefObject<HTMLDivElement | null> }) {
-  const titleId = title.id
-  const { activeProfile } = useActiveProfile()
-  const profileId = activeProfile?.id
-  const { preview: cfg } = useSiteSettings()
-  const [url, setUrl] = useState<string | null>(null)
-  const [ready, setReady] = useState(false)
-  const [videoAspect, setVideoAspect] = useState(16 / 9)
-  const [rect, setRect] = useState<PanelRect | null>(null)
-  const [paused, setPaused] = useState(false)
-  const sentinel = useRef<HTMLSpanElement>(null)
-  const video = useRef<HTMLVideoElement>(null)
-  const anchor = useRef(0)
-  const retries = useRef(0)
-  const activeRef = useRef(active)
-  activeRef.current = active
-  const pausedRef = useRef(paused)
-  pausedRef.current = paused
-
-  useSyncExternalStore(subscribeAmbient, getAmbientVersion)
-  const slot = isStillSlot(titleId)
-  const show = !!url && (active || slot)
-  const mode: 'hover' | 'ambient' | 'still' = active ? 'hover' : cfg.ambient && isAmbientSlot(titleId) ? 'ambient' : 'still'
-
-  // Ratio du panneau : celui de la vidéo, ou imposé par l'admin
-  const forced = parseRatio(cfg.ratio)
-  const aspect = forced ?? videoAspect
-  const panelFit: CardFit = cfg.fit === 'auto' ? 'contain' : cfg.fit === 'cover' ? 'cover' : 'stretch'
-
-  const warm = (delay = 0) => {
-    if (!profileId) return
-    const t = setTimeout(() => {
-      void warmPreview(supabase, profileId, titleId).then((u) => {
-        if (u) setUrl(u)
-      })
-    }, delay)
-    return t
-  }
-
-  // Visibilité : lien préparé dès 0,35 s à l'écran (ou aussitôt s'il est déjà connu) ; ≥ 60 % → candidat à la lecture d'ambiance
-  useEffect(() => {
-    const el = sentinel.current
-    if (!el || !profileId || !('IntersectionObserver' in window)) return
-    let timer: ReturnType<typeof setTimeout> | undefined
-    let leave: ReturnType<typeof setTimeout> | undefined
-    const io = new IntersectionObserver(
-      ([entry]) => {
-        clearTimeout(timer)
-        if (entry.isIntersecting) {
-          clearTimeout(leave)
-          setStillVisible(titleId, true)
-          const known = peekPreviewUrl(titleId)
-          if (known) setUrl(known)
-          else timer = warm(350)
-        } else {
-          leave = setTimeout(() => {
-            if (activeRef.current) return
-            setStillVisible(titleId, false)
-            setUrl(null) // hors écran depuis 3 s : on libère la connexion
-            setReady(false)
-          }, KEEP_SLOT_MS)
-        }
-        setAmbientVisible(titleId, entry.isIntersecting && entry.intersectionRatio >= 0.6 && ambientAllowed())
-      },
-      { rootMargin: '200px', threshold: [0, 0.6] },
-    )
-    io.observe(el)
-    return () => {
-      io.disconnect()
-      clearTimeout(timer)
       clearTimeout(leave)
+      cancelWarm(titleId)
       setAmbientVisible(titleId, false)
       setStillVisible(titleId, false)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profileId, titleId])
 
+  // Survol d'une jaquette dont le lien n'est pas encore prêt : prioritaire
   useEffect(() => {
-    if (!show) setReady(false)
-  }, [show])
-
-  // Survol : lien tout de suite (prioritaire) si la carte n'était pas encore préparée
-  useEffect(() => {
-    if (!active || !profileId) return
-    if (url) return
+    if (!active || !profileId || url) return
     const wanted: Wanted = { cancelled: false }
     void getPreviewUrl(supabase, profileId, titleId, wanted).then((u) => {
       if (!wanted.cancelled && u) setUrl(u)
@@ -334,175 +155,88 @@ export function HoverPreview({ title, active, cardRef }: { title: CatalogTitle; 
     }
   }, [active, profileId, titleId, url])
 
-  // La pause ne dure que le temps du survol
+  // L'élément vidéo de la jaquette est posé dans la carte (créé, ou repris tel quel de la réserve)
+  useEffect(() => {
+    const h = host.current
+    if (!show || !url || !h) return
+    const slot = acquireSlot(titleId, url, cfg.clipSeconds)
+    slotRef.current = slot
+    attachSlot(slot, h)
+    const sync = () => {
+      setReady(slot.ready)
+      if (slot.failed) {
+        // lien probablement expiré : un lien neuf, une seule fois
+        dropSlot(titleId)
+        invalidatePreview(titleId)
+        setUrl(null)
+        if (retries.current++ < 1 && profileId) {
+          setTimeout(() => void warmPreview(supabase, profileId, titleId).then((u) => u && setUrl(u)), 400)
+        } else markAmbientFailed(titleId)
+      } else if (slot.ready) retries.current = 0
+    }
+    slot.subs.add(sync)
+    setReady(slot.ready)
+    return () => {
+      slot.subs.delete(sync)
+      detachSlot(slot)
+      if (slotRef.current === slot) slotRef.current = null
+    }
+  }, [show, url, titleId, cfg.clipSeconds, profileId])
+
   useEffect(() => {
     if (!active) setPaused(false)
   }, [active])
 
-  // Panneau : position calculée depuis la carte, suit le défilement / redimensionnement
-  useEffect(() => {
-    if (!active) {
-      setRect(null)
-      return
-    }
-    const update = () => {
-      const c = cardRef.current
-      if (c) setRect(computeRect(c.getBoundingClientRect(), aspect, cfg.width))
-    }
-    update()
-    window.addEventListener('scroll', update, true)
-    window.addEventListener('resize', update)
-    return () => {
-      window.removeEventListener('scroll', update, true)
-      window.removeEventListener('resize', update)
-    }
-  }, [active, aspect, cardRef, cfg.width])
-
   // Lecture selon le mode : le son seulement au survol
   useEffect(() => {
-    const v = video.current
-    if (!v || !show) return
-    if (mode === 'still') {
-      v.pause()
-      v.muted = true
+    const slot = slotRef.current
+    if (!slot || !show) return
+    const el = slot.el
+    el.style.objectFit = CSS_FIT[mode === 'hover' ? hoverFit(cfg.fit) : cfg.cardFit]
+    if (!ready) return
+    if (mode === 'still' || (mode === 'hover' && paused)) {
+      el.pause()
       return
     }
-    v.muted = mode !== 'hover'
-    v.volume = mode === 'hover' ? cfg.volume : 0
-    v.preload = 'auto'
-    anchor.current = v.currentTime
-    const go = () => {
-      if (pausedRef.current) return
-      void v.play().catch(() => {
-        v.muted = true // son refusé par le navigateur : muet plutôt que rien
-        return v.play().catch(() => undefined)
-      })
-    }
-    if (v.readyState >= 2) go()
-    else v.addEventListener('canplay', go, { once: true })
-    return () => v.removeEventListener('canplay', go)
-  }, [mode, show, cfg.volume])
-
-  // Bouton pause / reprise de l'aperçu
-  useEffect(() => {
-    const v = video.current
-    if (!v || mode !== 'hover') return
-    if (paused) v.pause()
-    else void v.play().catch(() => undefined)
-  }, [paused, mode])
+    el.muted = mode !== 'hover'
+    el.volume = mode === 'hover' ? cfg.volume : 0
+    el.preload = 'auto'
+    void el.play().catch(() => {
+      el.muted = true // son refusé par le navigateur : muet plutôt que rien
+      return el.play().catch(() => undefined)
+    })
+  }, [mode, show, ready, paused, url, cfg.volume, cfg.fit, cfg.cardFit])
 
   // Onglet masqué : pause
   useEffect(() => {
     const on = () => {
-      const v = video.current
-      if (!v || mode === 'still') return
-      if (document.hidden) v.pause()
-      else if (!pausedRef.current) void v.play().catch(() => undefined)
+      const el = slotRef.current?.el
+      if (!el) return
+      if (document.hidden) el.pause()
+      else if (mode !== 'still' && !paused) void el.play().catch(() => undefined)
     }
     document.addEventListener('visibilitychange', on)
     return () => document.removeEventListener('visibilitychange', on)
-  }, [mode])
-
-  const popup = active && rect
-  const videoStyle: CSSProperties | undefined = popup
-    ? { position: 'fixed', left: rect.left, top: rect.top, width: rect.width, height: rect.videoH, zIndex: 61, background: '#000', borderRadius: '8px 8px 0 0' }
-    : undefined
-
-  const onError = () => {
-    console.warn('[StreamFlex][preview] la vidéo ne se charge pas')
-    setReady(false)
-    if (retries.current < 1) {
-      // lien probablement expiré : on en demande un neuf une fois
-      retries.current++
-      invalidatePreview(titleId)
-      setUrl(null)
-      warm(400)
-      return
-    }
-    if (mode === 'ambient') markAmbientFailed(titleId)
-    setUrl(null)
-  }
-
-  const togglePause = (e: React.MouseEvent) => {
-    e.preventDefault() // le bouton est dans la carte-lien : pas de navigation
-    e.stopPropagation()
-    setPaused((p) => !p)
-  }
+  }, [mode, paused])
 
   return (
     <>
       <span ref={sentinel} aria-hidden className="pointer-events-none absolute inset-0" />
-      {show && (
-        <video
-          key={url}
-          ref={video}
-          src={url!}
-          muted
-          playsInline
-          preload="metadata"
-          aria-hidden
-          onLoadedMetadata={(e) => {
-            const v = e.currentTarget
-            if (v.videoWidth && v.videoHeight) setVideoAspect(v.videoWidth / v.videoHeight)
-            const d = v.duration
-            reportDuration(supabase, titleId, d)
-            if (Number.isFinite(d) && d > cfg.clipSeconds * 2) v.currentTime = Math.min(d * (0.1 + Math.random() * 0.7), d - cfg.clipSeconds - 1)
+      <div ref={host} aria-hidden className={cn('pointer-events-none absolute inset-0 z-[1] bg-black transition-opacity duration-500', show && ready ? 'opacity-100' : 'opacity-0')} />
+      {active && show && ready && cfg.pauseButton && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.preventDefault() // dans la carte-lien : ni ouverture du lecteur ni navigation
+            e.stopPropagation()
+            setPaused((p) => !p)
           }}
-          onSeeked={(e) => {
-            anchor.current = e.currentTarget.currentTime
-            retries.current = 0
-            setReady(true)
-          }}
-          onTimeUpdate={(e) => {
-            const v = e.currentTarget
-            if (mode !== 'still' && v.currentTime >= anchor.current + cfg.clipSeconds) v.currentTime = anchor.current
-          }}
-          onEnded={(e) => {
-            e.currentTarget.currentTime = anchor.current
-            if (!pausedRef.current) void e.currentTarget.play().catch(() => undefined)
-          }}
-          onError={onError}
-          style={videoStyle}
-          className={cn(
-            'pointer-events-none',
-            popup ? FIT_CLASS[panelFit] : cn('absolute inset-0 z-[1] size-full bg-black transition-opacity duration-500', FIT_CLASS[cfg.cardFit]),
-            popup || ready ? 'opacity-100' : 'opacity-0',
-          )}
-        />
-      )}
-      {popup && (
-        <div
-          className="fixed z-[60] flex flex-col overflow-hidden rounded-lg bg-neutral-900 shadow-2xl shadow-black/80 ring-1 ring-white/20"
-          style={{ left: rect.left, top: rect.top, width: rect.width, height: rect.height }}
+          aria-label={paused ? "Reprendre l'aperçu" : "Mettre l'aperçu en pause"}
+          aria-pressed={paused}
+          className="absolute top-2 left-12 z-[6] flex size-8 items-center justify-center rounded-full border-2 border-neutral-300 bg-black/60 text-white backdrop-blur-sm hover:scale-110 hover:border-white"
         >
-          <Link to="/title/$slug" params={{ slug: title.slug }} aria-label={title.title} className="relative z-[62] block w-full" style={{ height: rect.videoH }} />
-          <div className="flex flex-1 flex-col justify-center gap-1.5 px-3 py-2">
-            <div className="flex items-center gap-2">
-              <Link to="/watch/$id" params={{ id: titleId }} aria-label={`Lire ${title.title}`} className="flex size-8 shrink-0 items-center justify-center rounded-full bg-white text-black hover:bg-white/80">
-                <Play className="size-4 fill-current" />
-              </Link>
-              {cfg.pauseButton && (
-                <button
-                  type="button"
-                  onClick={togglePause}
-                  aria-label={paused ? "Reprendre l'aperçu" : "Mettre l'aperçu en pause"}
-                  aria-pressed={paused}
-                  className="flex size-8 shrink-0 items-center justify-center rounded-full border border-white/50 text-white hover:bg-white/20"
-                >
-                  {paused ? <Play className="size-4 fill-current" /> : <Pause className="size-4 fill-current" />}
-                </button>
-              )}
-              <span className="line-clamp-2 text-sm leading-tight font-semibold">{title.title}</span>
-            </div>
-            <div className="flex flex-wrap items-center gap-x-2 text-xs text-neutral-300">
-              {title.maturity_rating && <span className="rounded-sm border border-neutral-500 px-1">{title.maturity_rating}</span>}
-              {title.release_year && <span>{title.release_year}</span>}
-              {title.genres.slice(0, 2).map((g) => (
-                <span key={g.slug}>• {g.name}</span>
-              ))}
-            </div>
-          </div>
-        </div>
+          {paused ? <Play className="size-4 fill-current" /> : <Pause className="size-4 fill-current" />}
+        </button>
       )}
     </>
   )

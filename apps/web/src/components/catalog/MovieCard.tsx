@@ -1,6 +1,7 @@
-import { useRef, useState } from 'react'
-import { Link } from '@tanstack/react-router'
-import { Play } from 'lucide-react'
+import { useState } from 'react'
+import { Link, useNavigate } from '@tanstack/react-router'
+import { Info, Play } from 'lucide-react'
+import { openPlayer } from '@/lib/player-overlay'
 import { cn } from '@/lib/utils'
 import type { CatalogTitle } from '@/lib/catalog'
 import { FavoriteButton } from '@/components/catalog/FavoriteButton'
@@ -27,7 +28,7 @@ type MovieCardProps = {
 export function MovieCard({ title, variant = 'poster', progress, watch, favorite = true, caption, className }: MovieCardProps) {
   const isBackdrop = variant === 'backdrop'
   const [hovered, setHovered] = useState(false)
-  const cardRef = useRef<HTMLDivElement>(null)
+  const navigate = useNavigate()
   const isMovie = title.type === 'movie'
   const length = useTitleLength(title.id, title.runtime_minutes)
   const src = isBackdrop ? (title.backdrop_url ?? title.poster_url) : (title.poster_url ?? title.backdrop_url)
@@ -50,7 +51,7 @@ export function MovieCard({ title, variant = 'poster', progress, watch, favorite
       )}
 
       <ModelName titleId={title.id} />
-      {isMovie && <HoverPreview title={title} active={hovered} cardRef={cardRef} />}
+      {isMovie && <HoverPreview title={title} active={hovered} />}
 
       <div className="absolute inset-0 z-[3] flex flex-col justify-end bg-gradient-to-t from-black/90 via-black/20 to-transparent p-3 opacity-0 transition-opacity duration-300 group-focus-within/card:opacity-100 group-hover/card:opacity-100">
         <div className="flex items-center gap-2">
@@ -101,19 +102,42 @@ export function MovieCard({ title, variant = 'poster', progress, watch, favorite
   )
 
   const linkClass = 'block size-full cursor-pointer outline-none select-none'
+  // Clic simple : le lecteur s'ouvre en premier plan (croix pour revenir où on était). Ctrl/Maj/clic milieu : comportement du lien.
+  const plain = (e: React.MouseEvent) => e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey
   let link
   if (watch) {
     const search: { episode?: string; t?: number } = {}
     if (watch.episode) search.episode = watch.episode
     if (watch.t !== undefined) search.t = watch.t
     link = (
-      <Link to="/watch/$id" params={{ id: title.id }} search={search} className={linkClass} aria-label={`Lire ${title.title}`}>
+      <Link
+        to="/watch/$id"
+        params={{ id: title.id }}
+        search={search}
+        className={linkClass}
+        aria-label={`Lire ${title.title}`}
+        onClick={(e) => {
+          if (!plain(e)) return
+          e.preventDefault()
+          openPlayer({ titleId: title.id, episodeId: watch.episode, t: watch.t })
+        }}
+      >
         {content}
       </Link>
     )
   } else {
     link = (
-      <Link to="/title/$slug" params={{ slug: title.slug }} className={linkClass} aria-label={title.title}>
+      <Link
+        to="/title/$slug"
+        params={{ slug: title.slug }}
+        className={linkClass}
+        aria-label={isMovie ? `Lire ${title.title}` : title.title}
+        onClick={(e) => {
+          if (!isMovie || !plain(e)) return
+          e.preventDefault()
+          openPlayer({ titleId: title.id })
+        }}
+      >
         {content}
       </Link>
     )
@@ -121,7 +145,6 @@ export function MovieCard({ title, variant = 'poster', progress, watch, favorite
 
   return (
     <div
-      ref={cardRef}
       onPointerEnter={(e) => e.pointerType === 'mouse' && setHovered(true)}
       onPointerLeave={() => setHovered(false)}
       className={cn(
@@ -136,10 +159,23 @@ export function MovieCard({ title, variant = 'poster', progress, watch, favorite
     >
       {link}
       {favorite && (
+        <>
+          {isMovie && (
+            <button
+              type="button"
+              aria-label={`Détails de ${title.title}`}
+              title="Détails"
+              onClick={() => void navigate({ to: '/title/$slug', params: { slug: title.slug } })}
+              className="absolute top-2 left-2 z-[5] flex size-8 items-center justify-center rounded-full border-2 border-neutral-300 bg-black/60 text-white opacity-0 backdrop-blur-sm transition-all group-focus-within/card:opacity-100 group-hover/card:opacity-100 hover:scale-110 hover:border-white max-md:opacity-100"
+            >
+              <Info className="size-4" strokeWidth={2.5} />
+            </button>
+          )}
         <div className="absolute top-2 right-2 z-[5] flex gap-1.5">
           {isMovie && <PlaylistMenu titleId={title.id} />}
           <FavoriteButton title={title} />
         </div>
+        </>
       )}
     </div>
   )

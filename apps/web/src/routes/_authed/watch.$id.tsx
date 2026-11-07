@@ -1,13 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { createFileRoute, useRouter, type ErrorComponentProps } from '@tanstack/react-router'
-import { VideoPlayer } from '@/components/player/VideoPlayer'
+import { createFileRoute, useNavigate, useRouter, type ErrorComponentProps } from '@tanstack/react-router'
 import { StreamStatus } from '@/components/player/StreamStatus'
-import { useWatchProgress } from '@/hooks/useWatchProgress'
-import { useStream } from '@/hooks/useStream'
-import { useBookmarks } from '@/hooks/useBookmarks'
-import { StreamError, loadWatch, type Quality } from '@/lib/stream'
-import { cycleRepeat, nextInQueue, previousInQueue, syncQueue, toggleShuffle, useQueue } from '@/lib/queue'
-import { loadSubtitleUrl } from '@/lib/subtitles'
+import { StreamError, loadWatch } from '@/lib/stream'
+import { WatchSession } from '@/components/player/WatchSession'
 import { requireActiveProfile } from '@/lib/route-guards'
 
 
@@ -35,169 +29,18 @@ export const Route = createFileRoute('/_authed/watch/$id')({
   component: WatchPage,
 })
 
-// Remonte l'état (flux, position, retries) à chaque changement de titre/épisode
+// Page de lecture (liens directs) : la lecture elle-même vit dans WatchSession, partagée avec le lecteur en premier plan
 function WatchPage() {
   const data = Route.useLoaderData()
-  return <WatchSession key={`${data.title.id}:${data.episode?.id ?? ''}`} />
-}
-
-function WatchSession() {
-  const { title, episode, nextEpisode, startAt: initialStart, subtitles } = Route.useLoaderData()
-  const { supabase, activeProfile } = Route.useRouteContext()
-  const profileId = activeProfile!.id
-  const navigate = Route.useNavigate()
+  const navigate = useNavigate()
   const router = useRouter()
-
-  const episodeId = episode?.id ?? null
-  const { state, resolve } = useStream(supabase, profileId, title.id, episodeId)
-  const [startAt, setStartAt] = useState(initialStart)
-  const mediaRetries = useRef(0)
-  const lastPosition = useRef(initialStart)
-
-  const { report, flush } = useWatchProgress({ supabase, profileId, titleId: title.id, episodeId })
-  const bm = useBookmarks(supabase, profileId, title.id, episodeId)
-
-  const onTimeUpdate = useCallback(
-    (pos: number, dur: number) => {
-      lastPosition.current = pos
-      report(pos, dur)
-    },
-    [report],
-  )
-
-  const back = useCallback(() => {
-    void flush()
-    if (router.history.canGoBack()) router.history.back()
-    else void navigate({ to: '/' })
-  }, [flush, navigate, router])
-
-  const [playbackFailed, setPlaybackFailed] = useState(false)
-
-  const retry = useCallback(() => {
-    mediaRetries.current = 0
-    setPlaybackFailed(false)
-    setStartAt(lastPosition.current)
-    void resolve({ refresh: true }, 2)
-  }, [resolve])
-
-  // Lien direct expiré / mort en cours de lecture : 1) re-débridage sans cache, 2) bascule vers une autre source
-  const onMediaError = useCallback(
-    (at: number) => {
-      if (state.status !== 'ready') return
-      setStartAt(at)
-      // Aucun réessai automatique : 1fichier bloque l'IP après trop de requêtes erronées.
-      // L'utilisateur relance à la main (bouton « Réessayer »).
-      mediaRetries.current += 1
-      console.error('[StreamFlex] échec de lecture — pas de réessai automatique', state.stream.url)
-      setPlaybackFailed(true)
-    },
-    [state],
-  )
-
-  const loadSubtitle = useCallback((id: string) => loadSubtitleUrl(supabase, id), [supabase])
-  const audioPref = useRef<string | undefined>(undefined)
-
-  const onAudioChange = useCallback(
-    (lang: string, at: number) => {
-      setStartAt(at)
-      audioPref.current = lang
-      // @ts-ignore audio accepté par resolve-stream
-      void resolve({ audio: lang, quality: state.status === 'ready' ? state.stream.quality : undefined } as any)
-    },
-    [resolve, state],
-  )
-
-  const onQualityChange = useCallback(
-    (q: Quality, at: number) => {
-      setStartAt(at)
-      // @ts-ignore audio accepté par resolve-stream
-      void resolve({ quality: q, audio: audioPref.current } as any)
-    },
-    [resolve],
-  )
-
-  // File de lecture (playlist, lecture aléatoire) : la vidéo affichée en fait-elle partie ?
-  const queue = useQueue()
-  useEffect(() => {
-    syncQueue(title.id)
-  }, [title.id])
-  const inQueue = !!queue && queue.order[queue.index] === title.id
-
-  const goQueue = useCallback(
-    (id: string | null) => {
-      if (!id) return
-      void flush()
-      void navigate({ to: '/watch/$id', params: { id }, search: { t: 0 }, replace: true })
-    },
-    [flush, navigate],
-  )
-  const goNextQueue = useCallback(() => void nextInQueue(supabase).then(goQueue), [supabase, goQueue])
-
-  const goNext = useCallback(() => {
-    if (inQueue) return goNextQueue()
-    if (!nextEpisode) return
-    void flush()
-    void navigate({ to: '/watch/$id', params: { id: title.id }, search: { episode: nextEpisode.id }, replace: true })
-  }, [flush, goNextQueue, inQueue, navigate, nextEpisode, title.id])
-
-  const subtitle = episode
-    ? `S${episode.season_number} · É${episode.episode_number}${episode.name ? ` — ${episode.name}` : ''}`
-    : undefined
-
-  if (state.status === 'resolving') {
-    return <StreamStatus phase="resolving" attempt={state.attempt} title={title.title} backdrop={title.backdrop_url} onBack={back} />
-  }
-  if (playbackFailed) {
-    return <StreamStatus phase="error" code="all_sources_failed" title={title.title} backdrop={title.backdrop_url} onBack={back} onRetry={retry} />
-  }
-  if (state.status === 'error') {
-    return <StreamStatus phase="error" code={state.code} detail={state.detail} title={title.title} backdrop={title.backdrop_url} onBack={back} onRetry={retry} />
-  }
-
-  const { stream } = state
   return (
-    <VideoPlayer
-      key={`${stream.sourceId}:${stream.url}`}
-      src={stream.url}
-      poster={title.backdrop_url}
-      title={title.title}
-      subtitle={subtitle}
-      startAt={startAt}
-      qualities={stream.qualities}
-      quality={stream.quality}
-      onQualityChange={onQualityChange}
-      subtitles={subtitles}
-      loadSubtitle={loadSubtitle}
-      audios={stream.audios ?? []}
-      audio={stream.audio ?? []}
-      onAudioChange={onAudioChange}
-      onTimeUpdate={onTimeUpdate}
-      onPause={() => void flush()}
-      onEnded={() => {
-        void flush()
-        goNext()
-      }}
-      onNext={inQueue || nextEpisode ? goNext : undefined}
-      nextLabel={inQueue ? 'Vidéo suivante' : nextEpisode ? `Épisode suivant (É${nextEpisode.episode_number})` : undefined}
-      loop={inQueue && queue?.repeat === 'one'}
-      queue={
-        inQueue && queue
-          ? {
-              label: queue.label,
-              position: `${queue.index + 1}${queue.random ? '' : ` / ${queue.order.length}`}`,
-              shuffle: queue.shuffle,
-              repeat: queue.repeat,
-              onShuffle: toggleShuffle,
-              onRepeat: cycleRepeat,
-              onPrevious: queue.index > 0 ? () => goQueue(previousInQueue()) : undefined,
-            }
-          : undefined
-      }
-      onBack={back}
-      onError={onMediaError}
-      bookmarks={bm.bookmarks}
-      onCreateBookmark={bm.create}
-      onDeleteBookmark={bm.remove}
+    <WatchSession
+      key={`${data.title.id}:${data.episode?.id ?? ''}`}
+      data={data}
+      mode="route"
+      onBack={() => (router.history.canGoBack() ? router.history.back() : void navigate({ to: '/' }))}
+      onSwitch={(t) => void navigate({ to: '/watch/$id', params: { id: t.titleId ?? data.title.id }, search: t.episodeId ? { episode: t.episodeId } : { t: 0 }, replace: true })}
     />
   )
 }

@@ -1,3 +1,4 @@
+import { openPlayer } from '@/lib/player-overlay'
 import { useState } from 'react'
 import { Link, createFileRoute, notFound } from '@tanstack/react-router'
 import { Baby, Play, RotateCcw } from 'lucide-react'
@@ -50,7 +51,7 @@ function TitlePage() {
       <section className="relative -mt-16 flex min-h-[70vh] items-end overflow-hidden">
         {bg && <img src={bg} alt="" aria-hidden className="absolute inset-0 size-full object-cover object-top" />}
         {/* Lecteur en fond : ~30 s aléatoires du film en boucle, sans son ; « Lecture » lance la vidéo complète */}
-        {t.type === 'movie' && <PreviewClip titleId={t.id} active clipSeconds={30} delayMs={400} className="absolute inset-0" />}
+        {t.type === 'movie' && <PreviewClip titleId={t.id} active delayMs={400} className="absolute inset-0" />}
         <div aria-hidden className="absolute inset-0 bg-gradient-to-r from-black/90 via-black/50 to-transparent" />
         <div aria-hidden className="absolute inset-x-0 bottom-0 h-48 bg-gradient-to-t from-background to-transparent" />
         <div className="relative z-10 flex max-w-3xl flex-col gap-4 px-6 pt-32 pb-12 md:px-12">
@@ -86,7 +87,16 @@ function TitlePage() {
           </div>
           <div className="mt-2 flex flex-wrap gap-3">
             <Button asChild size="lg" className="h-11 bg-white px-6 text-base font-semibold text-black hover:bg-white/80 md:h-12 md:px-8">
-              <Link to="/watch/$id" params={{ id: t.id }} search={resumeEpisode ? { episode: resumeEpisode } : {}}>
+              <Link
+                to="/watch/$id"
+                params={{ id: t.id }}
+                search={resumeEpisode ? { episode: resumeEpisode } : {}}
+                onClick={(e) => {
+                 if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) return
+                 e.preventDefault()
+                 openPlayer({ titleId: t.id, episodeId: resumeEpisode ?? null })
+                 }}
+              >
                 {t.resume ? <RotateCcw className="size-6" /> : <Play className="size-6 fill-current" />}
                 {t.resume ? 'Reprendre' : 'Lecture'}
               </Link>

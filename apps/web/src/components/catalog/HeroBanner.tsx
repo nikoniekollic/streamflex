@@ -1,3 +1,4 @@
+import { openPlayer } from '@/lib/player-overlay'
 import { Link } from '@tanstack/react-router'
 import { Info, Play } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -37,7 +38,15 @@ export function HeroBanner({ title }: { title: CatalogTitle }) {
         {title.synopsis && <p className="line-clamp-3 text-sm text-neutral-200 drop-shadow md:text-lg">{title.synopsis}</p>}
         <div className="mt-2 flex flex-wrap gap-3">
           <Button asChild size="lg" className="h-11 bg-white px-6 text-base font-semibold text-black hover:bg-white/80 md:h-12 md:px-8">
-            <Link to="/watch/$id" params={{ id: title.id }}>
+            <Link
+              to="/watch/$id"
+              params={{ id: title.id }}
+              onClick={(e) => {
+             if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) return
+             e.preventDefault()
+             openPlayer({ titleId: title.id })
+             }}
+            >
               <Play className="size-6 fill-current" /> Lecture
             </Link>
           </Button>

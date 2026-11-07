@@ -13,13 +13,13 @@ export type CardFit = 'cover' | 'contain' | 'stretch'
 export type SiteSettings = {
   theme: { preset: string; primary: string | null; background: string | null; font: string; radius: number }
   names: { show: boolean; font: string; colorMode: 'auto' | 'palette' | 'fixed'; palette: string; color: string; stroke: string; glow: boolean; size: number; upper: 'auto' | 'on' | 'off' }
-  preview: { fit: Fit; ratio: string; width: number; clipSeconds: number; volume: number; pauseButton: boolean; ambient: boolean; cardFit: CardFit }
+  preview: { fit: Fit; ratio: string; width: number; clipSeconds: number; volume: number; pauseButton: boolean; ambient: boolean; ambientMax: number; cardFit: CardFit }
 }
 
 export const DEFAULT_SETTINGS: SiteSettings = {
   theme: { preset: 'default', primary: null, background: null, font: 'system', radius: 0.625 },
   names: { show: true, font: 'auto', colorMode: 'auto', palette: 'neon', color: '#ffffff', stroke: '#1a0a0a', glow: true, size: 1, upper: 'auto' },
-  preview: { fit: 'auto', ratio: 'auto', width: 440, clipSeconds: 30, volume: 0.7, pauseButton: true, ambient: true, cardFit: 'cover' },
+  preview: { fit: 'auto', ratio: 'auto', width: 440, clipSeconds: 30, volume: 0.7, pauseButton: true, ambient: true, ambientMax: 6, cardFit: 'cover' },
 }
 
 export const THEME_PRESETS = [
@@ -88,6 +88,7 @@ export function normalizeSettings(input: unknown): SiteSettings {
       volume: clamp(p.volume, 0, 1, d.preview.volume),
       pauseButton: p.pauseButton !== false,
       ambient: p.ambient !== false,
+      ambientMax: Math.round(clamp(p.ambientMax, 0, 12, d.preview.ambientMax)),
       cardFit: oneOf(p.cardFit, ['cover', 'contain', 'stretch'] as const, 'cover'),
     },
   }

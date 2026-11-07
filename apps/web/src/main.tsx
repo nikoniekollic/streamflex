@@ -13,6 +13,9 @@ const router = createRouter({
   routeTree,
   context: { supabase },
   defaultPreload: 'intent',
+  // pages gardées en mémoire : un retour sur une page déjà vue ne recharge rien (les routes sensibles fixent leur propre durée)
+  defaultStaleTime: 5 * 60_000,
+  defaultGcTime: 30 * 60_000,
   scrollRestoration: true,
 })
 

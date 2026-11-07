@@ -3,6 +3,7 @@ import { Link, useRouteContext } from '@tanstack/react-router'
 import { Baby, ShieldCheck } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ProfileMenu } from '@/components/layout/ProfileMenu'
+import { RandomPlayButton } from '@/components/catalog/RandomPlay'
 import { HeaderSearch } from '@/components/layout/HeaderSearch'
 import { NotificationBell } from '@/components/layout/NotificationBell'
 
@@ -62,6 +63,7 @@ export function AppHeader() {
         )}
       </nav>
       <div className="ml-auto flex items-center gap-3">
+        <RandomPlayButton label="Catalogue" variant="ghost" className="text-white" />
         <HeaderSearch />
         <NotificationBell />
         <ProfileMenu isAdmin={isAdmin} />

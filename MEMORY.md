@@ -715,6 +715,13 @@ Pixeldrain et Alldebrid ont été **abandonnés** (étapes 6, 7, 11 : ne plus s'
 - File de lecture façon VK (`lib/queue.ts`, sessionStorage) : lecture / aléatoire d'une liste, de Ma liste, d'un modèle ou du catalogue (infinie) ; lecteur : aléatoire, répéter (liste / une vidéo), précédent / suivant
 - Admin catalogue : filtres catégorie + modèle (dont « sans … »), cases à cocher, « sélectionner les N résultats », actions groupées (publier, dépublier, catégorie, modèle, supprimer)
 
+## Étape 35 — Aperçu dans la jaquette, lecteur en premier plan, Aléatoire (2026-11-08) ⏳ `resolve-stream` À DÉPLOYER AVANT LE PUSH
+- Aperçu = DANS la miniature (plus de panneau flottant : cœur / liste restent cliquables), pause à gauche, « i » détails ; réglages admin appliqués aussi à la bannière d'accueil et au fond des pages de titre ; `ambientMax` (jaquettes qui jouent en silence au chargement)
+- Vitesse : `resolve-stream` accepte `titleIds` (≤ 24 films par appel, source la plus légère), `lib/preview.ts` regroupe les jaquettes visibles par lots de 12, débridage 3 en parallèle (survol prioritaire) ; **le front poussé avant la fonction déclenche le coupe-circuit des aperçus**
+- Mémoire : `lib/video-pool.ts` (élément `<video>` gardé par jaquette, réattaché au retour), liens en localStorage (100 min), router `defaultStaleTime` 5 min
+- Lecteur en premier plan : `PlayerHost` (monté dans `_shell`), `WatchSession` partagé avec `/watch/$id`, croix + Échap ; clic jaquette film → surcouche (Ctrl/clic milieu = lien)
+- Bouton « Aléatoire » (dés) : en-tête + Catalogue + modèles ; 100 vidéos tirées sans reprendre celles déjà lancées (`lib/random-history.ts`, localStorage par profil, remis à zéro si épuisé)
+
 ## ~~Problème ouvert — lecture~~ (résolu ci-dessus)
 - Fichiers importés : `resolve-stream` renvoie 200 + URL, mais le lecteur reste sur la roue sans démarrer ; avancer dans la vidéo donne « Sources indisponibles »
 - Correctifs déployés : suppression de `probeStream` (double téléchargement), `refresh` → lien neuf (`force`)

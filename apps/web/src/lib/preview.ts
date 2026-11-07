@@ -1,33 +1,34 @@
 import type { TypedSupabaseClient } from '@/lib/supabase'
-import { resolveStream } from '@/lib/stream'
+import { StreamError } from '@/lib/stream'
+import { DebridClientError, unlockInBrowser, type ClientDebrid } from '@/lib/alldebrid'
 
-// Aperçus : le lien Alldebrid (débridé dans le navigateur) est résolu À L'AVANCE pour les jaquettes visibles
-// (une à la fois, espacées de 0,8 s), gardé en mémoire ET dans le navigateur (un retour arrière ou
-// un rechargement ne refait aucun appel), et le survol passe devant tout.
+// Aperçus : les liens (Alldebrid, débridés dans le navigateur) sont préparés PAR LOTS pour toutes les jaquettes visibles :
+//  • une seule requête serveur pour jusqu'à 12 films (au lieu d'une par jaquette),
+//  • débridage 3 par 3, le survol passant toujours devant,
+//  • liens gardés en mémoire ET dans le navigateur (retour sur une page = aucun nouvel appel).
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-const WARM_GAP_MS = 800 // un lien toutes les 0,8 s : on ménage Alldebrid (et, derrière, 1fichier)
-const WARM_PARALLEL = 1
-const HOVER_GAP_MS = 120 // survol : quasi immédiat
-const WARM_MAX = 200 // résolutions réseau préchauffées par session (le cache n'est pas compté)
-const OK_TTL_MS = 80 * 60_000 // les liens Alldebrid valent ~2 h : on les jette un peu avant
+const BATCH = 12
+const FLUSH_DELAY_MS = 120 // regroupe les jaquettes qui apparaissent ensemble
+const UNLOCK_PARALLEL = 3
+const UNLOCK_GAP_MS = 150
+const WARM_MAX = 600 // titres préparés par session (le cache n'est pas compté)
+const OK_TTL_MS = 100 * 60_000 // les liens Alldebrid valent ~2 h : on les jette un peu avant
 const FAIL_TTL_MS = 5 * 60_000
-const BREAKER_AFTER = 3
-const BREAKER_MS = 20 * 60_000 // 3 échecs de suite : Alldebrid limite probablement la clé, on coupe 20 min
+const BREAKER_AFTER = 4
+const BREAKER_MS = 15 * 60_000
 const STORE_KEY = 'sf:preview-links:v1'
-const STORE_MAX = 400
+const STORE_MAX = 600
 
 type Entry = { url: string | null; until: number }
 const cache = new Map<string, Entry>()
 const inflight = new Map<string, Promise<string | null>>()
-let hoverChain: Promise<unknown> = Promise.resolve()
-let lastHoverAt = 0
-let lastWarmAt = 0
-let hoverPending = 0
 let warmed = 0
 let failStreak = 0
 let pausedUntil = 0
 
 export type Wanted = { cancelled: boolean }
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 const reported = new Set<string>()
 /** Durée réelle lue par le navigateur → base (une fois par titre et par session) : alimente l'affichage et le tri par durée. */
@@ -36,8 +37,6 @@ export function reportDuration(s: TypedSupabaseClient, titleId: string, seconds:
   reported.add(titleId)
   void (s as unknown as { rpc: (n: string, a: object) => PromiseLike<unknown> }).rpc('report_title_duration', { p_title: titleId, p_seconds: Math.round(seconds) })
 }
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 // ───────── Cache persistant (liens valides seulement)
 try {
@@ -62,22 +61,9 @@ function persist() {
   }, 1500)
 }
 
-async function resolveOne(s: TypedSupabaseClient, profileId: string, titleId: string): Promise<string | null> {
-  try {
-    const info = await resolveStream(s, { profileId, titleId, episodeId: null, preview: true })
-    failStreak = 0
-    cache.set(titleId, { url: info.url, until: Date.now() + OK_TTL_MS })
-    persist()
-    return info.url
-  } catch (e) {
-    console.warn('[StreamFlex][preview] aperçu indisponible :', (e as Error).message)
-    cache.set(titleId, { url: null, until: Date.now() + FAIL_TTL_MS })
-    if (++failStreak >= BREAKER_AFTER) {
-      pausedUntil = Date.now() + BREAKER_MS
-      failStreak = 0
-    }
-    return null
-  }
+function remember(titleId: string, url: string | null) {
+  cache.set(titleId, { url, until: Date.now() + (url ? OK_TTL_MS : FAIL_TTL_MS) })
+  if (url) persist()
 }
 
 /** Lien déjà connu (null = inconnu ou indisponible). */
@@ -91,62 +77,131 @@ export function invalidatePreview(titleId: string) {
   if (cache.delete(titleId)) persist()
 }
 
-/** Survol : résolution prioritaire (aucun appel si la souris est déjà partie). */
+// ───────── Débridage : 3 en parallèle, le survol d'abord
+let unlockActive = 0
+let lastUnlockAt = 0
+const waitHigh: (() => void)[] = []
+const waitLow: (() => void)[] = []
+async function acquireUnlock(high: boolean) {
+  if (unlockActive < UNLOCK_PARALLEL) {
+    unlockActive++
+  } else {
+    await new Promise<void>((r) => (high ? waitHigh : waitLow).push(r)) // créneau transmis tel quel
+  }
+  const at = Math.max(Date.now(), lastUnlockAt + UNLOCK_GAP_MS)
+  lastUnlockAt = at
+  if (at > Date.now()) await sleep(at - Date.now())
+}
+function releaseUnlock() {
+  const next = waitHigh.shift() ?? waitLow.shift()
+  if (next) next()
+  else unlockActive--
+}
+
+function noteFailure(message: string) {
+  console.warn('[StreamFlex][preview] aperçu indisponible :', message)
+  if (++failStreak >= BREAKER_AFTER) {
+    pausedUntil = Date.now() + BREAKER_MS
+    failStreak = 0
+  }
+}
+
+type BatchItem = { titleId: string; sourceId: string; url: string; clientDebrid: ClientDebrid | null }
+
+async function fetchBatch(s: TypedSupabaseClient, profileId: string, ids: string[]): Promise<BatchItem[]> {
+  const { data, error } = await s.functions.invoke<{ items?: BatchItem[] }>('resolve-stream', { body: { profileId, titleIds: ids, preview: true } })
+  if (error) throw new StreamError('network')
+  return data?.items ?? []
+}
+
+/** Résout un lot de titres : un appel serveur, puis débridage espacé. Chaque titre finit dans `inflight` / le cache. */
+function resolveBatch(s: TypedSupabaseClient, profileId: string, ids: string[], high: boolean) {
+  const done = new Map<string, (u: string | null) => void>()
+  for (const id of ids) inflight.set(id, new Promise<string | null>((res) => done.set(id, res)))
+  const finish = (id: string, url: string | null) => {
+    remember(id, url)
+    done.get(id)?.(url)
+    done.delete(id)
+    inflight.delete(id)
+  }
+
+  void (async () => {
+    let items: BatchItem[] = []
+    try {
+      items = await fetchBatch(s, profileId, ids)
+      failStreak = 0
+    } catch (e) {
+      noteFailure((e as Error).message)
+    }
+    const byId = new Map(items.map((i) => [i.titleId, i]))
+    await Promise.all(
+      ids.map(async (id) => {
+        const it = byId.get(id)
+        if (!it) return finish(id, null)
+        if (!it.clientDebrid) return finish(id, it.url || null)
+        await acquireUnlock(high)
+        try {
+          finish(id, (await unlockInBrowser(it.clientDebrid)).url)
+          failStreak = 0
+        } catch (e) {
+          // un fichier hors ligne n'est pas une panne d'Alldebrid : on ne coupe pas tous les aperçus pour ça
+          if (!(e instanceof DebridClientError && e.failure === 'offline')) noteFailure(e instanceof Error ? e.message : 'débridage')
+          finish(id, null)
+        } finally {
+          releaseUnlock()
+        }
+      }),
+    )
+  })()
+}
+
+// ───────── Survol : prioritaire, sans délai de regroupement
 export function getPreviewUrl(s: TypedSupabaseClient, profileId: string, titleId: string, wanted: Wanted): Promise<string | null> {
   if (!UUID.test(titleId)) return Promise.resolve(null)
   const hit = cache.get(titleId)
   if (hit && hit.until > Date.now()) return Promise.resolve(hit.url)
   if (Date.now() < pausedUntil) return Promise.resolve(null)
-
-  // un préchauffage de ce même titre est déjà en route : on l'attend plutôt que de doubler l'appel
   const running = inflight.get(titleId)
   if (running) return running
-
-  hoverPending++
-  const job = hoverChain.then(async () => {
-    try {
-      const again = inflight.get(titleId)
-      if (again) return await again
-      if (wanted.cancelled) return null
-      const wait = lastHoverAt + HOVER_GAP_MS - Date.now()
-      if (wait > 0) await sleep(wait)
-      if (wanted.cancelled) return null
-      lastHoverAt = Date.now()
-      const p = resolveOne(s, profileId, titleId)
-      inflight.set(titleId, p)
-      try {
-        return await p
-      } finally {
-        inflight.delete(titleId)
-      }
-    } finally {
-      hoverPending--
-    }
-  })
-  hoverChain = job.then(
-    () => undefined,
-    () => undefined,
-  )
-  return job
-}
-
-// ───────── Préchauffage : 3 résolutions en parallèle, dans l'ordre d'arrivée
-let warmActive = 0
-const warmWaiters: (() => void)[] = []
-async function acquireWarm() {
-  if (warmActive < WARM_PARALLEL) {
-    warmActive++
-    return
+  const queued = pending.get(titleId)
+  if (queued) {
+    // déjà en attente dans le lot : on l'envoie tout de suite, seul
+    pending.delete(titleId)
+    resolveBatch(s, profileId, [titleId], true)
+    queued.forEach((r) => void inflight.get(titleId)?.then(r))
+    return inflight.get(titleId) ?? Promise.resolve(null)
   }
-  await new Promise<void>((r) => warmWaiters.push(r)) // le créneau est transmis tel quel
-}
-function releaseWarm() {
-  const next = warmWaiters.shift()
-  if (next) next()
-  else warmActive--
+  if (wanted.cancelled) return Promise.resolve(null)
+  resolveBatch(s, profileId, [titleId], true)
+  return inflight.get(titleId) ?? Promise.resolve(null)
 }
 
-/** Jaquette visible à l'écran : on prépare le lien en arrière-plan, sans jamais gêner un survol. Renvoie le lien (ou null). */
+// ───────── Préchauffage : jaquettes visibles, envoyées par lots
+const pending = new Map<string, ((u: string | null) => void)[]>()
+let flushTimer: ReturnType<typeof setTimeout> | null = null
+let ctx: { s: TypedSupabaseClient; profileId: string } | null = null
+
+function scheduleFlush(delay = FLUSH_DELAY_MS) {
+  if (flushTimer) return
+  flushTimer = setTimeout(() => {
+    flushTimer = null
+    if (!ctx || overlayOpen) return void (pending.size && scheduleFlush(1000))
+    if (Date.now() < pausedUntil) {
+      for (const [id, rs] of pending) rs.forEach((r) => r(null)), pending.delete(id)
+      return
+    }
+    const ids = [...pending.keys()].slice(0, BATCH)
+    const waiters = ids.map((id) => pending.get(id) ?? [])
+    ids.forEach((id) => pending.delete(id))
+    if (ids.length) {
+      resolveBatch(ctx.s, ctx.profileId, ids, false)
+      ids.forEach((id, i) => waiters[i].forEach((r) => void inflight.get(id)?.then(r)))
+    }
+    if (pending.size) scheduleFlush(350)
+  }, delay)
+}
+
+/** Jaquette visible : on prépare son lien (regroupé avec les autres). Renvoie le lien, ou null. */
 export function warmPreview(s: TypedSupabaseClient, profileId: string, titleId: string): Promise<string | null> {
   if (!UUID.test(titleId)) return Promise.resolve(null)
   const known = cache.get(titleId)
@@ -154,45 +209,46 @@ export function warmPreview(s: TypedSupabaseClient, profileId: string, titleId: 
   const running = inflight.get(titleId)
   if (running) return running
   if (warmed >= WARM_MAX || Date.now() < pausedUntil) return Promise.resolve(null)
-  warmed++
-  const job = (async () => {
-    await acquireWarm()
-    try {
-      while (hoverPending > 0) await sleep(200) // le survol d'abord
-      const again = cache.get(titleId)
-      if (again && again.until > Date.now()) return again.url
-      const other = inflight.get(titleId)
-      if (other) return await other
-      if (Date.now() < pausedUntil) return null
-      const startAt = Math.max(Date.now(), lastWarmAt + WARM_GAP_MS) // créneau réservé avant d'attendre
-      lastWarmAt = startAt
-      const wait = startAt - Date.now()
-      if (wait > 0) await sleep(wait)
-      const p = resolveOne(s, profileId, titleId)
-      inflight.set(titleId, p)
-      try {
-        return await p
-      } finally {
-        inflight.delete(titleId)
-      }
-    } finally {
-      releaseWarm()
+  ctx = { s, profileId }
+  return new Promise((res) => {
+    const list = pending.get(titleId)
+    if (list) list.push(res)
+    else {
+      warmed++
+      pending.set(titleId, [res])
     }
-  })()
-  return job
+    scheduleFlush()
+  })
+}
+
+/** La jaquette a quitté l'écran avant l'envoi du lot : on n'en demande pas le lien. */
+export function cancelWarm(titleId: string) {
+  const rs = pending.get(titleId)
+  if (!rs) return
+  pending.delete(titleId)
+  warmed = Math.max(0, warmed - 1)
+  rs.forEach((r) => r(null))
 }
 
 // ───────── Cartes qui ont le droit de charger leur image figée / de jouer en silence
-const AMBIENT_MAX = 4
-const STILL_MAX = 14 // éléments <video> simultanés : au-delà, les connexions se bousculent et tout devient intermittent
+const STILL_MAX = 16 // nouveaux éléments <video> simultanés : au-delà, les connexions se bousculent
 const visibleOrder: string[] = []
 const stillOrder: string[] = []
 const failed = new Set<string>()
 const ambientListeners = new Set<() => void>()
 let ambientVersion = 0
+let overlayOpen = false
 const bump = () => {
   ambientVersion++
   ambientListeners.forEach((l) => l())
+}
+
+/** Lecteur plein écran ouvert : plus de lecture d'ambiance ni de préchauffage derrière. */
+export function setOverlayOpen(open: boolean) {
+  if (overlayOpen === open) return
+  overlayOpen = open
+  bump()
+  if (!open && pending.size) scheduleFlush()
 }
 
 /** Données économisées, mouvement réduit ou petit écran : pas de lecture d'ambiance. */
@@ -225,8 +281,9 @@ export function markAmbientFailed(id: string) {
   bump()
 }
 
-export const isAmbientSlot = (id: string) => visibleOrder.filter((x) => !failed.has(x)).slice(0, AMBIENT_MAX).includes(id)
+export const isAmbientSlot = (id: string, max: number) => !overlayOpen && max > 0 && visibleOrder.filter((x) => !failed.has(x)).slice(0, max).includes(id)
 export const isStillSlot = (id: string) => stillOrder.slice(0, STILL_MAX).includes(id)
+export const isOverlayOpen = () => overlayOpen
 export const getAmbientVersion = () => ambientVersion
 export const subscribeAmbient = (l: () => void) => {
   ambientListeners.add(l)

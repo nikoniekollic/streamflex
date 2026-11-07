@@ -1,3 +1,4 @@
+import { openPlayer } from '@/lib/player-overlay'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { ChevronLeft, ChevronRight, Info, Pause, Play } from 'lucide-react'
@@ -6,7 +7,9 @@ import { Button } from '@/components/ui/button'
 import { FavoriteButton } from '@/components/catalog/FavoriteButton'
 import { useActiveProfile } from '@/components/profile/ActiveProfileContext'
 import { supabase } from '@/lib/supabase'
-import { getPreviewUrl, type Wanted } from '@/lib/preview'
+import { getPreviewUrl, peekPreviewUrl, type Wanted } from '@/lib/preview'
+import { useSiteSettings } from '@/lib/site-settings'
+import { CSS_FIT, hoverFit } from '@/components/catalog/HoverPreview'
 import { coverStyle } from '@/lib/cover'
 import { stripModelMark, isModelCover } from '@/lib/cover'
 import type { CatalogTitle } from '@/lib/catalog'
@@ -23,6 +26,7 @@ const imageOf = (t: CatalogTitle) => {
 /** Extrait vidéo muet derrière la slide active (écrans larges, mouvement autorisé) — via le même circuit espacé que l'aperçu au survol. */
 function SlideVideo({ titleId, active, paused }: { titleId: string; active: boolean; paused: boolean }) {
   const { activeProfile } = useActiveProfile()
+  const { preview: cfg } = useSiteSettings()
   const [src, setSrc] = useState<string | null>(null)
   const [playing, setPlaying] = useState(false)
   const ref = useRef<HTMLVideoElement>(null)
@@ -37,11 +41,15 @@ function SlideVideo({ titleId, active, paused }: { titleId: string; active: bool
       return
     }
     const wanted: Wanted = { cancelled: false }
-    const t = setTimeout(() => {
-      void getPreviewUrl(supabase, profileId, titleId, wanted).then((url) => {
-        if (!wanted.cancelled && url) setSrc(url)
-      })
-    }, 1200)
+    const cached = peekPreviewUrl(titleId)
+    if (cached) setSrc(cached)
+    const t = cached
+      ? undefined
+      : setTimeout(() => {
+          void getPreviewUrl(supabase, profileId, titleId, wanted).then((url) => {
+            if (!wanted.cancelled && url) setSrc(url)
+          })
+        }, 200)
     return () => {
       wanted.cancelled = true
       clearTimeout(t)
@@ -64,20 +72,29 @@ function SlideVideo({ titleId, active, paused }: { titleId: string; active: bool
       src={src}
       muted
       playsInline
-      loop
       preload="auto"
       aria-hidden
       onLoadedMetadata={(e) => {
         const v = e.currentTarget
-        if (Number.isFinite(v.duration) && v.duration > 40) {
-          start.current = v.duration * (0.1 + Math.random() * 0.6)
+        const d = v.duration
+        if (Number.isFinite(d) && d > cfg.clipSeconds * 2) {
+          start.current = Math.min(d * (0.1 + Math.random() * 0.6), d - cfg.clipSeconds - 1)
           v.currentTime = start.current
         }
+      }}
+      onTimeUpdate={(e) => {
+        const v = e.currentTarget
+        if (v.currentTime >= start.current + cfg.clipSeconds) v.currentTime = start.current
+      }}
+      onEnded={(e) => {
+        e.currentTarget.currentTime = start.current
+        void e.currentTarget.play().catch(() => undefined)
       }}
       onCanPlay={(e) => void e.currentTarget.play().catch(() => undefined)}
       onPlaying={() => setPlaying(true)}
       onError={() => setSrc(null)}
-      className={cn('absolute inset-0 size-full object-cover transition-opacity duration-700', playing ? 'opacity-100' : 'opacity-0')}
+      style={{ objectFit: CSS_FIT[hoverFit(cfg.fit)] }}
+      className={cn('absolute inset-0 size-full transition-opacity duration-700', playing ? 'opacity-100' : 'opacity-0')}
     />
   )
 }
@@ -161,7 +178,16 @@ export function HeroCarousel({ titles }: { titles: CatalogTitle[] }) {
               {t.synopsis && <p className="line-clamp-3 max-w-xl text-xs text-neutral-200 drop-shadow md:text-sm">{t.synopsis}</p>}
               <div className="mt-1 flex flex-wrap items-center gap-2">
                 <Button asChild size="sm" className="h-9 bg-white px-5 font-semibold text-black hover:bg-white/80">
-                  <Link to="/watch/$id" params={{ id: t.id }} tabIndex={active ? 0 : -1}>
+                  <Link
+                    to="/watch/$id"
+                    params={{ id: t.id }}
+                    tabIndex={active ? 0 : -1}
+                    onClick={(e) => {
+                   if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) return
+                   e.preventDefault()
+                   openPlayer({ titleId: t.id })
+                   }}
+                  >
                     <Play className="size-4 fill-current" /> Lecture
                   </Link>
                 </Button>

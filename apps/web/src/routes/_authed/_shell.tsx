@@ -1,6 +1,7 @@
 import { Link, Outlet, createFileRoute, useRouteContext } from '@tanstack/react-router'
 import { KeyRound } from 'lucide-react'
 import { AppHeader } from '@/components/layout/AppHeader'
+import { PlayerHost } from '@/components/player/PlayerHost'
 import { requireActiveProfile } from '@/lib/route-guards'
 import { useSiteSettings } from '@/lib/site-settings'
 
@@ -31,6 +32,7 @@ function Shell() {
         )}
         <Outlet />
       </main>
+      <PlayerHost />
     </>
   )
 }

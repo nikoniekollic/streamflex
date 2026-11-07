@@ -109,7 +109,6 @@ function AppearanceAdmin() {
   const reset = (group: keyof SiteSettings) => edit(group, DEFAULT_SETTINGS[group] as never)
 
   const { theme, names, preview } = draft
-  const demoAspect = preview.ratio === 'auto' ? '16 / 9' : preview.ratio.replace(':', ' / ')
   const demoFit = preview.fit === 'auto' ? 'contain' : preview.fit === 'cover' ? 'cover' : 'fill'
   const cardFit = preview.cardFit === 'stretch' ? 'fill' : preview.cardFit
 
@@ -307,47 +306,37 @@ function AppearanceAdmin() {
         </div>
       </Section>
 
-      <Section title="Aperçu vidéo" hint="Ratio, ajustement et lecture de l’aperçu au survol d’une jaquette, et de l’image tirée de la vidéo sur la jaquette.">
+      <Section title="Aperçu vidéo" hint="Réglages de l’aperçu dans les jaquettes (image figée, lecture silencieuse, survol avec le son) et du fond vidéo de la bannière d’accueil et des pages de titre.">
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
           <div className="grid content-start gap-4 sm:grid-cols-2">
-            <Field label="Ajustement dans le panneau">
+            <Field label="Ajustement au survol, bannière et pages de titre">
               <select className={selectCls} value={preview.fit} onChange={(e) => edit('preview', { fit: e.target.value as SiteSettings['preview']['fit'] })}>
-                <option value="auto">Adapté (vidéo entière, sans rognage)</option>
+                <option value="auto">Adapté (vidéo entière, bandes noires)</option>
                 <option value="cover">Remplir (rogne les bords)</option>
                 <option value="stretch">Étirer (déforme l’image)</option>
               </select>
             </Field>
-            <Field label="Ratio du panneau">
-              <select className={selectCls} value={preview.ratio} onChange={(e) => edit('preview', { ratio: e.target.value })}>
-                <option value="auto">Celui de la vidéo</option>
-                <option value="16:9">16:9 (paysage)</option>
-                <option value="4:3">4:3</option>
-                <option value="1:1">1:1 (carré)</option>
-                <option value="3:4">3:4</option>
-                <option value="9:16">9:16 (vertical)</option>
-              </select>
-            </Field>
-            <Field label="Image figée sur la jaquette">
+            <Field label="Ajustement de l’image figée sur la jaquette">
               <select className={selectCls} value={preview.cardFit} onChange={(e) => edit('preview', { cardFit: e.target.value as SiteSettings['preview']['cardFit'] })}>
                 <option value="cover">Remplir la jaquette (rogne)</option>
                 <option value="contain">Adapté (bandes noires)</option>
                 <option value="stretch">Étirer</option>
               </select>
             </Field>
-            <Field label="Largeur du panneau">
-              <Range value={preview.width} min={300} max={640} step={10} onChange={(v) => edit('preview', { width: v })} format={(v) => `${v} px`} />
-            </Field>
-            <Field label="Durée de l’extrait">
+            <Field label="Durée de l’extrait en boucle">
               <Range value={preview.clipSeconds} min={10} max={90} step={5} onChange={(v) => edit('preview', { clipSeconds: v })} format={(v) => `${v} s`} />
             </Field>
             <Field label="Volume au survol">
               <Range value={preview.volume} min={0} max={1} step={0.05} onChange={(v) => edit('preview', { volume: v })} format={(v) => `${Math.round(v * 100)} %`} />
             </Field>
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={preview.pauseButton} onChange={(e) => edit('preview', { pauseButton: e.target.checked })} /> Bouton pause / reprise dans le panneau
+            <Field label="Jaquettes qui jouent en silence (au chargement)">
+              <Range value={preview.ambientMax} min={0} max={12} step={1} onChange={(v) => edit('preview', { ambientMax: v })} format={(v) => (v === 0 ? 'aucune' : String(v))} />
+            </Field>
+            <label className="flex items-center gap-2 self-end text-sm">
+              <input type="checkbox" checked={preview.ambient} onChange={(e) => edit('preview', { ambient: e.target.checked })} /> Lecture silencieuse sans survol
             </label>
             <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={preview.ambient} onChange={(e) => edit('preview', { ambient: e.target.checked })} /> Lecture silencieuse sur quelques jaquettes
+              <input type="checkbox" checked={preview.pauseButton} onChange={(e) => edit('preview', { pauseButton: e.target.checked })} /> Bouton pause / reprise au survol
             </label>
             <div className="sm:col-span-2">
               <Button size="sm" variant="ghost" onClick={() => reset('preview')}>
@@ -360,15 +349,21 @@ function AppearanceAdmin() {
             <p className="text-sm text-muted-foreground">Simulation avec une vidéo 16:9 (cadre blanc = bords, croix = centre) :</p>
             <div className="flex flex-wrap items-start gap-4">
               <div>
-                <p className="mb-1 text-xs text-muted-foreground">Panneau au survol</p>
-                <div className="overflow-hidden rounded-md bg-black ring-1 ring-white/20" style={{ width: 240, aspectRatio: demoAspect }}>
+                <p className="mb-1 text-xs text-muted-foreground">Jaquette au repos</p>
+                <div className="overflow-hidden rounded-md bg-black ring-1 ring-white/20" style={{ width: 120, aspectRatio: '2 / 3' }}>
+                  <img src={DEMO} alt="" className="size-full" style={{ objectFit: cardFit }} />
+                </div>
+              </div>
+              <div>
+                <p className="mb-1 text-xs text-muted-foreground">Jaquette survolée</p>
+                <div className="overflow-hidden rounded-md bg-black ring-1 ring-white/20" style={{ width: 120, aspectRatio: '2 / 3' }}>
                   <img src={DEMO} alt="" className="size-full" style={{ objectFit: demoFit }} />
                 </div>
               </div>
               <div>
-                <p className="mb-1 text-xs text-muted-foreground">Jaquette (2:3)</p>
-                <div className="overflow-hidden rounded-md bg-black ring-1 ring-white/20" style={{ width: 110, aspectRatio: '2 / 3' }}>
-                  <img src={DEMO} alt="" className="size-full" style={{ objectFit: cardFit }} />
+                <p className="mb-1 text-xs text-muted-foreground">Bannière d’accueil</p>
+                <div className="overflow-hidden rounded-md bg-black ring-1 ring-white/20" style={{ width: 240, aspectRatio: '21 / 9' }}>
+                  <img src={DEMO} alt="" className="size-full" style={{ objectFit: demoFit }} />
                 </div>
               </div>
             </div>

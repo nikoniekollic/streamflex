@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react'
 import type { TypedSupabaseClient } from '@/lib/supabase'
 import { randomTitleIds } from '@/lib/playlists'
+import { playedIds, resetPlayed } from '@/lib/random-history'
 
 // File de lecture façon VK : une liste d'identifiants lue à la suite, avec lecture aléatoire, répétition,
 // précédent / suivant. Gardée dans sessionStorage (survit au changement de page, pas à la fermeture de l'onglet).
@@ -17,6 +18,8 @@ export type Queue = {
   repeat: Repeat
   /** source infinie : on retire de nouveaux titres au hasard quand la fin approche */
   random: { modelId: string | null; kids: boolean } | null
+  /** lecture aléatoire : chaque vidéo lancée est mémorisée pour ne pas revenir dans les listes suivantes */
+  track: boolean
 }
 
 const KEY = 'sf:queue'
@@ -53,20 +56,32 @@ export function shuffled<T>(list: T[]): T[] {
 }
 
 /** Démarre une file ; renvoie le premier titre à lire. */
-export function startQueue(opts: { label: string; ids: string[]; shuffle?: boolean; startId?: string; random?: Queue['random'] }): string | null {
+export function startQueue(opts: { label: string; ids: string[]; shuffle?: boolean; startId?: string; random?: Queue['random']; track?: boolean }): string | null {
   const base = [...new Set(opts.ids)]
   if (base.length === 0) return null
   const shuffle = opts.shuffle ?? false
   let order = shuffle ? shuffled(base) : base
   if (opts.startId && base.includes(opts.startId)) order = [opts.startId, ...order.filter((i) => i !== opts.startId)]
-  commit({ label: opts.label, base, order, index: 0, shuffle, repeat: 'off', random: opts.random ?? null })
+  commit({ label: opts.label, base, order, index: 0, shuffle, repeat: 'off', random: opts.random ?? null, track: opts.track ?? false })
   return order[0]
 }
 
-/** Lecture aléatoire infinie (catalogue entier ou un modèle). */
-export async function startRandomQueue(s: TypedSupabaseClient, opts: { label: string; modelId?: string | null; kids?: boolean }): Promise<string | null> {
-  const ids = await randomTitleIds(s, { limit: 30, modelId: opts.modelId, kids: opts.kids })
-  return startQueue({ label: opts.label, ids, shuffle: false, random: { modelId: opts.modelId ?? null, kids: !!opts.kids } })
+export const RANDOM_LIST_SIZE = 100
+
+/**
+ * Lecture aléatoire : une liste de 100 vidéos tirées au hasard (catalogue entier ou un modèle), jamais déjà lancées
+ * par « Aléatoire » sur ce profil. Si tout a été vu, l'historique repart de zéro.
+ */
+export async function startRandomQueue(s: TypedSupabaseClient, opts: { profileId: string; label: string; modelId?: string | null; kids?: boolean }): Promise<string | null> {
+  const draw = (exclude: string[]) => randomTitleIds(s, { limit: RANDOM_LIST_SIZE, modelId: opts.modelId, kids: opts.kids, exclude })
+  let ids = await draw(playedIds(opts.profileId).slice(-1500))
+  if (ids.length < RANDOM_LIST_SIZE && playedIds(opts.profileId).length > 0) {
+    // catalogue (presque) épuisé : on repart de zéro et on complète la liste
+    resetPlayed(opts.profileId)
+    const more = await draw(ids)
+    ids = [...ids, ...more].slice(0, RANDOM_LIST_SIZE)
+  }
+  return startQueue({ label: opts.label, ids: shuffled(ids), shuffle: false, track: true })
 }
 
 export const getQueue = () => queue
@@ -106,7 +121,7 @@ export function cycleRepeat() {
 export async function nextInQueue(s: TypedSupabaseClient): Promise<string | null> {
   if (!queue) return null
   let q = queue
-  if (q.random && q.order.length - q.index <= REFILL_AT) {
+  if (q.random && q.order.length - q.index <= REFILL_AT) { // (sources infinies : plus utilisées par « Aléatoire », conservé pour d'autres usages)
     const more = await randomTitleIds(s, { limit: 30, modelId: q.random.modelId, kids: q.random.kids, exclude: q.order.slice(-200) }).catch(() => [])
     if (more.length) {
       q = { ...q, order: [...q.order, ...more], base: [...q.base, ...more] }

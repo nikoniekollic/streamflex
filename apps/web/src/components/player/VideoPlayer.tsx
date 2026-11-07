@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import {
   ArrowLeft,
+  X,
   BookmarkPlus,
   Bookmark as BookmarkIcon,
   Loader2,
@@ -40,6 +41,8 @@ export type PlayerQueue = {
 
 export type VideoPlayerProps = {
   queue?: PlayerQueue
+  /** lecteur en premier plan : croix de fermeture au lieu de la flèche de retour */
+  closeIcon?: boolean
   /** répète la vidéo en boucle (mode « répéter un ») */
   loop?: boolean
   src: string
@@ -85,6 +88,7 @@ function readVolume(): { volume: number; muted: boolean } {
 
 export function VideoPlayer({
   queue,
+  closeIcon = false,
   loop = false,
   src,
   poster,
@@ -529,8 +533,8 @@ export function VideoPlayer({
         )}
       >
         {onBack && (
-          <button type="button" onClick={onBack} aria-label="Retour" className="rounded-full p-2 hover:bg-white/10">
-            <ArrowLeft className="size-7" />
+          <button type="button" onClick={onBack} aria-label={closeIcon ? 'Fermer le lecteur' : 'Retour'} title={closeIcon ? 'Fermer (Échap)' : 'Retour'} className="rounded-full p-2 hover:bg-white/10">
+            {closeIcon ? <X className="size-7" /> : <ArrowLeft className="size-7" />}
           </button>
         )}
         <div className="min-w-0">

@@ -6,13 +6,65 @@ import { denyIfBanned, denyIfNoSubscription } from '../_shared/guard.ts'
 import { background } from '../_shared/background.ts'
 import { ResolveError, resolveSource, type FailureKind, type MediaSource } from '../_shared/providers.ts'
 
-type Body = { profileId?: string; titleId?: string; episodeId?: string | null; quality?: string; audio?: string; refresh?: boolean; exclude?: string[]; preview?: boolean }
+type Body = { profileId?: string; titleId?: string; titleIds?: unknown; episodeId?: string | null; quality?: string; audio?: string; refresh?: boolean; exclude?: string[]; preview?: boolean }
 type CachedStream = { url: string; expiresAt: number }
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!
 const QUALITY_ORDER = ['2160p', '1080p', '720p', '480p'] as const
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * Aperçus : résout jusqu'à 24 films d'un coup (une seule vérification d'identité / d'abonnement, deux requêtes SQL),
+ * au lieu d'un appel complet par jaquette. Source choisie : la plus légère (qualité la plus basse), sans compter de lecture.
+ */
+async function handleBatch(userClient: ReturnType<typeof createClient>, profileId: string, raw: unknown[]): Promise<Response> {
+  const ids = [...new Set(raw.filter((x): x is string => typeof x === 'string' && UUID.test(x)))].slice(0, 24)
+  if (ids.length === 0) return json({ items: [] })
+
+  const { data: prof } = await userClient.from('viewer_profiles').select('is_kids_profile').eq('id', profileId).maybeSingle()
+  if (!prof) return json({ error: 'profile_required' }, 403)
+
+  // Titres visibles par l'utilisateur (RLS = publiés), films seulement
+  const { data: titles } = await userClient.from('titles').select('id').in('id', ids).eq('type', 'movie')
+  let allowed = (titles ?? []).map((t: { id: string }) => t.id)
+  if (prof.is_kids_profile) {
+    const verdicts = await Promise.all(allowed.map((id) => userClient.rpc('can_profile_watch', { p_profile_id: profileId, p_title_id: id })))
+    allowed = allowed.filter((_, i) => verdicts[i].data !== 'kids_restricted' && verdicts[i].data !== 'profile_not_found')
+  }
+  if (allowed.length === 0) return json({ items: [] })
+
+  const { data: rows, error } = await adminClient()
+    .from('media_sources')
+    .select('id, title_id, provider, file_id, raw_url, quality, priority, audio_languages')
+    .in('title_id', allowed)
+    .or('is_active.is.null,is_active.eq.true')
+    .order('priority', { ascending: true })
+    .range(0, 499)
+  if (error) return json({ error: 'db_error' }, 500)
+
+  const best = new Map<string, MediaSource & { title_id: string }>()
+  for (const r of (rows ?? []) as (MediaSource & { title_id: string })[]) {
+    const cur = best.get(r.title_id)
+    // priorité à la qualité la plus basse (aperçu plus léger), puis à la priorité de la source
+    if (!cur || QUALITY_ORDER.indexOf(r.quality) > QUALITY_ORDER.indexOf(cur.quality)) best.set(r.title_id, r)
+  }
+
+  const items = (
+    await Promise.all(
+      [...best.values()].map(async (src) => {
+        try {
+          const r = await resolveSource(src)
+          return [{ titleId: src.title_id, sourceId: src.id, url: r.url, clientDebrid: r.clientDebrid ?? null }]
+        } catch (e) {
+          console.warn('[resolve-stream] aperçu ignoré', src.title_id, (e as Error).message)
+          return []
+        }
+      }),
+    )
+  ).flat()
+  return json({ items })
+}
 
 async function handle(req: Request): Promise<Response> {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
@@ -42,6 +94,7 @@ async function handle(req: Request): Promise<Response> {
   const { profileId, titleId, episodeId = null, quality, audio, refresh = false, exclude = [], preview = false } = body
   if (audio !== undefined && !/^[a-z]{2,3}(-[A-Za-z0-9]{2,8})?$/.test(audio)) return json({ error: 'invalid_audio' }, 400)
   if (!profileId || !UUID.test(profileId)) return json({ error: 'profile_required' }, 400)
+  if (Array.isArray(body.titleIds)) return await handleBatch(userClient, profileId, body.titleIds)
   if (!titleId || !UUID.test(titleId) || (episodeId && !UUID.test(episodeId))) return json({ error: 'invalid_ids' }, 400)
 
   // 3. Titre visible par l'utilisateur (RLS) → publié
