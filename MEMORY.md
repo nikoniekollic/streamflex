@@ -755,9 +755,10 @@ Pixeldrain et Alldebrid ont été **abandonnés** (étapes 6, 7, 11 : ne plus s'
 - Piège corrigé : avec les liens en cache, la vidéo se plaçait avant d'avoir reçu son `cover_pos` → la jaquette attend maintenant ses métadonnées (`useCoverPos` : undefined = pas chargé)
 - Vrais fichiers image possibles seulement via un script local (ffmpeg, IP domestique) ou la capture d'écran du navigateur ; non fait
 
-## Étape 41 — Réglages indépendants, lecteur en fenêtre, visuels capturés (2026-11-09) ⏳ migration `20261109140000_model_cover.sql` + site À DÉPLOYER
+## Étape 41 — Réglages indépendants, lecteur en fenêtre, visuels capturés (2026-11-09) ✅ déployé et vérifié (admin : 17/19 vignettes en ~16 s à froid ; /models : cartes avec capture en ~10 s ; lecteur en fenêtre sur page floutée OK)
 - Apparence : sections séparées **Bannière d'accueil** (vidéo oui/non, ajustement, cadrage haut/centre/bas, durée), **Jaquette au repos** (ajustement, cadrage, lecture silencieuse, nb), **Jaquette survolée** (ajustement, cadrage, durée, volume, pause), **Lecteur** (fenêtre ou plein écran, taille 40–100 %, assombrissement, flou, arrondi), **Jaquettes de modèles** (photo / capture / auto)
 - Lecteur en premier plan = fenêtre centrée 16:9 sur la page assombrie + floutée (clic sur le fond ou Échap ferme) ; `VideoPlayer`/`StreamStatus` ont une prop `embedded`
+- Piège : sans garde, 48 cartes de modèles = 48 liens à débrider d'un coup → `CoverThumb` n'attend que les vignettes proches de l'écran (IntersectionObserver 500 px), rang = ligne puis colonne
 - `CoverThumb` : image de la vidéo au moment enregistré (`cover_pos`), via la réserve `video-pool` ; utilisé pour la colonne « Visuel » du catalogue admin et les cartes de modèles ; RPC `catalog_models` renvoie `cover_title_id` (film le plus récent) + `cover_pos`
 
 ## ~~Problème ouvert — lecture~~ (résolu ci-dessus)
