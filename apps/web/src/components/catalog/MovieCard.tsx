@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { Info, Play } from 'lucide-react'
 import { openPlayer } from '@/lib/player-overlay'
+import { usePlayList } from '@/components/catalog/PlayList'
+import { startQueue, stopQueue } from '@/lib/queue'
 import { cn } from '@/lib/utils'
 import type { CatalogTitle } from '@/lib/catalog'
 import { FavoriteButton } from '@/components/catalog/FavoriteButton'
@@ -29,6 +31,13 @@ export function MovieCard({ title, variant = 'poster', progress, watch, favorite
   const isBackdrop = variant === 'backdrop'
   const [hovered, setHovered] = useState(false)
   const navigate = useNavigate()
+  const list = usePlayList()
+  /** lance la vidéo cliquée ET la suite de la liste affichée (rangée, page) : suivant / précédent et lecture enchaînée */
+  const play = () => {
+    if (list && list.ids.length > 1 && list.ids.includes(title.id)) startQueue({ label: list.label, ids: list.ids, startId: title.id })
+    else stopQueue()
+    openPlayer({ titleId: title.id })
+  }
   const isMovie = title.type === 'movie'
   const length = useTitleLength(title.id, title.runtime_minutes)
   const coverPos = useCoverPos(title.id)
@@ -138,7 +147,7 @@ export function MovieCard({ title, variant = 'poster', progress, watch, favorite
         onClick={(e) => {
           if (!isMovie || !plain(e)) return
           e.preventDefault()
-          openPlayer({ titleId: title.id })
+          play()
         }}
       >
         {content}

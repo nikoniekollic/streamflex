@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { CoverSymbol } from '@/components/catalog/GeneratedCover'
+import { CoverThumb } from '@/components/catalog/CoverThumb'
 import {
   attachByQuery,
   attachTitles,
@@ -14,6 +15,7 @@ import {
   deleteEmptyModels,
   deleteModel,
   mergeModels,
+  recaptureModels,
   listModels,
   modelSchema,
   searchTitlesForModel,
@@ -38,6 +40,30 @@ function ModelsAdmin() {
   const [selectedId, setSelectedId] = useState<string | null>(models[0]?.id ?? null)
   const selected = models.find((m) => m.id === selectedId) ?? null
   const refresh = () => router.invalidate()
+
+  // ───── recapture des images (sélection ou tous les modèles)
+  const [checked, setChecked] = useState<ReadonlySet<string>>(new Set())
+  const [capturing, setCapturing] = useState(false)
+  const toggleChecked = (id: string) =>
+    setChecked((c) => {
+      const n = new Set(c)
+      if (n.has(id)) n.delete(id)
+      else n.add(id)
+      return n
+    })
+  const recapture = async (ids: string[] | null) => {
+    setCapturing(true)
+    try {
+      const n = await recaptureModels(supabase, ids)
+      toast.success(`${n} modèle${n > 1 ? 's' : ''} recapturé${n > 1 ? 's' : ''} (nouvelle vidéo et nouveau moment au hasard)`)
+      setChecked(new Set())
+      await refresh()
+    } catch (err) {
+      toast.error(msg(err))
+    } finally {
+      setCapturing(false)
+    }
+  }
 
   // ───── création
   const [name, setName] = useState('')
@@ -96,16 +122,35 @@ function ModelsAdmin() {
           </Button>
         </form>
 
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border p-3 text-sm">
+          <p className="w-full text-xs text-muted-foreground">Image de chaque modèle = image capturée d’une de ses vidéos. « Recapturer » tire une autre vidéo et un autre moment au hasard.</p>
+          <Button size="sm" variant="outline" onClick={() => setChecked(checked.size === models.length ? new Set() : new Set(models.map((m) => m.id)))}>
+            {checked.size === models.length && models.length > 0 ? 'Tout désélectionner' : 'Tout sélectionner'}
+          </Button>
+          <Button size="sm" disabled={capturing || checked.size === 0} onClick={() => void recapture([...checked])}>
+            {capturing ? <Loader2 className="size-4 animate-spin" /> : null} Recapturer la sélection ({checked.size})
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={capturing || models.length === 0}
+            onClick={() => window.confirm(`Recapturer l’image des ${models.length} modèles ?`) && void recapture(null)}
+          >
+            Recapturer tous
+          </Button>
+        </div>
+
         <ul className="flex flex-col gap-1">
           {models.length === 0 && <li className="text-sm text-muted-foreground">Aucun modèle pour l’instant.</li>}
-          {models.map((m) => (
-            <li key={m.id}>
+          {models.map((m, i) => (
+            <li key={m.id} className="flex items-center gap-2">
+              <input type="checkbox" aria-label={`Sélectionner ${m.name}`} checked={checked.has(m.id)} onChange={() => toggleChecked(m.id)} className="shrink-0" />
               <button
                 type="button"
                 onClick={() => setSelectedId(m.id)}
-                className={cn('flex w-full items-center gap-3 rounded-md border p-2 text-left transition-colors hover:bg-accent', m.id === selectedId && 'border-primary bg-accent')}
+                className={cn('flex min-w-0 flex-1 items-center gap-3 rounded-md border p-2 text-left transition-colors hover:bg-accent', m.id === selectedId && 'border-primary bg-accent')}
               >
-                <Avatar url={m.image_url} />
+                {m.cover_title_id ? <CoverThumb titleId={m.cover_title_id} coverPos={m.cover_pos} order={i} className="size-10 shrink-0 rounded-md" fallback={<Avatar url={m.image_url} />} /> : <Avatar url={m.image_url} />}
                 <span className="min-w-0 flex-1 truncate font-medium">{m.name}</span>
                 <span className="text-xs text-muted-foreground tabular-nums">{m.titles_count}</span>
               </button>

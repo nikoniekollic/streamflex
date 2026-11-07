@@ -1,3 +1,4 @@
+import { PlayList } from '@/components/catalog/PlayList'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { PaginationBar } from '@/components/ui/pagination-bar'
 import { SortSelect } from '@/components/catalog/SortSelect'
@@ -48,13 +49,15 @@ function Browse() {
       {titles.length === 0 ? (
         <p className="text-muted-foreground">Aucun titre publié pour le moment.</p>
       ) : (
-        <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+        <PlayList titles={titles} label={'Catalogue'}>
+<ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
           {titles.map((t) => (
             <li key={t.id}>
               <MovieCard title={t} />
             </li>
           ))}
         </ul>
+</PlayList>
       )}
       <PaginationBar page={page} pages={pages} onPage={(p) => void navigate({ to: '/browse', search: { ...(p > 1 ? { page: p } : {}), ...(sort ? { sort } : {}) } })} />
     </section>

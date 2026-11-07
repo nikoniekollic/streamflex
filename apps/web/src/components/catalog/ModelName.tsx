@@ -8,15 +8,22 @@ export function ModelName({ titleId }: { titleId: string }) {
   return <ModelLabel name={name} />
 }
 
+const V = { top: 'items-start', center: 'items-center', bottom: 'items-end' } as const // haut : sous les boutons ; bas : au-dessus du compteur de vidéos
+const H = { left: 'justify-start', center: 'justify-center', right: 'justify-end' } as const
+
 /** Libellé stylé d'un nom de modèle (jaquettes de films, cartes de modèles). */
 export function ModelLabel({ name }: { name: string | null }) {
   const { names } = useSiteSettings()
   if (!name || !names.show) return null
   const s = modelNameStyle(name, names)
   return (
-    <div aria-hidden className="pointer-events-none absolute inset-0 z-[2] flex items-center justify-center px-2 text-center">
+    <div
+      aria-hidden
+      className={`pointer-events-none absolute inset-0 z-[2] flex overflow-hidden px-2 ${V[names.vpos]} ${H[names.hpos]} ${names.vpos === 'top' ? 'pt-12' : names.vpos === 'bottom' ? 'pb-9' : ''}`}
+      style={{ textAlign: names.hpos }}
+    >
       <span
-        className="line-clamp-3 leading-tight break-words"
+        className="line-clamp-3 max-w-full leading-tight break-words"
         style={{
           fontFamily: s.fontFamily,
           fontWeight: s.fontWeight,

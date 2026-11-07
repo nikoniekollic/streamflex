@@ -9,6 +9,7 @@ import type { Quality, WatchData } from '@/lib/stream'
 import { loadSubtitleUrl } from '@/lib/subtitles'
 import { cycleRepeat, jumpInQueue, nextInQueue, previousInQueue, syncQueue, toggleShuffle, useQueue } from '@/lib/queue'
 import { QueuePanel } from '@/components/player/QueuePanel'
+import { useSiteSettings } from '@/lib/site-settings'
 import { forgetStream, prefetchAround } from '@/lib/prefetch'
 import { markPlayed } from '@/lib/random-history'
 
@@ -22,6 +23,7 @@ export function WatchSession({ data, mode, onBack, onSwitch }: { data: WatchData
   const { title, episode, nextEpisode, startAt: initialStart, subtitles } = data
   const { supabase, activeProfile } = useRouteContext({ from: '/_authed' })
   const profileId = activeProfile!.id
+  const { player } = useSiteSettings()
 
   const episodeId = episode?.id ?? null
   const { state, resolve } = useStream(supabase, profileId, title.id, episodeId)
@@ -190,6 +192,7 @@ export function WatchSession({ data, mode, onBack, onSwitch }: { data: WatchData
       loop={inQueue && queue?.repeat === 'one'}
       closeIcon={mode === 'overlay'}
       embedded={mode === 'overlay'}
+      fit={player.fit}
       queue={
         inQueue && queue
           ? {

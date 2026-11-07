@@ -1,3 +1,4 @@
+import { PlayList } from '@/components/catalog/PlayList'
 import { Link, createFileRoute, notFound, redirect, useNavigate } from '@tanstack/react-router'
 import { ArrowLeft } from 'lucide-react'
 import { MovieCard } from '@/components/catalog/MovieCard'
@@ -75,13 +76,15 @@ function ModelPage() {
       {titles.length === 0 ? (
         <p className="text-muted-foreground">Aucune vidéo publiée pour ce modèle.</p>
       ) : (
-        <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+        <PlayList titles={titles} label={model.name}>
+<ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
           {titles.map((t) => (
             <li key={t.id}>
               <MovieCard title={t} />
             </li>
           ))}
         </ul>
+</PlayList>
       )}
       <PaginationBar page={page} pages={pages} onPage={(p) => go({ page: p, sort })} />
     </section>

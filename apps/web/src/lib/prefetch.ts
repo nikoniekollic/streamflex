@@ -1,6 +1,6 @@
 import type { TypedSupabaseClient } from '@/lib/supabase'
 import { loadWatch, resolveStream, type StreamInfo, type WatchData } from '@/lib/stream'
-import { invalidatePreview, peekPreviewUrl } from '@/lib/preview'
+import { invalidatePreview, peekPreviewMeta, peekPreviewUrl } from '@/lib/preview'
 
 // Préchargement de la file de lecture : pendant qu'une vidéo joue, on prépare les suivantes (données de la page,
 // lien débridé, début du fichier) pour que « suivant » / « précédent » soit quasi instantané et sans écran de chargement.
@@ -47,7 +47,12 @@ export function peekStream(titleId: string): StreamInfo | null {
   if (hit && hit.until > Date.now()) return hit.info
   const url = peekPreviewUrl(titleId)
   if (!url) return null
-  return { url, provider: 'onefichier', quality: '1080p', sourceId: `preview:${titleId}`, qualities: [], audios: [], audio: [], expiresAt: Date.now() + 60 * 60_000, cached: true }
+  // Le lien d'aperçu est celui de la qualité la plus légère : on ne le réutilise pour la lecture que s'il n'y a QU'UNE qualité
+  // (cas des films importés, souvent 1080p) ; sinon la lecture résout la plus haute qualité, comme avant.
+  const meta = peekPreviewMeta(titleId)
+  if (meta && meta.qualities.length > 1) return null
+  const quality = (meta?.quality ?? '1080p') as StreamInfo['quality']
+  return { url, provider: 'onefichier', quality, sourceId: `preview:${titleId}`, qualities: [quality], audios: [], audio: [], expiresAt: Date.now() + 60 * 60_000, cached: true }
 }
 
 /** Résolution déjà en route pour ce titre (ouverture du lecteur) : on l'attend au lieu de la doubler. */

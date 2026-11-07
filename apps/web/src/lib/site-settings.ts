@@ -15,7 +15,7 @@ export const CSS_POS: Record<Pos, string> = { center: 'center', top: 'center top
 
 export type SiteSettings = {
   theme: { preset: string; primary: string | null; background: string | null; font: string; radius: number }
-  names: { show: boolean; font: string; colorMode: 'auto' | 'palette' | 'fixed'; palette: string; color: string; stroke: string; glow: boolean; size: number; upper: 'auto' | 'on' | 'off' }
+  names: { show: boolean; font: string; colorMode: 'auto' | 'palette' | 'fixed'; palette: string; color: string; stroke: string; glow: boolean; size: number; upper: 'auto' | 'on' | 'off'; vpos: 'top' | 'center' | 'bottom'; hpos: 'left' | 'center' | 'right' }
   preview: {
     // jaquette survolée
     fit: Fit
@@ -35,14 +35,14 @@ export type SiteSettings = {
     bannerClip: number
   }
   /** lecteur en premier plan : fenêtre centrée sur un fond flou transparent, ou plein écran */
-  player: { mode: 'window' | 'full'; size: number; backdrop: number; blur: number; radius: number }
+  player: { mode: 'window' | 'full'; size: number; backdrop: number; blur: number; radius: number; fit: 'contain' | 'cover' | 'stretch' }
   /** jaquettes de modèles : photo, image capturée d'une de leurs vidéos, ou photo puis capture si absente */
   models: { image: 'auto' | 'photo' | 'capture' }
 }
 
 export const DEFAULT_SETTINGS: SiteSettings = {
   theme: { preset: 'default', primary: null, background: null, font: 'system', radius: 0.625 },
-  names: { show: true, font: 'auto', colorMode: 'auto', palette: 'neon', color: '#ffffff', stroke: '#1a0a0a', glow: true, size: 1, upper: 'auto' },
+  names: { show: true, font: 'auto', colorMode: 'auto', palette: 'neon', color: '#ffffff', stroke: '#1a0a0a', glow: true, size: 1, upper: 'auto', vpos: 'center', hpos: 'center' },
   preview: {
     fit: 'auto',
     hoverPos: 'center',
@@ -58,7 +58,7 @@ export const DEFAULT_SETTINGS: SiteSettings = {
     bannerPos: 'center',
     bannerClip: 30,
   },
-  player: { mode: 'window', size: 72, backdrop: 55, blur: 14, radius: 16 },
+  player: { mode: 'window', size: 72, backdrop: 55, blur: 14, radius: 16, fit: 'contain' },
   models: { image: 'auto' },
 }
 
@@ -122,6 +122,8 @@ export function normalizeSettings(input: unknown): SiteSettings {
       glow: n.glow !== false,
       size: clamp(n.size, 0.6, 1.8, 1),
       upper: oneOf(n.upper, ['auto', 'on', 'off'] as const, 'auto'),
+      vpos: oneOf(n.vpos, ['top', 'center', 'bottom'] as const, 'center'),
+      hpos: oneOf(n.hpos, ['left', 'center', 'right'] as const, 'center'),
     },
     preview: {
       fit: oneOf(p.fit, ['auto', 'cover', 'stretch'] as const, 'auto'),
@@ -145,6 +147,7 @@ export function normalizeSettings(input: unknown): SiteSettings {
       backdrop: clamp(pl.backdrop, 0, 95, d.player.backdrop),
       blur: clamp(pl.blur, 0, 40, d.player.blur),
       radius: clamp(pl.radius, 0, 32, d.player.radius),
+      fit: oneOf(pl.fit, ['contain', 'cover', 'stretch'] as const, 'contain'),
     },
     models: { image: oneOf(md.image, ['auto', 'photo', 'capture'] as const, 'auto') },
   }

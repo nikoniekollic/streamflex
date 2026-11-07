@@ -12,6 +12,8 @@ import {
   RotateCcw,
   RotateCw,
   ListVideo,
+  ChevronLeft,
+  ChevronRight,
   Repeat,
   Repeat1,
   Shuffle,
@@ -24,7 +26,7 @@ import {
 import { cn } from '@/lib/utils'
 import { formatTime, type Quality } from '@/lib/stream'
 import { pickInitialTrack, setSubtitlePref, type SubtitleTrack } from '@/lib/subtitles'
-import { AudioMenu, QualityMenu, SubtitlesMenu, type NativeAudio } from '@/components/player/PlayerMenus'
+import { AudioMenu, SettingsMenu, SubtitlesMenu, type FitMode, type NativeAudio } from '@/components/player/PlayerMenus'
 import { BookmarkDialog, BookmarkPanel } from '@/components/player/Bookmarks'
 import { formatTimestamp, type NewBookmark, type VideoBookmark } from '@/lib/bookmarks'
 
@@ -48,6 +50,8 @@ export type VideoPlayerProps = {
   closeIcon?: boolean
   /** posé dans un cadre (fenêtre du lecteur en premier plan) au lieu de couvrir tout l'écran */
   embedded?: boolean
+  /** ajustement de la vidéo dans le cadre (réglage admin) : bandes noires, remplir, étirer */
+  fit?: FitMode
   /** répète la vidéo en boucle (mode « répéter un ») */
   loop?: boolean
   src: string
@@ -95,6 +99,7 @@ export function VideoPlayer({
   queue,
   closeIcon = false,
   embedded = false,
+  fit: fitProp = 'contain',
   loop = false,
   src,
   poster,
@@ -147,6 +152,12 @@ export function VideoPlayer({
   // audio natif (HTMLMediaElement.audioTracks — Safari / flag Chrome)
   const [nativeAudio, setNativeAudio] = useState<NativeAudio[]>([])
   const [flash, setFlash] = useState<'play' | 'pause' | null>(null)
+  const [speed, setSpeed] = useState(1)
+  const [fitMode, setFitMode] = useState<FitMode>(fitProp)
+  useEffect(() => setFitMode(fitProp), [fitProp])
+  useEffect(() => {
+    if (videoRef.current) videoRef.current.playbackRate = speed
+  }, [speed, src])
   // liste de lecture à droite : ouverte d'emblée sur grand écran
   const [sideOpen, setSideOpen] = useState(() => typeof window !== 'undefined' && window.innerWidth >= 900)
   const sideShown = !!queue?.panel && sideOpen
@@ -459,7 +470,8 @@ export function VideoPlayer({
         autoPlay
         playsInline
         preload="auto"
-        className="absolute inset-0 size-full bg-black object-contain"
+        className="absolute inset-0 size-full bg-black"
+        style={{ objectFit: fitMode === 'stretch' ? 'fill' : fitMode }}
         onClick={togglePlay}
         onDoubleClick={() => void toggleFullscreen()}
         onLoadedMetadata={onLoadedMetadata}
@@ -552,6 +564,30 @@ export function VideoPlayer({
           {subtitle && <p className="truncate text-sm text-neutral-300">{subtitle}</p>}
         </div>
       </div>
+
+      {/* Flèches de part et d'autre : vidéo précédente / suivante de la liste */}
+      {queue?.onPrevious && (
+        <button
+          type="button"
+          onClick={queue.onPrevious}
+          aria-label="Vidéo précédente"
+          title="Vidéo précédente"
+          className={cn('absolute top-1/2 left-3 z-20 -translate-y-1/2 rounded-full bg-black/55 p-2.5 transition hover:scale-110 hover:bg-black/80 md:left-5 md:p-3', visible ? 'opacity-100' : 'pointer-events-none opacity-0')}
+        >
+          <ChevronLeft className="size-7 md:size-9" />
+        </button>
+      )}
+      {onNext && (
+        <button
+          type="button"
+          onClick={onNext}
+          aria-label={nextLabel ?? 'Vidéo suivante'}
+          title={nextLabel ?? 'Vidéo suivante'}
+          className={cn('absolute top-1/2 right-3 z-20 -translate-y-1/2 rounded-full bg-black/55 p-2.5 transition hover:scale-110 hover:bg-black/80 md:right-5 md:p-3', visible ? 'opacity-100' : 'pointer-events-none opacity-0')}
+        >
+          <ChevronRight className="size-7 md:size-9" />
+        </button>
+      )}
 
       {/* Épisode suivant */}
       {showNext && (
@@ -657,6 +693,17 @@ export function VideoPlayer({
           </span>
 
           <div className="ml-auto flex items-center gap-1 md:gap-3">
+            <SettingsMenu
+              qualities={qualities}
+              quality={quality}
+              onQuality={onQualityChange ? (q) => onQualityChange(q, videoRef.current?.currentTime ?? 0) : undefined}
+              speed={speed}
+              onSpeed={setSpeed}
+              fit={fitMode}
+              onFit={setFitMode}
+              container={containerRef.current}
+              onOpenChange={onMenuOpenChange}
+            />
             {onCreateBookmark && (
               <IconButton label="Marquer ce moment (B)" onClick={markMoment}>
                 <BookmarkPlus />
@@ -724,15 +771,6 @@ export function VideoPlayer({
               container={containerRef.current}
               onOpenChange={onMenuOpenChange}
             />
-            {onQualityChange && (
-              <QualityMenu
-                qualities={qualities}
-                quality={quality}
-                onSelect={(q) => onQualityChange(q, videoRef.current?.currentTime ?? 0)}
-                container={containerRef.current}
-                onOpenChange={onMenuOpenChange}
-              />
-            )}
             <IconButton label={fullscreen ? 'Quitter le plein écran' : 'Plein écran'} onClick={() => void toggleFullscreen()}>
               {fullscreen ? <Minimize /> : <Maximize />}
             </IconButton>

@@ -1,3 +1,4 @@
+import { PlayList } from '@/components/catalog/PlayList'
 import { Link, createFileRoute, useNavigate, useRouterState } from '@tanstack/react-router'
 import { Loader2, SearchX, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -41,7 +42,8 @@ function SearchPage() {
         <EmptyState q={search.q} hasFilters={hasFilters} />
       ) : (
         <>
-          <ul className={cn(GRID, 'transition-opacity', loading && 'opacity-60')}>
+          <PlayList titles={results} label={'Recherche'}>
+<ul className={cn(GRID, 'transition-opacity', loading && 'opacity-60')}>
             {results.map((t) => (
               <li key={t.id}>
                 <MovieCard title={t} />
@@ -49,6 +51,7 @@ function SearchPage() {
               </li>
             ))}
           </ul>
+</PlayList>
           {hasMore && (
             <div className="mt-10 flex justify-center">
               <Button asChild variant="secondary" size="lg" disabled={loading}>

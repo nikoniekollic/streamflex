@@ -1,3 +1,4 @@
+import { PlayList } from '@/components/catalog/PlayList'
 import { Link, createFileRoute, notFound, redirect, useNavigate, useRouter } from '@tanstack/react-router'
 import { toast } from 'sonner'
 import { ArrowLeft, Pencil, Trash2, X } from 'lucide-react'
@@ -74,7 +75,8 @@ function PlaylistPage() {
       {titles.length === 0 ? (
         <p className="text-muted-foreground">Cette liste est vide. Ajoute des vidéos avec le bouton « liste » de chaque jaquette.</p>
       ) : (
-        <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+        <PlayList titles={titles} label={playlist.name}>
+<ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
           {titles.map((t) => (
             <li key={t.id} className="relative">
               <MovieCard title={t} />
@@ -90,6 +92,7 @@ function PlaylistPage() {
             </li>
           ))}
         </ul>
+</PlayList>
       )}
     </section>
   )

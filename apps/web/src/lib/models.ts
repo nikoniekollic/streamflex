@@ -1,7 +1,7 @@
 import type { TypedSupabaseClient } from '@/lib/supabase'
 import { z } from 'zod'
 
-export type AdminModel = { id: string; name: string; image_url: string | null; titles_count: number }
+export type AdminModel = { id: string; name: string; image_url: string | null; titles_count: number; cover_title_id: string | null; cover_pos: number | null }
 export type ModelTitle = { id: string; title: string; model_id: string | null }
 
 export const modelSchema = z.object({
@@ -79,6 +79,13 @@ export async function mergeModels(s: TypedSupabaseClient, from: string, into: st
 /** Supprime les modèles sans aucun titre rattaché. */
 export async function deleteEmptyModels(s: TypedSupabaseClient) {
   const { data, error } = await (s as unknown as { rpc: (n: string) => Promise<{ data: number | null; error: { message: string } | null }> }).rpc('admin_delete_empty_models')
+  if (error) fail(error)
+  return data ?? 0
+}
+
+/** Nouvelle capture (film et moment tirés au hasard) pour les modèles donnés, ou pour tous si `ids` est nul. */
+export async function recaptureModels(s: TypedSupabaseClient, ids: string[] | null) {
+  const { data, error } = await (s as unknown as { rpc: (n: string, a: object) => Promise<{ data: number | null; error: { message: string } | null }> }).rpc('admin_recapture_models', { p_ids: ids })
   if (error) fail(error)
   return data ?? 0
 }

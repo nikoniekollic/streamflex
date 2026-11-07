@@ -5,8 +5,9 @@ import { Play } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { isModelCover, stripModelMark } from '@/lib/cover'
 import type { Queue } from '@/lib/queue'
+import { CoverThumb } from '@/components/catalog/CoverThumb'
 
-type Item = { id: string; title: string; poster_url: string | null }
+type Item = { id: string; title: string; poster_url: string | null; cover_pos: number | null }
 const known = new Map<string, Item>()
 
 /** Liste de lecture à droite du lecteur : la vidéo en cours est surlignée, un clic saute à la vidéo choisie. */
@@ -24,7 +25,7 @@ export function QueuePanel({ queue, currentId, onSelect }: { queue: Queue; curre
     let alive = true
     ;(async () => {
       for (let i = 0; i < wanted.length; i += 100) {
-        const { data } = await (supabase as unknown as SupabaseClient).from('titles').select('id, title, poster_url').in('id', wanted.slice(i, i + 100))
+        const { data } = await (supabase as unknown as SupabaseClient).from('titles').select('id, title, poster_url, cover_pos').in('id', wanted.slice(i, i + 100))
         for (const r of (data ?? []) as Item[]) known.set(r.id, r)
         if (alive) setTick((t) => t + 1)
       }
@@ -61,7 +62,17 @@ export function QueuePanel({ queue, currentId, onSelect }: { queue: Queue; curre
                 className={cn('flex w-full items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-white/10', current && 'bg-white/15')}
               >
                 <span className="w-6 shrink-0 text-center text-xs text-neutral-400 tabular-nums">{current ? <Play className="mx-auto size-4 fill-current text-primary" /> : i + 1}</span>
-                {img ? <img src={img} alt="" loading="lazy" className="h-14 w-10 shrink-0 rounded object-cover" /> : <span className="h-14 w-10 shrink-0 rounded bg-neutral-800" />}
+                {it ? (
+                  <CoverThumb
+                    titleId={id}
+                    coverPos={it.cover_pos}
+                    order={i}
+                    className="h-14 w-10 shrink-0 rounded"
+                    fallback={img ? <img src={img} alt="" loading="lazy" className="size-full object-cover opacity-50" /> : null}
+                  />
+                ) : (
+                  <span className="h-14 w-10 shrink-0 rounded bg-neutral-800" />
+                )}
                 <span className={cn('line-clamp-2 min-w-0 text-sm leading-tight', i < queue.index && 'text-neutral-500')}>{it?.title ?? '…'}</span>
               </button>
             </li>

@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious } from '@/components/ui/carousel'
 import { MovieCard, MovieCardSkeleton } from '@/components/catalog/MovieCard'
+import { PlayList } from '@/components/catalog/PlayList'
 import type { CatalogTitle, ContinueItem } from '@/lib/catalog'
 
 const POSTER_ITEM = 'basis-[38%] sm:basis-[28%] md:basis-[22%] lg:basis-[16.66%] xl:basis-[14.28%] 2xl:basis-[12.5%]'
@@ -26,13 +27,15 @@ export function Row({ label, children, memoryKey, action }: { label: string; chi
 export function CategoryCarousel({ label, titles }: { label: string; titles: CatalogTitle[] }) {
   if (titles.length === 0) return null
   return (
-    <Row label={label} memoryKey={`home:${label}`}>
-      {titles.map((t) => (
-        <CarouselItem key={t.id} className={POSTER_ITEM}>
-          <MovieCard title={t} />
-        </CarouselItem>
-      ))}
-    </Row>
+    <PlayList titles={titles} label={label}>
+      <Row label={label} memoryKey={`home:${label}`}>
+        {titles.map((t) => (
+          <CarouselItem key={t.id} className={POSTER_ITEM}>
+            <MovieCard title={t} />
+          </CarouselItem>
+        ))}
+      </Row>
+    </PlayList>
   )
 }
 

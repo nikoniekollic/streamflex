@@ -23,7 +23,8 @@ const BREAKER_MS = 15 * 60_000
 const STORE_KEY = 'sf:preview-links:v1'
 const STORE_MAX = 600
 
-type Entry = { url: string | null; until: number }
+export type PreviewMeta = { quality: string; qualities: string[] }
+type Entry = { url: string | null; until: number; meta?: PreviewMeta }
 const stale = new Set<string>()
 const cache = new Map<string, Entry>()
 const inflight = new Map<string, Promise<string | null>>()
@@ -45,9 +46,9 @@ export function reportDuration(s: TypedSupabaseClient, titleId: string, seconds:
 
 // ───────── Cache persistant (liens valides seulement)
 try {
-  const stored = JSON.parse(localStorage.getItem(STORE_KEY) ?? '{}') as Record<string, [string, number]>
+  const stored = JSON.parse(localStorage.getItem(STORE_KEY) ?? '{}') as Record<string, [string, number, PreviewMeta?]>
   const now = Date.now()
-  for (const [id, [url, until]] of Object.entries(stored)) if (until > now && typeof url === 'string') cache.set(id, { url, until })
+  for (const [id, [url, until, meta]] of Object.entries(stored)) if (until > now && typeof url === 'string') cache.set(id, { url, until, meta })
 } catch {
   /* stockage indisponible ou corrompu */
 }
@@ -59,15 +60,15 @@ function persist() {
     try {
       const now = Date.now()
       const rows = [...cache.entries()].filter(([, e]) => e.url && e.until > now).sort((a, b) => b[1].until - a[1].until).slice(0, STORE_MAX)
-      localStorage.setItem(STORE_KEY, JSON.stringify(Object.fromEntries(rows.map(([id, e]) => [id, [e.url, e.until]]))))
+      localStorage.setItem(STORE_KEY, JSON.stringify(Object.fromEntries(rows.map(([id, e]) => [id, [e.url, e.until, e.meta]]))))
     } catch {
       /* quota plein : on garde la mémoire seulement */
     }
   }, 1500)
 }
 
-function remember(titleId: string, url: string | null) {
-  cache.set(titleId, { url, until: Date.now() + (url ? OK_TTL_MS : FAIL_TTL_MS) })
+function remember(titleId: string, url: string | null, meta?: PreviewMeta) {
+  cache.set(titleId, { url, until: Date.now() + (url ? OK_TTL_MS : FAIL_TTL_MS), meta })
   if (url) persist()
 }
 
@@ -75,6 +76,12 @@ function remember(titleId: string, url: string | null) {
 export const peekPreviewUrl = (titleId: string): string | null => {
   const hit = cache.get(titleId)
   return hit && hit.until > Date.now() ? hit.url : null
+}
+
+/** Qualités connues du film (avec le lien d'aperçu) ; undefined = inconnues. */
+export const peekPreviewMeta = (titleId: string): PreviewMeta | undefined => {
+  const hit = cache.get(titleId)
+  return hit && hit.until > Date.now() ? hit.meta : undefined
 }
 
 /** Le lien ne marche plus (expiré) : on l'oublie pour en demander un neuf au prochain besoin. */
@@ -129,7 +136,7 @@ function noteFailure(message: string) {
   }
 }
 
-type BatchItem = { titleId: string; sourceId: string; url: string; clientDebrid: ClientDebrid | null }
+type BatchItem = { titleId: string; sourceId: string; url: string; clientDebrid: ClientDebrid | null; quality?: string; qualities?: string[] }
 
 async function fetchBatch(s: TypedSupabaseClient, profileId: string, ids: string[]): Promise<BatchItem[]> {
   const refreshIds = ids.filter((id) => stale.has(id))
@@ -142,8 +149,8 @@ async function fetchBatch(s: TypedSupabaseClient, profileId: string, ids: string
 function resolveBatch(s: TypedSupabaseClient, profileId: string, ids: string[], high: boolean, orders?: Map<string, number>) {
   const done = new Map<string, (u: string | null) => void>()
   for (const id of ids) inflight.set(id, new Promise<string | null>((res) => done.set(id, res)))
-  const finish = (id: string, url: string | null) => {
-    remember(id, url)
+  const finish = (id: string, url: string | null, meta?: PreviewMeta) => {
+    remember(id, url, meta)
     done.get(id)?.(url)
     done.delete(id)
     inflight.delete(id)
@@ -162,12 +169,13 @@ function resolveBatch(s: TypedSupabaseClient, profileId: string, ids: string[], 
       ids.map(async (id) => {
         const it = byId.get(id)
         if (!it) return finish(id, null)
-        if (!it.clientDebrid) return finish(id, it.url || null)
+        const meta = it.quality ? { quality: it.quality, qualities: it.qualities ?? [it.quality] } : undefined
+        if (!it.clientDebrid) return finish(id, it.url || null, meta)
         await acquireUnlock(high, orders?.get(id) ?? 0)
         try {
           const unlocked = (await unlockInBrowser(it.clientDebrid)).url
           shareLink(s, id, unlocked, stale.delete(id)) // dépôt dans le cache partagé : les autres abonnés n'auront rien à débrider
-          finish(id, unlocked)
+          finish(id, unlocked, meta)
           failStreak = 0
         } catch (e) {
           // un fichier hors ligne n'est pas une panne d'Alldebrid : on ne coupe pas tous les aperçus pour ça
@@ -219,7 +227,8 @@ function scheduleFlush(delay = FLUSH_DELAY_MS) {
   if (flushTimer) return
   flushTimer = setTimeout(() => {
     flushTimer = null
-    if (!ctx || overlayOpen) return void (pending.size && scheduleFlush(1000))
+    // (le lecteur ouvert ne coupe plus la préparation : les images de la liste de lecture à droite en dépendent)
+    if (!ctx) return
     if (Date.now() < pausedUntil) {
       for (const [id, p] of pending) p.resolvers.forEach((r) => r(null)), pending.delete(id)
       return

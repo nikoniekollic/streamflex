@@ -1,3 +1,4 @@
+import { PlayList } from '@/components/catalog/PlayList'
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { Heart, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -60,7 +61,8 @@ function MyList() {
           </Button>
         </div>
       ) : (
-        <ul className={GRID}>
+        <PlayList titles={visible} label={'Ma liste'}>
+<ul className={GRID}>
           {visible.map((t) => (
             <li key={t.id}>
               <MovieCard title={t} />
@@ -68,6 +70,7 @@ function MyList() {
             </li>
           ))}
         </ul>
+</PlayList>
       )}
     </div>
   )

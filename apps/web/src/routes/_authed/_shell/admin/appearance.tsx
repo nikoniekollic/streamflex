@@ -221,12 +221,12 @@ function AppearanceAdmin() {
         </div>
       </Section>
 
-      <Section title="Nom des modèles sur les jaquettes" hint="Police, couleurs et taille du nom affiché au centre de chaque jaquette (les polices installées sur l’appareil du visiteur uniquement).">
+      <Section title="Nom des modèles sur les jaquettes" hint="Police, couleurs, taille et position du nom affiché sur chaque jaquette (les polices installées sur l’appareil du visiteur uniquement).">
         <div className="grid grid-cols-3 gap-3">
           {SAMPLE_NAMES.map((n, i) => {
             const st = modelNameStyle(n, names)
             return (
-              <div key={n} className="relative flex aspect-[2/3] items-center justify-center overflow-hidden rounded-md px-2 text-center" style={{ background: ['linear-gradient(160deg,#4c1d95,#0f172a)', 'linear-gradient(160deg,#9f1239,#1c1917)', 'linear-gradient(160deg,#065f46,#0c0a09)'][i] }}>
+              <div key={n} className={`relative flex aspect-[2/3] overflow-hidden rounded-md px-2 ${{ top: 'items-start pt-8', center: 'items-center', bottom: 'items-end pb-6' }[names.vpos]} ${{ left: 'justify-start', center: 'justify-center', right: 'justify-end' }[names.hpos]}`} style={{ textAlign: names.hpos, background: ['linear-gradient(160deg,#4c1d95,#0f172a)', 'linear-gradient(160deg,#9f1239,#1c1917)', 'linear-gradient(160deg,#065f46,#0c0a09)'][i] }}>
                 {names.show && (
                   <span
                     className="line-clamp-3 leading-tight break-words"
@@ -275,6 +275,20 @@ function AppearanceAdmin() {
           </Field>
           <Field label="Taille">
             <Range value={names.size} min={0.6} max={1.8} step={0.05} onChange={(v) => edit('names', { size: v })} format={(v) => `${Math.round(v * 100)} %`} />
+          </Field>
+          <Field label="Position verticale">
+            <select className={selectCls} value={names.vpos} onChange={(e) => edit('names', { vpos: e.target.value as SiteSettings['names']['vpos'] })}>
+              <option value="top">En haut</option>
+              <option value="center">Au centre</option>
+              <option value="bottom">En bas</option>
+            </select>
+          </Field>
+          <Field label="Position horizontale">
+            <select className={selectCls} value={names.hpos} onChange={(e) => edit('names', { hpos: e.target.value as SiteSettings['names']['hpos'] })}>
+              <option value="left">À gauche</option>
+              <option value="center">Centré</option>
+              <option value="right">À droite</option>
+            </select>
           </Field>
           <Field label="Halo lumineux">
             <label className="flex h-9 items-center gap-2">
@@ -414,6 +428,13 @@ function AppearanceAdmin() {
             <select className={selectCls} value={player.mode} onChange={(e) => edit('player', { mode: e.target.value as SiteSettings['player']['mode'] })}>
               <option value="window">Fenêtre sur la page (fond transparent)</option>
               <option value="full">Plein écran</option>
+            </select>
+          </Field>
+          <Field label="Ajustement de la vidéo dans le lecteur">
+            <select className={selectCls} value={player.fit} onChange={(e) => edit('player', { fit: e.target.value as SiteSettings['player']['fit'] })}>
+              <option value="contain">Adapté (vidéo entière, bandes noires)</option>
+              <option value="cover">Remplir (rogne les bords)</option>
+              <option value="stretch">Étirer (déforme l’image)</option>
             </select>
           </Field>
           <Field label="Taille de la fenêtre">

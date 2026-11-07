@@ -64,7 +64,9 @@ async function handleBatch(userClient: ReturnType<typeof createClient>, profileI
 
   const best = new Map<string, MediaSource & { title_id: string }>()
   const okIds = new Set(allowed)
+  const qualitiesOf = new Map<string, string[]>() // toutes les qualités disponibles par film, de la plus haute à la plus basse
   for (const r of ((srcRes.data ?? []) as (MediaSource & { title_id: string })[]).filter((x) => okIds.has(x.title_id))) {
+    qualitiesOf.set(r.title_id, [...new Set([...(qualitiesOf.get(r.title_id) ?? []), r.quality])].sort((a, b) => QUALITY_ORDER.indexOf(a as (typeof QUALITY_ORDER)[number]) - QUALITY_ORDER.indexOf(b as (typeof QUALITY_ORDER)[number])))
     const cur = best.get(r.title_id)
     // priorité à la qualité la plus basse (aperçu plus léger), puis à la priorité de la source
     if (!cur || QUALITY_ORDER.indexOf(r.quality) > QUALITY_ORDER.indexOf(cur.quality)) best.set(r.title_id, r)
@@ -74,10 +76,11 @@ async function handleBatch(userClient: ReturnType<typeof createClient>, profileI
     await Promise.all(
       [...best.values()].map(async (src) => {
         const hit = shared.get(src.title_id)
-        if (hit) return [{ titleId: src.title_id, sourceId: src.id, url: hit.url, clientDebrid: null, shared: true }]
+        const meta = { quality: src.quality, qualities: qualitiesOf.get(src.title_id) ?? [src.quality] }
+        if (hit) return [{ titleId: src.title_id, sourceId: src.id, url: hit.url, clientDebrid: null, shared: true, ...meta }]
         try {
           const r = await resolveSource(src)
-          return [{ titleId: src.title_id, sourceId: src.id, url: r.url, clientDebrid: r.clientDebrid ?? null }]
+          return [{ titleId: src.title_id, sourceId: src.id, url: r.url, clientDebrid: r.clientDebrid ?? null, ...meta }]
         } catch (e) {
           console.warn('[resolve-stream] aperçu ignoré', src.title_id, (e as Error).message)
           return []

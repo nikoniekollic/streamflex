@@ -127,29 +127,67 @@ export function AudioMenu({
   )
 }
 
-// ───────── Qualité
-export function QualityMenu({
+// ───────── Roue crantée : qualité, vitesse, ajustement de l'image
+export type FitMode = 'contain' | 'cover' | 'stretch'
+const SPEEDS = ['0.5', '0.75', '1', '1.25', '1.5', '2']
+
+export function SettingsMenu({
   qualities,
   quality,
-  onSelect,
+  onQuality,
+  speed,
+  onSpeed,
+  fit,
+  onFit,
   ...c
-}: Common & { qualities: Quality[]; quality?: Quality; onSelect: (q: Quality) => void }) {
-  if (qualities.length < 2) return null
+}: Common & {
+  qualities: Quality[]
+  quality?: Quality
+  onQuality?: (q: Quality) => void
+  speed: number
+  onSpeed: (v: number) => void
+  fit: FitMode
+  onFit: (f: FitMode) => void
+}) {
+  const several = qualities.length > 1
   return (
     <DropdownMenu modal={false} onOpenChange={c.onOpenChange}>
-      <Trigger label="Qualité">
+      <Trigger label="Paramètres (qualité, vitesse, image)">
         <Settings />
       </Trigger>
-      <DropdownMenuContent side="top" align="end" container={c.container} className={CONTENT}>
+      <DropdownMenuContent side="top" align="end" container={c.container} className={cn(CONTENT, 'max-h-[70vh] overflow-y-auto')}>
         <DropdownMenuLabel>Qualité</DropdownMenuLabel>
-        <DropdownMenuSeparator className="bg-white/10" />
-        <DropdownMenuRadioGroup value={quality ?? ''} onValueChange={(v) => v !== quality && onSelect(v as Quality)}>
-          {qualities.map((q) => (
-            <DropdownMenuRadioItem key={q} value={q} className={ITEM}>
+        <DropdownMenuRadioGroup value={quality ?? ''} onValueChange={(v) => v !== quality && onQuality?.(v as Quality)}>
+          {(qualities.length ? qualities : quality ? [quality] : []).map((q) => (
+            <DropdownMenuRadioItem key={q} value={q} disabled={!several} className={ITEM}>
               {q}
-              {q === '2160p' && <span className="ml-auto text-xs text-neutral-400">4K</span>}
+              {q === '2160p' && <span className="ml-1 text-xs text-neutral-400">4K</span>}
+              {q === qualities[0] && <span className="ml-auto text-xs text-neutral-400">la plus haute</span>}
             </DropdownMenuRadioItem>
           ))}
+        </DropdownMenuRadioGroup>
+        <p className="px-2 pb-1 text-xs text-neutral-400">{several ? 'La plus haute qualité est choisie par défaut.' : 'Une seule qualité disponible : la plus haute.'}</p>
+        <DropdownMenuSeparator className="bg-white/10" />
+        <DropdownMenuLabel>Vitesse</DropdownMenuLabel>
+        <DropdownMenuRadioGroup value={String(speed)} onValueChange={(v) => onSpeed(Number(v))}>
+          {SPEEDS.map((v) => (
+            <DropdownMenuRadioItem key={v} value={v} className={ITEM}>
+              {v === '1' ? 'Normale' : `${v}×`}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+        <DropdownMenuSeparator className="bg-white/10" />
+        <DropdownMenuLabel>Image</DropdownMenuLabel>
+        <DropdownMenuRadioGroup value={fit} onValueChange={(v) => onFit(v as FitMode)}>
+          <DropdownMenuRadioItem value="contain" className={ITEM}>
+            Adaptée (bandes noires)
+          </DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="cover" className={ITEM}>
+            Remplir (rogne)
+          </DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="stretch" className={ITEM}>
+            Étirer
+          </DropdownMenuRadioItem>
         </DropdownMenuRadioGroup>
       </DropdownMenuContent>
     </DropdownMenu>

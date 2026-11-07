@@ -61,9 +61,14 @@ export function startQueue(opts: { label: string; ids: string[]; shuffle?: boole
   if (base.length === 0) return null
   const shuffle = opts.shuffle ?? false
   let order = shuffle ? shuffled(base) : base
-  if (opts.startId && base.includes(opts.startId)) order = [opts.startId, ...order.filter((i) => i !== opts.startId)]
-  commit({ label: opts.label, base, order, index: 0, shuffle, repeat: 'off', random: opts.random ?? null, track: opts.track ?? false })
-  return order[0]
+  let index = 0
+  if (opts.startId && base.includes(opts.startId)) {
+    // dans l'ordre : on se place sur la vidéo cliquée, les précédentes restent accessibles ; mélangé : elle passe en premier
+    if (shuffle) order = [opts.startId, ...order.filter((i) => i !== opts.startId)]
+    else index = base.indexOf(opts.startId)
+  }
+  commit({ label: opts.label, base, order, index, shuffle, repeat: 'off', random: opts.random ?? null, track: opts.track ?? false })
+  return order[index]
 }
 
 export const RANDOM_LIST_SIZE = 100
