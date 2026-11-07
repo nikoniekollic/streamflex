@@ -10,13 +10,11 @@ type Props = {
   onBack: () => void
 } & ({ phase: 'resolving'; attempt?: number } | { phase: 'error'; code: StreamErrorCode; detail?: string; onRetry: () => void })
 
-const STEPS = ['Recherche de la meilleure source…', 'Récupération du lien de lecture…', 'Préparation du flux…']
-
 export function StreamStatus(props: Props) {
   const { title, backdrop, onBack } = props
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black px-6">
-      {backdrop && <img src={backdrop} alt="" aria-hidden className="absolute inset-0 size-full object-cover opacity-20 blur-sm" />}
+      {backdrop && props.phase === 'error' && <img src={backdrop} alt="" aria-hidden className="absolute inset-0 size-full object-cover opacity-20 blur-sm" />}
       <button
         type="button"
         onClick={onBack}
@@ -27,28 +25,19 @@ export function StreamStatus(props: Props) {
       </button>
 
       <div className="relative w-full max-w-md">
-        <p className="mb-4 text-center text-xl font-semibold text-white">{title}</p>
-        {props.phase === 'resolving' ? <Resolving attempt={props.attempt ?? 1} /> : <Failure code={props.code} detail={props.detail} onRetry={props.onRetry} />}
+        {props.phase === 'error' && <p className="mb-4 text-center text-xl font-semibold text-white">{title}</p>}
+        {props.phase === 'resolving' ? <Resolving /> : <Failure code={props.code} detail={props.detail} onRetry={props.onRetry} />}
       </div>
     </div>
   )
 }
 
-function Resolving({ attempt }: { attempt: number }) {
+function Resolving() {
+  // Aucun texte : une petite roue n'apparaît qu'au bout d'une seconde si la résolution traîne
   return (
-    <Alert className="border-white/10 bg-black/70 backdrop-blur" aria-live="polite" aria-busy="true">
-      <Loader2 className="animate-spin text-primary" />
-      <AlertTitle>{attempt > 1 ? `Nouvelle tentative (${attempt})…` : 'Chargement de la vidéo'}</AlertTitle>
-      <AlertDescription>
-        <ol className="mt-1 grid gap-1">
-          {STEPS.map((s, i) => (
-            <li key={s} className="flex items-center gap-2 animate-in fade-in" style={{ animationDelay: `${i * 600}ms`, animationFillMode: 'both' }}>
-              <span className="size-1.5 rounded-full bg-primary" /> {s}
-            </li>
-          ))}
-        </ol>
-      </AlertDescription>
-    </Alert>
+    <div className="flex justify-center" aria-live="polite" aria-busy="true">
+      <Loader2 className="size-9 animate-spin text-white/60 animate-in fade-in" style={{ animationDelay: '1000ms', animationFillMode: 'both' }} />
+    </div>
   )
 }
 

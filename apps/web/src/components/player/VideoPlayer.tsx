@@ -11,6 +11,7 @@ import {
   Play,
   RotateCcw,
   RotateCw,
+  ListVideo,
   Repeat,
   Repeat1,
   Shuffle,
@@ -37,6 +38,8 @@ export type PlayerQueue = {
   onShuffle: () => void
   onRepeat: () => void
   onPrevious?: () => void
+  /** liste de lecture affichée à droite (vidéos suivantes) */
+  panel?: ReactNode
 }
 
 export type VideoPlayerProps = {
@@ -141,6 +144,9 @@ export function VideoPlayer({
   // audio natif (HTMLMediaElement.audioTracks — Safari / flag Chrome)
   const [nativeAudio, setNativeAudio] = useState<NativeAudio[]>([])
   const [flash, setFlash] = useState<'play' | 'pause' | null>(null)
+  // liste de lecture à droite : ouverte d'emblée sur grand écran
+  const [sideOpen, setSideOpen] = useState(() => typeof window !== 'undefined' && window.innerWidth >= 900)
+  const sideShown = !!queue?.panel && sideOpen
   // marque-pages
   const [markAt, setMarkAt] = useState<number | null>(null)
   const [panelOpen, setPanelOpen] = useState(false)
@@ -441,6 +447,7 @@ export function VideoPlayer({
       onPointerMove={showControls}
       onPointerDown={showControls}
     >
+      <div className="absolute inset-y-0 left-0" style={{ right: sideShown ? 'min(20rem, 38vw)' : 0 }}>
       <video
         ref={videoRef}
         src={src}
@@ -679,6 +686,11 @@ export function VideoPlayer({
                 >
                   {queue.repeat === 'one' ? <Repeat1 className="text-primary" /> : <Repeat className={cn(queue.repeat === 'all' && 'text-primary')} />}
                 </IconButton>
+                {queue.panel && (
+                  <IconButton label={sideOpen ? 'Masquer la liste de lecture' : 'Afficher la liste de lecture'} onClick={() => setSideOpen((o) => !o)} active={sideOpen}>
+                    <ListVideo className={cn(sideOpen && 'text-primary')} />
+                  </IconButton>
+                )}
                 {queue.onPrevious && (
                   <IconButton label="Vidéo précédente" onClick={queue.onPrevious}>
                     <SkipBack />
@@ -736,6 +748,12 @@ export function VideoPlayer({
         />
       )}
       {onCreateBookmark && <BookmarkDialog at={markAt} container={containerRef.current} onSubmit={createBookmark} onClose={closeMark} />}
+      </div>
+      {sideShown && (
+        <aside className="absolute inset-y-0 right-0 z-20 w-[min(20rem,38vw)] border-l border-white/10 text-white" aria-label="Liste de lecture">
+          {queue?.panel}
+        </aside>
+      )}
     </div>
   )
 }

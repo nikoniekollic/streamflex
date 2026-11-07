@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { TypedSupabaseClient } from '@/lib/supabase'
+import { peekStream } from '@/lib/prefetch'
 import { StreamError, resolveStream, type ResolveParams, type StreamErrorCode, type StreamInfo } from '@/lib/stream'
 
 export type StreamState =
@@ -16,12 +17,20 @@ type Opts = Pick<ResolveParams, 'quality' | 'audio' | 'refresh' | 'exclude'>
  * les liens 1fichier sont obtenus via l'API du compte (régulée) ; le navigateur ne reçoit que l'URL directe.
  */
 export function useStream(supabase: TypedSupabaseClient, profileId: string, titleId: string, episodeId: string | null) {
-  const [state, setState] = useState<StreamState>({ status: 'resolving', attempt: 1 })
+  const [state, setState] = useState<StreamState>(() => {
+    const hit = episodeId ? null : peekStream(titleId)
+    return hit ? { status: 'ready', stream: hit } : { status: 'resolving', attempt: 1 }
+  })
   const req = useRef(0)
 
   const resolve = useCallback(
     async (opts: Opts = {}, attempt = 1) => {
       const id = ++req.current
+      const hit = !episodeId && !opts.refresh && !opts.quality && !opts.audio ? peekStream(titleId) : null
+      if (hit) {
+        setState({ status: 'ready', stream: hit }) // préchargé : aucun écran d'attente
+        return hit
+      }
       setState({ status: 'resolving', attempt })
       try {
         const stream = await resolveStream(supabase, { profileId, titleId, episodeId, ...opts })

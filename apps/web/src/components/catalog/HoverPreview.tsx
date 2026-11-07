@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useId, useRef, useState, useSyncExternalStore } from 'react'
 import { Pause, Play } from 'lucide-react'
 import type { CatalogTitle } from '@/lib/catalog'
 import { cn } from '@/lib/utils'
@@ -87,8 +87,13 @@ export function PreviewClip({ titleId, active, delayMs = 400, className }: { tit
 //  • l'élément vidéo de chaque jaquette est gardé en mémoire (lib/video-pool) : retour sur une page = rien à relire
 const KEEP_SLOT_MS = 3000 // une carte qui sort de l'écran garde sa place 3 s (défilement aller-retour)
 
+/** Rang d'une jaquette dans la page : ligne par ligne, de gauche à droite (première ligne = chargée en premier). */
+const pageOrder = (r: DOMRect) => Math.round((r.top + window.scrollY) / 20) * 10_000 + Math.round(r.left)
+
 export function HoverPreview({ title, active }: { title: CatalogTitle; active: boolean }) {
   const titleId = title.id
+  // Un même film peut apparaître dans plusieurs rangées : visibilité et élément vidéo sont propres à chaque carte
+  const visKey = `${titleId}#${useId()}`
   const { activeProfile } = useActiveProfile()
   const profileId = activeProfile?.id
   const { preview: cfg } = useSiteSettings()
@@ -104,8 +109,8 @@ export function HoverPreview({ title, active }: { title: CatalogTitle; active: b
 
   useSyncExternalStore(subscribeAmbient, getAmbientVersion)
   const known = peekSlot(titleId, url)
-  const show = !!url && (active || isStillSlot(titleId) || !!known)
-  const mode: 'hover' | 'ambient' | 'still' = active ? 'hover' : cfg.ambient && isAmbientSlot(titleId, cfg.ambientMax) ? 'ambient' : 'still'
+  const show = !!url && (active || isStillSlot(visKey) || !!known)
+  const mode: 'hover' | 'ambient' | 'still' = active ? 'hover' : cfg.ambient && isAmbientSlot(visKey, cfg.ambientMax) ? 'ambient' : 'still'
 
   // Visibilité : lien préparé (par lots avec les autres jaquettes) ; ≥ 60 % visible → candidate à la lecture d'ambiance
   useEffect(() => {
@@ -117,18 +122,18 @@ export function HoverPreview({ title, active }: { title: CatalogTitle; active: b
       ([entry]) => {
         if (entry.isIntersecting) {
           clearTimeout(leave)
-          setStillVisible(titleId, true)
+          setStillVisible(visKey, true)
           const cached = peekPreviewUrl(titleId)
           if (cached) setUrl(cached)
           else
-            void warmPreview(supabase, profileId, titleId).then((u) => {
+            void warmPreview(supabase, profileId, titleId, pageOrder(entry.boundingClientRect)).then((u) => {
               if (u && alive) setUrl(u)
             })
         } else {
           cancelWarm(titleId)
-          leave = setTimeout(() => !activeRef.current && setStillVisible(titleId, false), KEEP_SLOT_MS)
+          leave = setTimeout(() => !activeRef.current && setStillVisible(visKey, false), KEEP_SLOT_MS)
         }
-        setAmbientVisible(titleId, entry.isIntersecting && entry.intersectionRatio >= 0.6 && ambientAllowed())
+        setAmbientVisible(visKey, entry.isIntersecting && entry.intersectionRatio >= 0.6 && ambientAllowed())
       },
       { rootMargin: '300px', threshold: [0, 0.6] },
     )
@@ -138,10 +143,10 @@ export function HoverPreview({ title, active }: { title: CatalogTitle; active: b
       io.disconnect()
       clearTimeout(leave)
       cancelWarm(titleId)
-      setAmbientVisible(titleId, false)
-      setStillVisible(titleId, false)
+      setAmbientVisible(visKey, false)
+      setStillVisible(visKey, false)
     }
-  }, [profileId, titleId])
+  }, [profileId, titleId, visKey])
 
   // Survol d'une jaquette dont le lien n'est pas encore prêt : prioritaire
   useEffect(() => {
@@ -159,19 +164,19 @@ export function HoverPreview({ title, active }: { title: CatalogTitle; active: b
   useEffect(() => {
     const h = host.current
     if (!show || !url || !h) return
-    const slot = acquireSlot(titleId, url, cfg.clipSeconds)
+    const slot = acquireSlot(titleId, url, cfg.clipSeconds, pageOrder(h.getBoundingClientRect()))
     slotRef.current = slot
     attachSlot(slot, h)
     const sync = () => {
       setReady(slot.ready)
       if (slot.failed) {
         // lien probablement expiré : un lien neuf, une seule fois
-        dropSlot(titleId)
+        dropSlot(slot)
         invalidatePreview(titleId)
         setUrl(null)
         if (retries.current++ < 1 && profileId) {
           setTimeout(() => void warmPreview(supabase, profileId, titleId).then((u) => u && setUrl(u)), 400)
-        } else markAmbientFailed(titleId)
+        } else markAmbientFailed(visKey)
       } else if (slot.ready) retries.current = 0
     }
     slot.subs.add(sync)
@@ -181,7 +186,7 @@ export function HoverPreview({ title, active }: { title: CatalogTitle; active: b
       detachSlot(slot)
       if (slotRef.current === slot) slotRef.current = null
     }
-  }, [show, url, titleId, cfg.clipSeconds, profileId])
+  }, [show, url, titleId, cfg.clipSeconds, profileId, visKey])
 
   useEffect(() => {
     if (!active) setPaused(false)

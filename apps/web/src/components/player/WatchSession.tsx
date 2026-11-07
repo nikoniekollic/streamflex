@@ -7,7 +7,9 @@ import { useStream } from '@/hooks/useStream'
 import { useBookmarks } from '@/hooks/useBookmarks'
 import type { Quality, WatchData } from '@/lib/stream'
 import { loadSubtitleUrl } from '@/lib/subtitles'
-import { cycleRepeat, nextInQueue, previousInQueue, syncQueue, toggleShuffle, useQueue } from '@/lib/queue'
+import { cycleRepeat, jumpInQueue, nextInQueue, previousInQueue, syncQueue, toggleShuffle, useQueue } from '@/lib/queue'
+import { QueuePanel } from '@/components/player/QueuePanel'
+import { forgetStream, prefetchAround } from '@/lib/prefetch'
 import { markPlayed } from '@/lib/random-history'
 
 export type SwitchTarget = { titleId?: string; episodeId?: string }
@@ -26,6 +28,9 @@ export function WatchSession({ data, mode, onBack, onSwitch }: { data: WatchData
   const [startAt, setStartAt] = useState(initialStart)
   const mediaRetries = useRef(0)
   const lastPosition = useRef(initialStart)
+  const startAtRef = useRef(initialStart)
+  const started = useRef(false)
+  const autoRetries = useRef(0)
 
   const { report, flush } = useWatchProgress({ supabase, profileId, titleId: title.id, episodeId })
   const bm = useBookmarks(supabase, profileId, title.id, episodeId)
@@ -33,6 +38,7 @@ export function WatchSession({ data, mode, onBack, onSwitch }: { data: WatchData
   const onTimeUpdate = useCallback(
     (pos: number, dur: number) => {
       lastPosition.current = pos
+      if (pos > startAtRef.current + 0.5) started.current = true // la lecture avance : le garde-fou se désarme
       report(pos, dur)
     },
     [report],
@@ -44,6 +50,7 @@ export function WatchSession({ data, mode, onBack, onSwitch }: { data: WatchData
   }, [flush, onBack])
 
   const [playbackFailed, setPlaybackFailed] = useState(false)
+  startAtRef.current = startAt
 
   const retry = useCallback(() => {
     mediaRetries.current = 0
@@ -94,6 +101,30 @@ export function WatchSession({ data, mode, onBack, onSwitch }: { data: WatchData
     if (q?.track) markPlayed(profileId, title.id) // lecture aléatoire : cette vidéo ne reviendra pas dans les prochaines listes
   }, [title.id, profileId])
   const inQueue = !!queue && queue.order[queue.index] === title.id
+
+  // Garde-fou « la vidéo ne démarre pas » : au bout de 25 s sans avancer, un lien neuf est demandé une fois, puis l'erreur s'affiche
+  const streamUrl = state.status === 'ready' ? state.stream.url : null
+  useEffect(() => {
+    started.current = false
+    if (!streamUrl) return
+    const t = setTimeout(() => {
+      if (started.current) return
+      if (autoRetries.current++ < 1) {
+        forgetStream(title.id)
+        void resolve({ refresh: true }, 2)
+      } else setPlaybackFailed(true)
+    }, 25_000)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [streamUrl])
+
+  // Préchargement des vidéos voisines de la file : suivant, précédent, puis suivant du suivant
+  useEffect(() => {
+    if (!queue || queue.order[queue.index] !== title.id || state.status !== 'ready') return
+    const t = setTimeout(() => void prefetchAround(supabase, profileId, [queue.order[queue.index + 1], queue.order[queue.index - 1], queue.order[queue.index + 2]]), 1500)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queue?.index, queue?.order.length, title.id, state.status, supabase, profileId])
 
   const goQueue = useCallback(
     (id: string | null) => {
@@ -161,6 +192,7 @@ export function WatchSession({ data, mode, onBack, onSwitch }: { data: WatchData
               onShuffle: toggleShuffle,
               onRepeat: cycleRepeat,
               onPrevious: queue.index > 0 ? () => goQueue(previousInQueue()) : undefined,
+              panel: <QueuePanel queue={queue} currentId={title.id} onSelect={(id) => goQueue(jumpInQueue(id))} />,
             }
           : undefined
       }

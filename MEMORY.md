@@ -722,6 +722,14 @@ Pixeldrain et Alldebrid ont été **abandonnés** (étapes 6, 7, 11 : ne plus s'
 - Lecteur en premier plan : `PlayerHost` (monté dans `_shell`), `WatchSession` partagé avec `/watch/$id`, croix + Échap ; clic jaquette film → surcouche (Ctrl/clic milieu = lien)
 - Bouton « Aléatoire » (dés) : en-tête + Catalogue + modèles ; 100 vidéos tirées sans reprendre celles déjà lancées (`lib/random-history.ts`, localStorage par profil, remis à zéro si épuisé)
 
+## Étape 36 — Vagues de 6, file à droite, aperçu des modèles (2026-11-08)
+- **Bug trouvé** : un film présent dans 2 rangées (Tendances + Films) partageait le même `<video>` → la 2e carte volait celui de la 1re. Le pool donne maintenant un élément par carte (`useId`)
+- Limites (doc Alldebrid) : **12 requêtes/s, 600/min**, 429/503 au-delà, `link/delayed` ≥ 5 s entre deux interrogations, `LINK_TOO_MANY_DOWNLOADS`, `AUTH_BLOCKED` (IP/zone). Aperçus plafonnés à 240 débridages/min, 429 → pause 45 s. 1fichier (non appelé par les aperçus/lecture, seulement import/surveillance) : listage de dossier 5000 résultats max et 1 requête / dossier / 30 s, listage du compte entier 1/h (gouverneur déjà en place)
+- Aperçus par **vagues de 6**, dans l'ordre de la page ; chargement des `<video>` 6 à la fois max (ordre de la page, abandon après 12 s)
+- Lecteur : liste de lecture à droite (`QueuePanel`), préchargement suivant/précédent/suivant+1 (`lib/prefetch.ts`), plus de texte « chargement » (roue après 1 s), garde-fou 25 s « la vidéo n'avance pas » → un lien neuf puis erreur
+- Jaquettes modèles : montage ~30 s de 5 vidéos aléatoires du modèle (`ModelPreview`, 2 éléments en alternance)
+- Admin : onglets sur plusieurs lignes ; « Aléatoire » placé après « Historique »
+
 ## ~~Problème ouvert — lecture~~ (résolu ci-dessus)
 - Fichiers importés : `resolve-stream` renvoie 200 + URL, mais le lecteur reste sur la roue sans démarrer ; avancer dans la vidéo donne « Sources indisponibles »
 - Correctifs déployés : suppression de `probeStream` (double téléchargement), `refresh` → lien neuf (`force`)

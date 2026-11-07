@@ -3,6 +3,7 @@ import { useRouteContext } from '@tanstack/react-router'
 import { StreamStatus } from '@/components/player/StreamStatus'
 import { WatchSession } from '@/components/player/WatchSession'
 import { StreamError, loadWatch, type StreamErrorCode, type WatchData } from '@/lib/stream'
+import { takeWatch } from '@/lib/prefetch'
 import { closePlayer, openPlayer, usePlayerOverlay } from '@/lib/player-overlay'
 
 type Load = { status: 'loading' } | { status: 'ready'; data: WatchData } | { status: 'error'; code: StreamErrorCode }
@@ -15,10 +16,15 @@ export function PlayerHost() {
   const [load, setLoad] = useState<Load>({ status: 'loading' })
 
   useEffect(() => {
-    if (!o.open || !o.titleId || !profileId) return
+    if (!o.open || !o.titleId || !profileId) {
+      if (!o.open) setLoad({ status: 'loading' }) // fermé : le prochain titre repart d'un écran vierge
+      return
+    }
     let alive = true
-    setLoad({ status: 'loading' })
-    loadWatch(supabase, profileId, o.titleId, o.episodeId ?? undefined, o.t ?? undefined)
+    // données déjà préchargées (file de lecture) : affichage immédiat ; sinon on garde l'image précédente jusqu'à l'arrivée
+    const pre = !o.episodeId && o.t === 0 ? takeWatch(o.titleId) : undefined
+    setLoad((cur) => (cur.status === 'ready' ? cur : { status: 'loading' }))
+    ;(pre ?? loadWatch(supabase, profileId, o.titleId, o.episodeId ?? undefined, o.t ?? undefined))
       .then((data) => alive && setLoad({ status: 'ready', data }))
       .catch((e) => alive && setLoad({ status: 'error', code: e instanceof StreamError ? e.code : 'title_not_found' }))
     return () => {

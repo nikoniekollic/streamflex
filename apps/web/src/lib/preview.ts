@@ -2,13 +2,16 @@ import type { TypedSupabaseClient } from '@/lib/supabase'
 import { StreamError } from '@/lib/stream'
 import { DebridClientError, unlockInBrowser, type ClientDebrid } from '@/lib/alldebrid'
 
-// Aperçus : les liens (Alldebrid, débridés dans le navigateur) sont préparés PAR LOTS pour toutes les jaquettes visibles :
-//  • une seule requête serveur pour jusqu'à 12 films (au lieu d'une par jaquette),
-//  • débridage 3 par 3, le survol passant toujours devant,
+// Aperçus : les liens (Alldebrid, débridés dans le navigateur) sont préparés PAR VAGUES DE 6 jaquettes, de la première ligne
+// à la dernière (ordre de la page) :
+//  • une seule requête serveur par vague (au lieu d'une par jaquette),
+//  • débridage 3 par 3, le survol et le lecteur passant toujours devant,
+//  • budget Alldebrid : limite officielle 12 requêtes/s et 600/min → on reste à 240/min pour les aperçus,
 //  • liens gardés en mémoire ET dans le navigateur (retour sur une page = aucun nouvel appel).
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-const BATCH = 12
-const FLUSH_DELAY_MS = 120 // regroupe les jaquettes qui apparaissent ensemble
+const BATCH = 6 // une vague = 6 jaquettes (6 connexions par hôte et par navigateur en HTTP/1.1)
+const UNLOCK_BUDGET_PER_MIN = 240 // marge sous la limite d'Alldebrid (600/min, 12/s)
+const FLUSH_DELAY_MS = 150 // regroupe les jaquettes qui apparaissent ensemble
 const UNLOCK_PARALLEL = 3
 const UNLOCK_GAP_MS = 150
 const WARM_MAX = 600 // titres préparés par session (le cache n'est pas compté)
@@ -80,6 +83,8 @@ export function invalidatePreview(titleId: string) {
 // ───────── Débridage : 3 en parallèle, le survol d'abord
 let unlockActive = 0
 let lastUnlockAt = 0
+const unlockTimes: number[] = []
+let rateLimitedUntil = 0
 const waitHigh: (() => void)[] = []
 const waitLow: (() => void)[] = []
 async function acquireUnlock(high: boolean) {
@@ -88,8 +93,13 @@ async function acquireUnlock(high: boolean) {
   } else {
     await new Promise<void>((r) => (high ? waitHigh : waitLow).push(r)) // créneau transmis tel quel
   }
-  const at = Math.max(Date.now(), lastUnlockAt + UNLOCK_GAP_MS)
+  // budget par minute (les aperçus seulement : le survol passe devant)
+  const now = Date.now()
+  while (unlockTimes.length && unlockTimes[0] < now - 60_000) unlockTimes.shift()
+  let at = Math.max(now, lastUnlockAt + UNLOCK_GAP_MS, rateLimitedUntil)
+  if (!high && unlockTimes.length >= UNLOCK_BUDGET_PER_MIN) at = Math.max(at, unlockTimes[0] + 60_000)
   lastUnlockAt = at
+  unlockTimes.push(at)
   if (at > Date.now()) await sleep(at - Date.now())
 }
 function releaseUnlock() {
@@ -100,6 +110,10 @@ function releaseUnlock() {
 
 function noteFailure(message: string) {
   console.warn('[StreamFlex][preview] aperçu indisponible :', message)
+  if (message === 'RATE_LIMIT') {
+    rateLimitedUntil = Date.now() + 45_000 // Alldebrid répond 429/503 : on lève le pied 45 s
+    return
+  }
   if (++failStreak >= BREAKER_AFTER) {
     pausedUntil = Date.now() + BREAKER_MS
     failStreak = 0
@@ -155,6 +169,14 @@ function resolveBatch(s: TypedSupabaseClient, profileId: string, ids: string[], 
   })()
 }
 
+/** Liens de plusieurs films d'un coup (montage d'un modèle) : une requête serveur, résultats dans l'ordre demandé. */
+export function resolveMany(s: TypedSupabaseClient, profileId: string, ids: string[]): Promise<(string | null)[]> {
+  const fresh = (id: string) => (cache.get(id)?.until ?? 0) > Date.now()
+  const missing = ids.filter((id) => UUID.test(id) && !fresh(id) && !inflight.has(id))
+  if (missing.length && Date.now() >= pausedUntil) resolveBatch(s, profileId, missing, true)
+  return Promise.all(ids.map((id) => peekPreviewUrl(id) ?? inflight.get(id) ?? Promise.resolve(null)))
+}
+
 // ───────── Survol : prioritaire, sans délai de regroupement
 export function getPreviewUrl(s: TypedSupabaseClient, profileId: string, titleId: string, wanted: Wanted): Promise<string | null> {
   if (!UUID.test(titleId)) return Promise.resolve(null)
@@ -168,7 +190,7 @@ export function getPreviewUrl(s: TypedSupabaseClient, profileId: string, titleId
     // déjà en attente dans le lot : on l'envoie tout de suite, seul
     pending.delete(titleId)
     resolveBatch(s, profileId, [titleId], true)
-    queued.forEach((r) => void inflight.get(titleId)?.then(r))
+    queued.resolvers.forEach((r) => void inflight.get(titleId)?.then(r))
     return inflight.get(titleId) ?? Promise.resolve(null)
   }
   if (wanted.cancelled) return Promise.resolve(null)
@@ -177,7 +199,7 @@ export function getPreviewUrl(s: TypedSupabaseClient, profileId: string, titleId
 }
 
 // ───────── Préchauffage : jaquettes visibles, envoyées par lots
-const pending = new Map<string, ((u: string | null) => void)[]>()
+const pending = new Map<string, { resolvers: ((u: string | null) => void)[]; order: number }>()
 let flushTimer: ReturnType<typeof setTimeout> | null = null
 let ctx: { s: TypedSupabaseClient; profileId: string } | null = null
 
@@ -187,22 +209,24 @@ function scheduleFlush(delay = FLUSH_DELAY_MS) {
     flushTimer = null
     if (!ctx || overlayOpen) return void (pending.size && scheduleFlush(1000))
     if (Date.now() < pausedUntil) {
-      for (const [id, rs] of pending) rs.forEach((r) => r(null)), pending.delete(id)
+      for (const [id, p] of pending) p.resolvers.forEach((r) => r(null)), pending.delete(id)
       return
     }
-    const ids = [...pending.keys()].slice(0, BATCH)
-    const waiters = ids.map((id) => pending.get(id) ?? [])
+    // première ligne d'abord, puis la suivante… (ordre de la page, de gauche à droite)
+    const ids = [...pending.entries()].sort((a, b) => a[1].order - b[1].order).slice(0, BATCH).map(([id]) => id)
+    const waiters = ids.map((id) => pending.get(id)?.resolvers ?? [])
     ids.forEach((id) => pending.delete(id))
     if (ids.length) {
       resolveBatch(ctx.s, ctx.profileId, ids, false)
       ids.forEach((id, i) => waiters[i].forEach((r) => void inflight.get(id)?.then(r)))
-    }
-    if (pending.size) scheduleFlush(350)
+      // vague suivante quand celle-ci est prête (ou après 8 s au plus)
+      void Promise.race([Promise.all(ids.map((id) => inflight.get(id))), sleep(8000)]).then(() => pending.size && scheduleFlush(100))
+    } else if (pending.size) scheduleFlush(350)
   }, delay)
 }
 
 /** Jaquette visible : on prépare son lien (regroupé avec les autres). Renvoie le lien, ou null. */
-export function warmPreview(s: TypedSupabaseClient, profileId: string, titleId: string): Promise<string | null> {
+export function warmPreview(s: TypedSupabaseClient, profileId: string, titleId: string, order = 0): Promise<string | null> {
   if (!UUID.test(titleId)) return Promise.resolve(null)
   const known = cache.get(titleId)
   if (known && known.until > Date.now()) return Promise.resolve(known.url)
@@ -212,10 +236,10 @@ export function warmPreview(s: TypedSupabaseClient, profileId: string, titleId: 
   ctx = { s, profileId }
   return new Promise((res) => {
     const list = pending.get(titleId)
-    if (list) list.push(res)
+    if (list) list.resolvers.push(res)
     else {
       warmed++
-      pending.set(titleId, [res])
+      pending.set(titleId, { resolvers: [res], order })
     }
     scheduleFlush()
   })
@@ -223,15 +247,15 @@ export function warmPreview(s: TypedSupabaseClient, profileId: string, titleId: 
 
 /** La jaquette a quitté l'écran avant l'envoi du lot : on n'en demande pas le lien. */
 export function cancelWarm(titleId: string) {
-  const rs = pending.get(titleId)
-  if (!rs) return
+  const p = pending.get(titleId)
+  if (!p) return
   pending.delete(titleId)
   warmed = Math.max(0, warmed - 1)
-  rs.forEach((r) => r(null))
+  p.resolvers.forEach((r) => r(null))
 }
 
 // ───────── Cartes qui ont le droit de charger leur image figée / de jouer en silence
-const STILL_MAX = 16 // nouveaux éléments <video> simultanés : au-delà, les connexions se bousculent
+const STILL_MAX = 24 // jaquettes autorisées à garder une vidéo ; le chargement, lui, passe 6 par 6 (lib/video-pool)
 const visibleOrder: string[] = []
 const stillOrder: string[] = []
 const failed = new Set<string>()

@@ -29,7 +29,7 @@ function AdminLayout() {
         <ShieldCheck className="size-6 text-primary" />
         <h1 className="text-2xl font-bold">Administration</h1>
       </div>
-      <nav className="scrollbar-none mb-6 flex gap-1 overflow-x-auto border-b" aria-label="Sections admin">
+      <nav className="mb-6 flex flex-wrap gap-x-1 border-b" aria-label="Sections admin">
         {TABS.map(({ to, label, icon: Icon, exact }) => (
           <Link
             key={to}

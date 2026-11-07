@@ -56,6 +56,7 @@ export function AppHeader() {
         <Link to="/history" activeProps={{ className: 'font-semibold text-white' }}>
           Historique
         </Link>
+        <RandomPlayButton label="Catalogue" variant="ghost" size="sm" className="h-auto px-1 py-0 text-sm font-normal text-neutral-300 hover:bg-transparent hover:text-white" />
         {isAdmin && !isKids && (
           <Link to="/admin" className="flex items-center gap-1" activeProps={{ className: 'font-semibold text-white' }}>
             <ShieldCheck className="size-4" /> Admin
@@ -63,7 +64,6 @@ export function AppHeader() {
         )}
       </nav>
       <div className="ml-auto flex items-center gap-3">
-        <RandomPlayButton label="Catalogue" variant="ghost" className="text-white" />
         <HeaderSearch />
         <NotificationBell />
         <ProfileMenu isAdmin={isAdmin} />

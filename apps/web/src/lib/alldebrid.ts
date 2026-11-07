@@ -21,8 +21,10 @@ async function call<T>(path: string, d: ClientDebrid, params: Record<string, str
   let body: Res<T>
   try {
     const r = await fetch(url, { signal: AbortSignal.timeout(15_000) })
+    if (r.status === 429 || r.status === 503) throw new DebridClientError('host_busy', 'RATE_LIMIT')
     body = (await r.json()) as Res<T>
-  } catch {
+  } catch (e) {
+    if (e instanceof DebridClientError) throw e
     throw new DebridClientError('unavailable', 'NETWORK')
   }
   if (body.status !== 'success' || !body.data) {
@@ -40,8 +42,8 @@ export async function unlockInBrowser(d: ClientDebrid): Promise<{ url: string; t
   const data = await call<{ link?: string; delayed?: number }>('/link/unlock', d, { link: d.link })
   if (data.link) return { url: data.link, ttl }
   if (data.delayed) {
-    for (let i = 0; i < 8; i++) {
-      await new Promise((r) => setTimeout(r, 2000))
+    for (let i = 0; i < 6; i++) {
+      await new Promise((r) => setTimeout(r, 5000)) // la doc demande 5 s minimum entre deux interrogations
       const s = await call<{ status: number; link?: string }>('/link/delayed', d, { id: String(data.delayed) })
       if (s.status === 2 && s.link) return { url: s.link, ttl }
       if (s.status === 3) throw new DebridClientError('offline', 'DELAYED_FAILED')

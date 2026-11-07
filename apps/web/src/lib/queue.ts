@@ -141,6 +141,15 @@ export async function nextInQueue(s: TypedSupabaseClient): Promise<string | null
   return null
 }
 
+/** Saute directement à un titre de la liste (clic dans le panneau de droite). */
+export function jumpInQueue(titleId: string): string | null {
+  if (!queue) return null
+  const i = queue.order.indexOf(titleId)
+  if (i < 0) return null
+  commit({ ...queue, index: i })
+  return titleId
+}
+
 export function previousInQueue(): string | null {
   if (!queue || queue.index <= 0) return null
   const index = queue.index - 1
