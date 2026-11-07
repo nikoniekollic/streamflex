@@ -8,12 +8,14 @@ type Props = {
   title: string
   backdrop?: string | null
   onBack: () => void
+  /** posé dans la fenêtre du lecteur (et non plein écran) */
+  embedded?: boolean
 } & ({ phase: 'resolving'; attempt?: number } | { phase: 'error'; code: StreamErrorCode; detail?: string; onRetry: () => void })
 
 export function StreamStatus(props: Props) {
   const { title, backdrop, onBack } = props
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black px-6">
+    <div className={`${props.embedded ? 'absolute' : 'fixed z-50'} inset-0 flex items-center justify-center bg-black px-6`}>
       {backdrop && props.phase === 'error' && <img src={backdrop} alt="" aria-hidden className="absolute inset-0 size-full object-cover opacity-20 blur-sm" />}
       <button
         type="button"

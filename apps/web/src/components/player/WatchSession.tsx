@@ -153,13 +153,13 @@ export function WatchSession({ data, mode, onBack, onSwitch }: { data: WatchData
   const subtitle = episode ? `S${episode.season_number} · É${episode.episode_number}${episode.name ? ` — ${episode.name}` : ''}` : undefined
 
   if (state.status === 'resolving') {
-    return <StreamStatus phase="resolving" attempt={state.attempt} title={title.title} backdrop={title.backdrop_url} onBack={back} />
+    return <StreamStatus phase="resolving" attempt={state.attempt} title={title.title} backdrop={title.backdrop_url} onBack={back} embedded={mode === 'overlay'} />
   }
   if (playbackFailed) {
-    return <StreamStatus phase="error" code="all_sources_failed" title={title.title} backdrop={title.backdrop_url} onBack={back} onRetry={retry} />
+    return <StreamStatus phase="error" code="all_sources_failed" title={title.title} backdrop={title.backdrop_url} onBack={back} onRetry={retry} embedded={mode === 'overlay'} />
   }
   if (state.status === 'error') {
-    return <StreamStatus phase="error" code={state.code} detail={state.detail} title={title.title} backdrop={title.backdrop_url} onBack={back} onRetry={retry} />
+    return <StreamStatus phase="error" code={state.code} detail={state.detail} title={title.title} backdrop={title.backdrop_url} onBack={back} onRetry={retry} embedded={mode === 'overlay'} />
   }
 
   const { stream } = state
@@ -189,6 +189,7 @@ export function WatchSession({ data, mode, onBack, onSwitch }: { data: WatchData
       nextLabel={inQueue ? 'Vidéo suivante' : nextEpisode ? `Épisode suivant (É${nextEpisode.episode_number})` : undefined}
       loop={inQueue && queue?.repeat === 'one'}
       closeIcon={mode === 'overlay'}
+      embedded={mode === 'overlay'}
       queue={
         inQueue && queue
           ? {

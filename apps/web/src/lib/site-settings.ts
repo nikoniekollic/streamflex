@@ -9,17 +9,57 @@ const raw = (s: TypedSupabaseClient) => s as unknown as SupabaseClient
 
 export type Fit = 'auto' | 'cover' | 'stretch'
 export type CardFit = 'cover' | 'contain' | 'stretch'
+/** cadrage de la vidéo dans son cadre : centré, calé en haut ou en bas */
+export type Pos = 'center' | 'top' | 'bottom'
+export const CSS_POS: Record<Pos, string> = { center: 'center', top: 'center top', bottom: 'center bottom' }
 
 export type SiteSettings = {
   theme: { preset: string; primary: string | null; background: string | null; font: string; radius: number }
   names: { show: boolean; font: string; colorMode: 'auto' | 'palette' | 'fixed'; palette: string; color: string; stroke: string; glow: boolean; size: number; upper: 'auto' | 'on' | 'off' }
-  preview: { fit: Fit; ratio: string; width: number; clipSeconds: number; volume: number; pauseButton: boolean; ambient: boolean; ambientMax: number; cardFit: CardFit }
+  preview: {
+    // jaquette survolée
+    fit: Fit
+    hoverPos: Pos
+    clipSeconds: number
+    volume: number
+    pauseButton: boolean
+    // jaquette au repos
+    cardFit: CardFit
+    restPos: Pos
+    ambient: boolean
+    ambientMax: number
+    // bannière d'accueil et fond des pages de titre
+    bannerVideo: boolean
+    bannerFit: Fit
+    bannerPos: Pos
+    bannerClip: number
+  }
+  /** lecteur en premier plan : fenêtre centrée sur un fond flou transparent, ou plein écran */
+  player: { mode: 'window' | 'full'; size: number; backdrop: number; blur: number; radius: number }
+  /** jaquettes de modèles : photo, image capturée d'une de leurs vidéos, ou photo puis capture si absente */
+  models: { image: 'auto' | 'photo' | 'capture' }
 }
 
 export const DEFAULT_SETTINGS: SiteSettings = {
   theme: { preset: 'default', primary: null, background: null, font: 'system', radius: 0.625 },
   names: { show: true, font: 'auto', colorMode: 'auto', palette: 'neon', color: '#ffffff', stroke: '#1a0a0a', glow: true, size: 1, upper: 'auto' },
-  preview: { fit: 'auto', ratio: 'auto', width: 440, clipSeconds: 30, volume: 0.7, pauseButton: true, ambient: true, ambientMax: 6, cardFit: 'cover' },
+  preview: {
+    fit: 'auto',
+    hoverPos: 'center',
+    clipSeconds: 30,
+    volume: 0.7,
+    pauseButton: true,
+    cardFit: 'cover',
+    restPos: 'center',
+    ambient: true,
+    ambientMax: 6,
+    bannerVideo: true,
+    bannerFit: 'cover',
+    bannerPos: 'center',
+    bannerClip: 30,
+  },
+  player: { mode: 'window', size: 72, backdrop: 55, blur: 14, radius: 16 },
+  models: { image: 'auto' },
 }
 
 export const THEME_PRESETS = [
@@ -61,6 +101,9 @@ export function normalizeSettings(input: unknown): SiteSettings {
   const t = o.theme ?? {}
   const n = o.names ?? {}
   const p = o.preview ?? {}
+  const pl = o.player ?? {}
+  const md = o.models ?? {}
+  const POS = ['center', 'top', 'bottom'] as const
   return {
     theme: {
       preset: typeof t.preset === 'string' ? t.preset : d.theme.preset,
@@ -82,15 +125,28 @@ export function normalizeSettings(input: unknown): SiteSettings {
     },
     preview: {
       fit: oneOf(p.fit, ['auto', 'cover', 'stretch'] as const, 'auto'),
-      ratio: oneOf(p.ratio, ['auto', '16:9', '4:3', '1:1', '3:4', '9:16'] as const, 'auto'),
-      width: clamp(p.width, 300, 640, d.preview.width),
+      hoverPos: oneOf(p.hoverPos, POS, 'center'),
       clipSeconds: clamp(p.clipSeconds, 10, 90, d.preview.clipSeconds),
       volume: clamp(p.volume, 0, 1, d.preview.volume),
       pauseButton: p.pauseButton !== false,
       ambient: p.ambient !== false,
       ambientMax: Math.round(clamp(p.ambientMax, 0, 12, d.preview.ambientMax)),
       cardFit: oneOf(p.cardFit, ['cover', 'contain', 'stretch'] as const, 'cover'),
+      restPos: oneOf(p.restPos, POS, 'center'),
+      bannerVideo: p.bannerVideo !== false,
+      // anciens réglages : la bannière reprenait « fit » et « clipSeconds » (valeurs par défaut propres à la bannière si absentes)
+      bannerFit: oneOf(p.bannerFit, ['auto', 'cover', 'stretch'] as const, 'cover'),
+      bannerPos: oneOf(p.bannerPos, POS, 'center'),
+      bannerClip: clamp(p.bannerClip, 10, 90, d.preview.bannerClip),
     },
+    player: {
+      mode: oneOf(pl.mode, ['window', 'full'] as const, 'window'),
+      size: clamp(pl.size, 40, 100, d.player.size),
+      backdrop: clamp(pl.backdrop, 0, 95, d.player.backdrop),
+      blur: clamp(pl.blur, 0, 40, d.player.blur),
+      radius: clamp(pl.radius, 0, 32, d.player.radius),
+    },
+    models: { image: oneOf(md.image, ['auto', 'photo', 'capture'] as const, 'auto') },
   }
 }
 

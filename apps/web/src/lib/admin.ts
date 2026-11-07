@@ -100,7 +100,7 @@ export const emptyTitle = (): TitleFormValues => ({
 export type AdminListRow = Pick<
   Tables<'titles'>,
   'id' | 'type' | 'slug' | 'title' | 'release_year' | 'poster_url' | 'is_published' | 'updated_at'
-> & { genres: string[]; sourceCount: number; model: string | null }
+> & { genres: string[]; sourceCount: number; model: string | null; cover_pos: number | null }
 
 /** genre : id numérique de catégorie ou « none » (sans catégorie) ; model : id de modèle ou « none » (sans modèle) */
 export type AdminListSearch = { page?: number; q?: string; type?: 'movie' | 'series'; status?: 'published' | 'draft'; genre?: string; model?: string }
@@ -126,7 +126,7 @@ export async function fetchAdminList(supabase: TypedSupabaseClient, s: AdminList
   const query = applyAdminFilters(
     supabase
       .from('titles')
-      .select(`id, type, slug, title, release_year, poster_url, is_published, updated_at, title_genres(genres(name)), media_sources(count), models(name)${genreJoin(s)}`, {
+      .select(`id, type, slug, title, release_year, poster_url, is_published, updated_at, cover_pos, title_genres(genres(name)), media_sources(count), models(name)${genreJoin(s)}`, {
         count: 'exact',
       }),
     s,

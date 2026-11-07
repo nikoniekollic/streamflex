@@ -10,6 +10,7 @@ import { Switch } from '@/components/ui/switch'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { DeleteTitleButton } from '@/components/admin/DeleteTitleButton'
+import { CoverThumb } from '@/components/catalog/CoverThumb'
 import {
   adminErrorMessage,
   bulkDelete,
@@ -295,7 +296,7 @@ function AdminList() {
                   disabled={rows.length === 0}
                 />
               </TableHead>
-              <TableHead className="w-14" />
+              <TableHead className="w-16">Visuel</TableHead>
               <TableHead>Titre</TableHead>
               <TableHead>Type</TableHead>
               <TableHead>Modèle</TableHead>
@@ -316,17 +317,20 @@ function AdminList() {
                 </TableCell>
               </TableRow>
             )}
-            {rows.map((r) => (
+            {rows.map((r, i) => (
               <TableRow key={r.id} data-state={selected.has(r.id) ? 'selected' : undefined}>
                 <TableCell>
                   <input type="checkbox" aria-label={`Sélectionner ${r.title}`} checked={selected.has(r.id)} onChange={() => toggleOne(r.id)} />
                 </TableCell>
                 <TableCell>
-                  {r.poster_url ? (
-                    <img src={r.poster_url} alt="" loading="lazy" className="h-14 w-10 rounded object-cover" />
-                  ) : (
-                    <div className="h-14 w-10 rounded bg-muted" />
-                  )}
+                  {/* visuel = image de la vidéo elle-même (moment enregistré), pour distinguer les films d'un même modèle */}
+                  <CoverThumb
+                    titleId={r.id}
+                    coverPos={r.cover_pos}
+                    order={i}
+                    className="h-[5.25rem] w-14 rounded"
+                    fallback={r.poster_url ? <img src={r.poster_url.replace(/#model$/, '')} alt="" loading="lazy" className="size-full object-cover opacity-60" /> : null}
+                  />
                 </TableCell>
                 <TableCell className="max-w-72">
                   <Link to="/admin/$id" params={{ id: r.id }} className="block truncate font-medium hover:underline">

@@ -46,6 +46,8 @@ export type VideoPlayerProps = {
   queue?: PlayerQueue
   /** lecteur en premier plan : croix de fermeture au lieu de la flèche de retour */
   closeIcon?: boolean
+  /** posé dans un cadre (fenêtre du lecteur en premier plan) au lieu de couvrir tout l'écran */
+  embedded?: boolean
   /** répète la vidéo en boucle (mode « répéter un ») */
   loop?: boolean
   src: string
@@ -92,6 +94,7 @@ function readVolume(): { volume: number; muted: boolean } {
 export function VideoPlayer({
   queue,
   closeIcon = false,
+  embedded = false,
   loop = false,
   src,
   poster,
@@ -443,7 +446,7 @@ export function VideoPlayer({
   return (
     <div
       ref={containerRef}
-      className={cn('fixed inset-0 z-50 bg-black text-white select-none', !visible && 'cursor-none')}
+      className={cn(embedded ? 'absolute inset-0' : 'fixed inset-0 z-50', 'bg-black text-white select-none', !visible && 'cursor-none')}
       onPointerMove={showControls}
       onPointerDown={showControls}
     >

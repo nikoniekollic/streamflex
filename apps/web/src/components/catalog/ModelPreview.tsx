@@ -3,7 +3,7 @@ import { Pause, Play } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { supabase } from '@/lib/supabase'
 import { useActiveProfile } from '@/components/profile/ActiveProfileContext'
-import { useSiteSettings } from '@/lib/site-settings'
+import { CSS_POS, useSiteSettings } from '@/lib/site-settings'
 import { randomTitleIds } from '@/lib/playlists'
 import { resolveMany } from '@/lib/preview'
 import { CSS_FIT, hoverFit } from '@/components/catalog/HoverPreview'
@@ -75,7 +75,7 @@ export function ModelPreview({ modelId, active }: { modelId: string; active: boo
       const v = document.createElement('video')
       v.playsInline = true
       v.muted = true
-      Object.assign(v.style, { position: 'absolute', inset: '0', width: '100%', height: '100%', objectFit: CSS_FIT[hoverFit(cfg.fit)], opacity: '0', background: '#000', pointerEvents: 'none' })
+      Object.assign(v.style, { position: 'absolute', inset: '0', width: '100%', height: '100%', objectFit: CSS_FIT[hoverFit(cfg.fit)], objectPosition: CSS_POS[cfg.hoverPos], opacity: '0', background: '#000', pointerEvents: 'none' })
       h.appendChild(v)
       return v
     })
@@ -135,7 +135,7 @@ export function ModelPreview({ modelId, active }: { modelId: string; active: boo
         v.remove()
       }
     }
-  }, [active, urls, cfg.clipSeconds, cfg.fit, cfg.volume])
+  }, [active, urls, cfg.clipSeconds, cfg.fit, cfg.hoverPos, cfg.volume])
 
   useEffect(() => {
     if (!active) setPaused(false)

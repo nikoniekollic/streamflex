@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { NAME_FONTS, modelNameStyle } from '@/lib/cover'
 import {
+  CSS_POS,
   DEFAULT_SETTINGS,
   NAME_PALETTES,
   SITE_FONTS,
@@ -15,6 +16,8 @@ import {
   previewSettings,
   reloadSiteSettings,
   saveSiteSettings,
+  type Fit,
+  type Pos,
   type SiteSettings,
 } from '@/lib/site-settings'
 
@@ -29,6 +32,41 @@ const selectCls = 'h-9 rounded-md border bg-background px-2 text-sm'
 const DEMO = `data:image/svg+xml;utf8,${encodeURIComponent(
   "<svg xmlns='http://www.w3.org/2000/svg' width='320' height='180'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='#6d28d9'/><stop offset='1' stop-color='#0ea5e9'/></linearGradient></defs><rect width='320' height='180' fill='url(#g)'/><rect x='4' y='4' width='312' height='172' fill='none' stroke='white' stroke-width='4'/><circle cx='160' cy='90' r='48' fill='none' stroke='white' stroke-width='6'/><path d='M0 0L320 180M320 0L0 180' stroke='white' stroke-opacity='.5' stroke-width='2'/></svg>",
 )}`
+
+const fitCss = (f: Fit) => (f === 'auto' ? 'contain' : f === 'cover' ? 'cover' : 'fill')
+const cardFitCss = (f: SiteSettings['preview']['cardFit']) => (f === 'stretch' ? 'fill' : f)
+
+function FitSelect({ value, onChange }: { value: Fit; onChange: (v: Fit) => void }) {
+  return (
+    <select className={selectCls} value={value} onChange={(e) => onChange(e.target.value as Fit)}>
+      <option value="auto">Adapté (vidéo entière, bandes noires)</option>
+      <option value="cover">Remplir (rogne les bords)</option>
+      <option value="stretch">Étirer (déforme l’image)</option>
+    </select>
+  )
+}
+
+function PosSelect({ value, onChange }: { value: Pos; onChange: (v: Pos) => void }) {
+  return (
+    <select className={selectCls} value={value} onChange={(e) => onChange(e.target.value as Pos)}>
+      <option value="center">Centré</option>
+      <option value="top">Calé en haut</option>
+      <option value="bottom">Calé en bas</option>
+    </select>
+  )
+}
+
+/** Simulation avec une vidéo 16:9 (cadre blanc = bords, croix = centre) */
+function Demo({ label, width, ratio, fit, pos }: { label: string; width: number; ratio: string; fit: string; pos: string }) {
+  return (
+    <div>
+      <p className="mb-1 text-xs text-muted-foreground">{label} — simulation avec une vidéo 16:9</p>
+      <div className="overflow-hidden rounded-md bg-black ring-1 ring-white/20" style={{ width, aspectRatio: ratio }}>
+        <img src={DEMO} alt="" className="size-full" style={{ objectFit: fit as 'cover', objectPosition: pos }} />
+      </div>
+    </div>
+  )
+}
 
 function Section({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
   return (
@@ -108,9 +146,7 @@ function AppearanceAdmin() {
 
   const reset = (group: keyof SiteSettings) => edit(group, DEFAULT_SETTINGS[group] as never)
 
-  const { theme, names, preview } = draft
-  const demoFit = preview.fit === 'auto' ? 'contain' : preview.fit === 'cover' ? 'cover' : 'fill'
-  const cardFit = preview.cardFit === 'stretch' ? 'fill' : preview.cardFit
+  const { theme, names, preview, player, models } = draft
 
   return (
     <div className="flex flex-col gap-6">
@@ -306,69 +342,134 @@ function AppearanceAdmin() {
         </div>
       </Section>
 
-      <Section title="Aperçu vidéo" hint="Réglages de l’aperçu dans les jaquettes (image figée, lecture silencieuse, survol avec le son) et du fond vidéo de la bannière d’accueil et des pages de titre.">
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-          <div className="grid content-start gap-4 sm:grid-cols-2">
-            <Field label="Ajustement au survol, bannière et pages de titre">
-              <select className={selectCls} value={preview.fit} onChange={(e) => edit('preview', { fit: e.target.value as SiteSettings['preview']['fit'] })}>
-                <option value="auto">Adapté (vidéo entière, bandes noires)</option>
-                <option value="cover">Remplir (rogne les bords)</option>
-                <option value="stretch">Étirer (déforme l’image)</option>
-              </select>
-            </Field>
-            <Field label="Ajustement de l’image figée sur la jaquette">
-              <select className={selectCls} value={preview.cardFit} onChange={(e) => edit('preview', { cardFit: e.target.value as SiteSettings['preview']['cardFit'] })}>
-                <option value="cover">Remplir la jaquette (rogne)</option>
-                <option value="contain">Adapté (bandes noires)</option>
-                <option value="stretch">Étirer</option>
-              </select>
-            </Field>
-            <Field label="Durée de l’extrait en boucle">
-              <Range value={preview.clipSeconds} min={10} max={90} step={5} onChange={(v) => edit('preview', { clipSeconds: v })} format={(v) => `${v} s`} />
-            </Field>
-            <Field label="Volume au survol">
-              <Range value={preview.volume} min={0} max={1} step={0.05} onChange={(v) => edit('preview', { volume: v })} format={(v) => `${Math.round(v * 100)} %`} />
-            </Field>
-            <Field label="Jaquettes qui jouent en silence (au chargement)">
-              <Range value={preview.ambientMax} min={0} max={12} step={1} onChange={(v) => edit('preview', { ambientMax: v })} format={(v) => (v === 0 ? 'aucune' : String(v))} />
-            </Field>
-            <label className="flex items-center gap-2 self-end text-sm">
-              <input type="checkbox" checked={preview.ambient} onChange={(e) => edit('preview', { ambient: e.target.checked })} /> Lecture silencieuse sans survol
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={preview.pauseButton} onChange={(e) => edit('preview', { pauseButton: e.target.checked })} /> Bouton pause / reprise au survol
-            </label>
-            <div className="sm:col-span-2">
-              <Button size="sm" variant="ghost" onClick={() => reset('preview')}>
-                <RotateCcw className="size-4" /> Réglages par défaut
-              </Button>
+      <Section title="Bannière d’accueil" hint="Le grand bloc des nouveautés en haut de l’accueil, et le fond vidéo des pages de titre.">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <label className="flex items-center gap-2 self-end text-sm">
+            <input type="checkbox" checked={preview.bannerVideo} onChange={(e) => edit('preview', { bannerVideo: e.target.checked })} /> Vidéo en fond de la bannière
+          </label>
+          <Field label="Ajustement">
+            <FitSelect value={preview.bannerFit} onChange={(v) => edit('preview', { bannerFit: v })} />
+          </Field>
+          <Field label="Cadrage">
+            <PosSelect value={preview.bannerPos} onChange={(v) => edit('preview', { bannerPos: v })} />
+          </Field>
+          <Field label="Durée de l’extrait en boucle">
+            <Range value={preview.bannerClip} min={10} max={90} step={5} onChange={(v) => edit('preview', { bannerClip: v })} format={(v) => `${v} s`} />
+          </Field>
+        </div>
+        <Demo label="Bannière" width={320} ratio="21 / 9" fit={fitCss(preview.bannerFit)} pos={CSS_POS[preview.bannerPos]} />
+      </Section>
+
+      <Section title="Jaquette au repos" hint="Ce qu’on voit sans survoler : l’image de la vidéo, et la lecture silencieuse de quelques jaquettes.">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <Field label="Ajustement">
+            <select className={selectCls} value={preview.cardFit} onChange={(e) => edit('preview', { cardFit: e.target.value as SiteSettings['preview']['cardFit'] })}>
+              <option value="cover">Remplir la jaquette (rogne)</option>
+              <option value="contain">Adapté (bandes noires)</option>
+              <option value="stretch">Étirer</option>
+            </select>
+          </Field>
+          <Field label="Cadrage">
+            <PosSelect value={preview.restPos} onChange={(v) => edit('preview', { restPos: v })} />
+          </Field>
+          <Field label="Jaquettes qui jouent en silence au chargement">
+            <Range value={preview.ambientMax} min={0} max={12} step={1} onChange={(v) => edit('preview', { ambientMax: v })} format={(v) => (v === 0 ? 'aucune' : String(v))} />
+          </Field>
+          <label className="flex items-center gap-2 self-end text-sm">
+            <input type="checkbox" checked={preview.ambient} onChange={(e) => edit('preview', { ambient: e.target.checked })} /> Lecture silencieuse sans survol
+          </label>
+        </div>
+        <Demo label="Jaquette au repos" width={120} ratio="2 / 3" fit={cardFitCss(preview.cardFit)} pos={CSS_POS[preview.restPos]} />
+      </Section>
+
+      <Section title="Jaquette survolée" hint="Ce qu’on voit en passant la souris : l’aperçu avec le son, dans la miniature.">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <Field label="Ajustement">
+            <FitSelect value={preview.fit} onChange={(v) => edit('preview', { fit: v })} />
+          </Field>
+          <Field label="Cadrage">
+            <PosSelect value={preview.hoverPos} onChange={(v) => edit('preview', { hoverPos: v })} />
+          </Field>
+          <Field label="Durée de l’extrait en boucle">
+            <Range value={preview.clipSeconds} min={10} max={90} step={5} onChange={(v) => edit('preview', { clipSeconds: v })} format={(v) => `${v} s`} />
+          </Field>
+          <Field label="Volume">
+            <Range value={preview.volume} min={0} max={1} step={0.05} onChange={(v) => edit('preview', { volume: v })} format={(v) => `${Math.round(v * 100)} %`} />
+          </Field>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={preview.pauseButton} onChange={(e) => edit('preview', { pauseButton: e.target.checked })} /> Bouton pause / reprise
+          </label>
+        </div>
+        <Demo label="Jaquette survolée" width={120} ratio="2 / 3" fit={fitCss(preview.fit)} pos={CSS_POS[preview.hoverPos]} />
+        <div>
+          <Button size="sm" variant="ghost" onClick={() => reset('preview')}>
+            <RotateCcw className="size-4" /> Réglages d’aperçu par défaut
+          </Button>
+        </div>
+      </Section>
+
+      <Section title="Lecteur vidéo" hint="Le lecteur qui s’ouvre au clic sur une jaquette : une fenêtre centrée sur la page floutée, au lieu de tout l’écran.">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <Field label="Affichage">
+            <select className={selectCls} value={player.mode} onChange={(e) => edit('player', { mode: e.target.value as SiteSettings['player']['mode'] })}>
+              <option value="window">Fenêtre sur la page (fond transparent)</option>
+              <option value="full">Plein écran</option>
+            </select>
+          </Field>
+          <Field label="Taille de la fenêtre">
+            <Range value={player.size} min={40} max={100} step={1} onChange={(v) => edit('player', { size: v })} format={(v) => `${v} %`} />
+          </Field>
+          <Field label="Arrondi des coins">
+            <Range value={player.radius} min={0} max={32} step={1} onChange={(v) => edit('player', { radius: v })} format={(v) => `${v} px`} />
+          </Field>
+          <Field label="Assombrissement du fond">
+            <Range value={player.backdrop} min={0} max={95} step={1} onChange={(v) => edit('player', { backdrop: v })} format={(v) => `${v} %`} />
+          </Field>
+          <Field label="Flou du fond">
+            <Range value={player.blur} min={0} max={40} step={1} onChange={(v) => edit('player', { blur: v })} format={(v) => `${v} px`} />
+          </Field>
+        </div>
+        <div className="flex flex-wrap items-start gap-4">
+          <div>
+            <p className="mb-1 text-xs text-muted-foreground">Simulation (page derrière la fenêtre)</p>
+            <div className="relative h-44 w-80 overflow-hidden rounded-md ring-1 ring-white/20">
+              <div className="absolute inset-0 grid grid-cols-6 gap-1 p-1">
+                {Array.from({ length: 24 }).map((_, i) => (
+                  <div key={i} className="rounded-sm" style={{ background: `hsl(${(i * 47) % 360} 55% 40%)` }} />
+                ))}
+              </div>
+              <div
+                className="absolute inset-0 flex items-center justify-center"
+                style={{ background: `rgba(0,0,0,${player.backdrop / 100})`, backdropFilter: player.blur ? `blur(${player.blur / 4}px)` : undefined }}
+              >
+                <div
+                  className="grid place-items-center bg-black text-[10px] text-neutral-300 shadow-xl ring-1 ring-white/10"
+                  style={player.mode === 'full' ? { width: '100%', height: '100%' } : { width: `${player.size}%`, aspectRatio: '16 / 9', maxHeight: `${player.size}%`, borderRadius: player.radius / 2 }}
+                >
+                  Lecteur
+                </div>
+              </div>
             </div>
           </div>
-
-          <div className="grid content-start gap-3">
-            <p className="text-sm text-muted-foreground">Simulation avec une vidéo 16:9 (cadre blanc = bords, croix = centre) :</p>
-            <div className="flex flex-wrap items-start gap-4">
-              <div>
-                <p className="mb-1 text-xs text-muted-foreground">Jaquette au repos</p>
-                <div className="overflow-hidden rounded-md bg-black ring-1 ring-white/20" style={{ width: 120, aspectRatio: '2 / 3' }}>
-                  <img src={DEMO} alt="" className="size-full" style={{ objectFit: cardFit }} />
-                </div>
-              </div>
-              <div>
-                <p className="mb-1 text-xs text-muted-foreground">Jaquette survolée</p>
-                <div className="overflow-hidden rounded-md bg-black ring-1 ring-white/20" style={{ width: 120, aspectRatio: '2 / 3' }}>
-                  <img src={DEMO} alt="" className="size-full" style={{ objectFit: demoFit }} />
-                </div>
-              </div>
-              <div>
-                <p className="mb-1 text-xs text-muted-foreground">Bannière d’accueil</p>
-                <div className="overflow-hidden rounded-md bg-black ring-1 ring-white/20" style={{ width: 240, aspectRatio: '21 / 9' }}>
-                  <img src={DEMO} alt="" className="size-full" style={{ objectFit: demoFit }} />
-                </div>
-              </div>
-            </div>
+          <div>
+            <Button size="sm" variant="ghost" onClick={() => reset('player')}>
+              <RotateCcw className="size-4" /> Lecteur par défaut
+            </Button>
           </div>
         </div>
+      </Section>
+
+      <Section title="Jaquettes de modèles" hint="L’image des cartes de la page Modèles et de la rangée « Modèles » de l’accueil.">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Image">
+            <select className={selectCls} value={models.image} onChange={(e) => edit('models', { image: e.target.value as SiteSettings['models']['image'] })}>
+              <option value="auto">Photo du modèle, ou image capturée d’une de ses vidéos s’il n’en a pas</option>
+              <option value="capture">Toujours l’image capturée d’une de ses vidéos</option>
+              <option value="photo">Toujours la photo (jaquette colorée s’il n’en a pas)</option>
+            </select>
+          </Field>
+        </div>
+        <p className="text-xs text-muted-foreground">L’image capturée est celle de la vidéo la plus récente du modèle, à son moment enregistré (admin → Jaquettes) : elle distingue les modèles entre eux.</p>
       </Section>
     </div>
   )

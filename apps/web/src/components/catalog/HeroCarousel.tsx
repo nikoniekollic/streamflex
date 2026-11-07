@@ -8,7 +8,7 @@ import { FavoriteButton } from '@/components/catalog/FavoriteButton'
 import { useActiveProfile } from '@/components/profile/ActiveProfileContext'
 import { supabase } from '@/lib/supabase'
 import { getPreviewUrl, peekPreviewUrl, type Wanted } from '@/lib/preview'
-import { useSiteSettings } from '@/lib/site-settings'
+import { CSS_POS, useSiteSettings } from '@/lib/site-settings'
 import { CSS_FIT, hoverFit } from '@/components/catalog/HoverPreview'
 import { coverStyle } from '@/lib/cover'
 import { stripModelMark, isModelCover } from '@/lib/cover'
@@ -34,7 +34,7 @@ function SlideVideo({ titleId, active, paused }: { titleId: string; active: bool
   const profileId = activeProfile?.id
 
   useEffect(() => {
-    const ok = window.matchMedia('(min-width: 768px)').matches && !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const ok = cfg.bannerVideo && window.matchMedia('(min-width: 768px)').matches && !window.matchMedia('(prefers-reduced-motion: reduce)').matches
     if (!active || !profileId || !ok) {
       setSrc(null)
       setPlaying(false)
@@ -56,7 +56,7 @@ function SlideVideo({ titleId, active, paused }: { titleId: string; active: bool
       setSrc(null)
       setPlaying(false)
     }
-  }, [active, profileId, titleId])
+  }, [active, profileId, titleId, cfg.bannerVideo])
 
   useEffect(() => {
     const v = ref.current
@@ -77,14 +77,14 @@ function SlideVideo({ titleId, active, paused }: { titleId: string; active: bool
       onLoadedMetadata={(e) => {
         const v = e.currentTarget
         const d = v.duration
-        if (Number.isFinite(d) && d > cfg.clipSeconds * 2) {
-          start.current = Math.min(d * (0.1 + Math.random() * 0.6), d - cfg.clipSeconds - 1)
+        if (Number.isFinite(d) && d > cfg.bannerClip * 2) {
+          start.current = Math.min(d * (0.1 + Math.random() * 0.6), d - cfg.bannerClip - 1)
           v.currentTime = start.current
         }
       }}
       onTimeUpdate={(e) => {
         const v = e.currentTarget
-        if (v.currentTime >= start.current + cfg.clipSeconds) v.currentTime = start.current
+        if (v.currentTime >= start.current + cfg.bannerClip) v.currentTime = start.current
       }}
       onEnded={(e) => {
         e.currentTarget.currentTime = start.current
@@ -93,7 +93,7 @@ function SlideVideo({ titleId, active, paused }: { titleId: string; active: bool
       onCanPlay={(e) => void e.currentTarget.play().catch(() => undefined)}
       onPlaying={() => setPlaying(true)}
       onError={() => setSrc(null)}
-      style={{ objectFit: CSS_FIT[hoverFit(cfg.fit)] }}
+      style={{ objectFit: CSS_FIT[hoverFit(cfg.bannerFit)], objectPosition: CSS_POS[cfg.bannerPos] }}
       className={cn('absolute inset-0 size-full transition-opacity duration-700', playing ? 'opacity-100' : 'opacity-0')}
     />
   )

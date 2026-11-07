@@ -5,12 +5,14 @@ import { WatchSession } from '@/components/player/WatchSession'
 import { StreamError, loadWatch, type StreamErrorCode, type WatchData } from '@/lib/stream'
 import { prefetchStream, takeWatch } from '@/lib/prefetch'
 import { closePlayer, openPlayer, usePlayerOverlay } from '@/lib/player-overlay'
+import { useSiteSettings } from '@/lib/site-settings'
 
 type Load = { status: 'loading' } | { status: 'ready'; data: WatchData } | { status: 'error'; code: StreamErrorCode }
 
 /** Lecteur plein écran en premier plan, monté une fois dans le gabarit de l'application. */
 export function PlayerHost() {
   const o = usePlayerOverlay()
+  const { player } = useSiteSettings()
   const { supabase, activeProfile } = useRouteContext({ from: '/_authed' })
   const profileId = activeProfile?.id
   const [load, setLoad] = useState<Load>({ status: 'loading' })
@@ -51,19 +53,39 @@ export function PlayerHost() {
   }, [o.open])
 
   if (!o.open) return null
+  const windowed = player.mode === 'window'
   return (
-    <div className="fixed inset-0 z-[100] bg-black" role="dialog" aria-modal="true" aria-label="Lecteur vidéo">
-      {load.status === 'loading' && <StreamStatus phase="resolving" title="" onBack={closePlayer} />}
-      {load.status === 'error' && <StreamStatus phase="error" code={load.code} title="" onBack={closePlayer} onRetry={() => o.titleId && openPlayer({ titleId: o.titleId, episodeId: o.episodeId, t: o.t })} />}
-      {load.status === 'ready' && (
-        <WatchSession
-          key={`${load.data.title.id}:${load.data.episode?.id ?? ''}`}
-          data={load.data}
-          mode="overlay"
-          onBack={closePlayer}
-          onSwitch={(t) => openPlayer({ titleId: t.titleId ?? load.data.title.id, episodeId: t.episodeId ?? null, t: 0 })}
-        />
-      )}
+    // Fond : la page reste visible derrière, assombrie et floutée (réglages « Lecteur » de l'admin) ; un clic dessus ferme le lecteur
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center"
+      style={{ background: `rgba(0,0,0,${player.backdrop / 100})`, backdropFilter: player.blur ? `blur(${player.blur}px)` : undefined, WebkitBackdropFilter: player.blur ? `blur(${player.blur}px)` : undefined }}
+      onMouseDown={(e) => windowed && e.target === e.currentTarget && closePlayer()}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Lecteur vidéo"
+    >
+      <div
+        className="relative overflow-hidden bg-black shadow-2xl ring-1 shadow-black/60 ring-white/10"
+        style={
+          windowed
+            ? { width: `min(${player.size}vw, calc(${player.size}vh * 16 / 9))`, aspectRatio: '16 / 9', borderRadius: player.radius }
+            : { width: '100vw', height: '100dvh' }
+        }
+      >
+        {load.status === 'loading' && <StreamStatus phase="resolving" title="" onBack={closePlayer} embedded />}
+        {load.status === 'error' && (
+          <StreamStatus phase="error" code={load.code} title="" onBack={closePlayer} onRetry={() => o.titleId && openPlayer({ titleId: o.titleId, episodeId: o.episodeId, t: o.t })} embedded />
+        )}
+        {load.status === 'ready' && (
+          <WatchSession
+            key={`${load.data.title.id}:${load.data.episode?.id ?? ''}`}
+            data={load.data}
+            mode="overlay"
+            onBack={closePlayer}
+            onSwitch={(t) => openPlayer({ titleId: t.titleId ?? load.data.title.id, episodeId: t.episodeId ?? null, t: 0 })}
+          />
+        )}
+      </div>
     </div>
   )
 }

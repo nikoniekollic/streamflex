@@ -4,7 +4,7 @@ import type { CatalogTitle } from '@/lib/catalog'
 import { cn } from '@/lib/utils'
 import { supabase } from '@/lib/supabase'
 import { useActiveProfile } from '@/components/profile/ActiveProfileContext'
-import { useSiteSettings, type CardFit, type Fit } from '@/lib/site-settings'
+import { CSS_POS, useSiteSettings, type CardFit, type Fit } from '@/lib/site-settings'
 import {
   ambientAllowed,
   cancelWarm,
@@ -60,13 +60,13 @@ export function PreviewClip({ titleId, active, delayMs = 400, className }: { tit
       onLoadedMetadata={(e) => {
         const v = e.currentTarget
         const d = v.duration
-        start.current = Number.isFinite(d) && d > cfg.clipSeconds * 2 ? Math.min(d * (0.08 + Math.random() * 0.7), d - cfg.clipSeconds - 1) : 0
+        start.current = Number.isFinite(d) && d > cfg.bannerClip * 2 ? Math.min(d * (0.08 + Math.random() * 0.7), d - cfg.bannerClip - 1) : 0
         if (start.current > 0) v.currentTime = start.current
       }}
       onPlaying={() => setPlaying(true)}
       onTimeUpdate={(e) => {
         const v = e.currentTarget
-        if (v.currentTime >= start.current + cfg.clipSeconds) v.currentTime = start.current
+        if (v.currentTime >= start.current + cfg.bannerClip) v.currentTime = start.current
       }}
       onEnded={(e) => {
         e.currentTarget.currentTime = start.current
@@ -76,7 +76,7 @@ export function PreviewClip({ titleId, active, delayMs = 400, className }: { tit
         invalidatePreview(titleId)
         setSrc(null)
       }}
-      style={{ objectFit: CSS_FIT[hoverFit(cfg.fit)] }}
+      style={{ objectFit: CSS_FIT[hoverFit(cfg.bannerFit)], objectPosition: CSS_POS[cfg.bannerPos] }}
       className={cn('pointer-events-none size-full transition-opacity duration-500', playing ? 'opacity-100' : 'opacity-0', className)}
     />
   )
@@ -217,6 +217,7 @@ export function HoverPreview({ title, active, coverPos }: { title: CatalogTitle;
     if (!slot || !show) return
     const el = slot.el
     el.style.objectFit = CSS_FIT[mode === 'hover' ? hoverFit(cfg.fit) : cfg.cardFit]
+    el.style.objectPosition = CSS_POS[mode === 'hover' ? cfg.hoverPos : cfg.restPos]
     if (!ready) return
     if (mode === 'still' || (mode === 'hover' && paused)) {
       el.pause()
@@ -229,7 +230,7 @@ export function HoverPreview({ title, active, coverPos }: { title: CatalogTitle;
       el.muted = true // son refusé par le navigateur : muet plutôt que rien
       return el.play().catch(() => undefined)
     })
-  }, [mode, show, ready, paused, url, cfg.volume, cfg.fit, cfg.cardFit])
+  }, [mode, show, ready, paused, url, cfg.volume, cfg.fit, cfg.cardFit, cfg.hoverPos, cfg.restPos])
 
   // Onglet masqué : pause
   useEffect(() => {

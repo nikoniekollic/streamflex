@@ -6,7 +6,8 @@ import { orderSpec, type SortKey } from '@/lib/sort'
 // RPC catalog_models ajoutée après la génération de database.ts → client non typé
 const raw = (s: TypedSupabaseClient) => s as unknown as SupabaseClient
 
-export type PublicModel = { id: string; name: string; image_url: string | null; titles_count: number }
+/** cover_title_id / cover_pos : un film du modèle et son moment enregistré → image capturée de sa vidéo */
+export type PublicModel = { id: string; name: string; image_url: string | null; titles_count: number; cover_title_id: string | null; cover_pos: number | null }
 
 export const MODELS_PER_PAGE = 48
 export const TITLES_PER_PAGE = 48
@@ -16,7 +17,7 @@ export async function fetchPublicModels(s: TypedSupabaseClient, page = 1, per = 
   if (error) throw error
   const rows = (data ?? []) as (PublicModel & { total: number })[]
   return {
-    models: rows.map(({ total: _t, ...m }) => ({ ...m, titles_count: Number(m.titles_count) })),
+    models: rows.map(({ total: _t, ...m }) => ({ ...m, titles_count: Number(m.titles_count), cover_title_id: m.cover_title_id ?? null, cover_pos: m.cover_pos ?? null })),
     total: Number(rows[0]?.total ?? 0),
   }
 }
