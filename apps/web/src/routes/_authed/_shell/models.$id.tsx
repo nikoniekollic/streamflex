@@ -2,6 +2,9 @@ import { Link, createFileRoute, notFound, redirect, useNavigate } from '@tanstac
 import { ArrowLeft } from 'lucide-react'
 import { MovieCard } from '@/components/catalog/MovieCard'
 import { PaginationBar } from '@/components/ui/pagination-bar'
+import { SortSelect } from '@/components/catalog/SortSelect'
+import { ClearMarks } from '@/components/catalog/ClearMarks'
+import { validSort, type SortKey } from '@/lib/sort'
 import { TITLES_PER_PAGE, fetchModelPage } from '@/lib/model-catalog'
 import { modelNameStyle } from '@/lib/cover'
 import { useSiteSettings } from '@/lib/site-settings'
@@ -10,13 +13,14 @@ export const Route = createFileRoute('/_authed/_shell/models/$id')({
   beforeLoad: ({ context }) => {
     if (context.isKids) throw redirect({ to: '/', replace: true })
   },
-  validateSearch: (s: Record<string, unknown>): { page?: number } => {
+  validateSearch: (s: Record<string, unknown>): { page?: number; sort?: SortKey } => {
     const p = Number(s.page)
-    return Number.isInteger(p) && p > 1 ? { page: p } : {}
+    const sort = validSort(s.sort)
+    return { ...(Number.isInteger(p) && p > 1 ? { page: p } : {}), ...(sort ? { sort } : {}) }
   },
-  loaderDeps: ({ search }) => ({ page: search.page ?? 1 }),
+  loaderDeps: ({ search }) => ({ page: search.page ?? 1, sort: search.sort }),
   loader: async ({ context, params, deps }) => {
-    const r = await fetchModelPage(context.supabase, params.id, deps.page)
+    const r = await fetchModelPage(context.supabase, params.id, deps.page, deps.sort)
     if (!r.model) throw notFound()
     return { ...r, model: r.model }
   },
@@ -28,6 +32,8 @@ function ModelPage() {
   const { model, titles, total, page } = Route.useLoaderData()
   const { names } = useSiteSettings()
   const navigate = useNavigate()
+  const { sort } = Route.useSearch()
+  const go = (p: { page?: number; sort?: SortKey }) => void navigate({ to: '/models/$id', params: { id: model.id }, search: { ...(p.page && p.page > 1 ? { page: p.page } : {}), ...(p.sort ? { sort: p.sort } : {}) } })
   const s = modelNameStyle(model.name, names)
   const pages = Math.max(1, Math.ceil(total / TITLES_PER_PAGE))
   return (
@@ -58,6 +64,10 @@ function ModelPage() {
           </p>
         </div>
       </div>
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+        <ClearMarks modelId={model.id} modelName={model.name} />
+        <SortSelect value={sort} onChange={(v) => go({ sort: v })} />
+      </div>
       {titles.length === 0 ? (
         <p className="text-muted-foreground">Aucune vidéo publiée pour ce modèle.</p>
       ) : (
@@ -69,11 +79,7 @@ function ModelPage() {
           ))}
         </ul>
       )}
-      <PaginationBar
-        page={page}
-        pages={pages}
-        onPage={(p) => void navigate({ to: '/models/$id', params: { id: model.id }, search: p > 1 ? { page: p } : {} })}
-      />
+      <PaginationBar page={page} pages={pages} onPage={(p) => go({ page: p, sort })} />
     </section>
   )
 }

@@ -1,8 +1,9 @@
-import { Link, createFileRoute, useRouterState } from '@tanstack/react-router'
+import { Link, createFileRoute, useNavigate, useRouterState } from '@tanstack/react-router'
 import { Loader2, SearchX, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { MovieCard, MovieCardSkeleton } from '@/components/catalog/MovieCard'
+import { SortSelect } from '@/components/catalog/SortSelect'
 import { SEARCH_PAGE_SIZE, searchTitles, validateSearchParams, type SearchParams } from '@/lib/search'
 
 export const Route = createFileRoute('/_authed/_shell/search')({
@@ -28,7 +29,7 @@ function SearchPage() {
   const { results, total, hasMore, genres, isMock } = Route.useLoaderData()
   const search = Route.useSearch()
   const loading = useRouterState({ select: (s) => s.isLoading })
-  const hasFilters = !!(search.type || search.genre)
+  const hasFilters = !!(search.type || search.genre || search.sort)
   const page = search.page ?? 1
 
   return (
@@ -88,6 +89,7 @@ function Header({ q, total, loading }: { q?: string; total: number; loading: boo
 }
 
 function Filters({ search, genres }: { search: SearchParams; genres: { slug: string; name: string }[] }) {
+  const navigate = useNavigate()
   const chip = (active: boolean) =>
     cn(
       'shrink-0 rounded-full border px-4 py-1.5 text-sm transition-colors',
@@ -96,6 +98,7 @@ function Filters({ search, genres }: { search: SearchParams; genres: { slug: str
 
   return (
     <div className="mb-8 grid gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
       <div role="tablist" aria-label="Type" className="inline-flex w-fit rounded-lg bg-neutral-900 p-1">
         {TYPES.map((t) => {
           const active = search.type === t.value
@@ -116,6 +119,8 @@ function Filters({ search, genres }: { search: SearchParams; genres: { slug: str
             </Link>
           )
         })}
+      </div>
+      <SortSelect value={search.sort} onChange={(v) => void navigate({ to: '/search', search: { ...search, sort: v, page: undefined }, replace: true })} />
       </div>
 
       {genres.length > 0 && (

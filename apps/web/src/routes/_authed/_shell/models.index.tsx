@@ -1,6 +1,7 @@
 import { createFileRoute, redirect, useNavigate } from '@tanstack/react-router'
 import { ModelCard } from '@/components/catalog/ModelCard'
 import { PaginationBar } from '@/components/ui/pagination-bar'
+import { ClearMarks } from '@/components/catalog/ClearMarks'
 import { MODELS_PER_PAGE, fetchPublicModels } from '@/lib/model-catalog'
 
 export const Route = createFileRoute('/_authed/_shell/models/')({
@@ -24,9 +25,12 @@ function ModelsPage() {
   return (
     <section className="px-6 py-10 md:px-12">
       <h1 className="mb-1 text-2xl font-bold">Modèles</h1>
-      <p className="mb-6 text-sm text-muted-foreground">
+      <p className="mb-4 text-sm text-muted-foreground">
         {total} modèle{total > 1 ? 's' : ''}
       </p>
+      <div className="mb-6">
+        <ClearMarks />
+      </div>
       {models.length === 0 ? (
         <p className="text-muted-foreground">Aucun modèle pour le moment.</p>
       ) : (

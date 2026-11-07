@@ -26,6 +26,13 @@ const subscribe = (l: () => void) => {
 }
 const getSnapshot = () => state
 
+/** Relit les favoris depuis la base (après un effacement groupé). */
+export async function reloadFavorites(supabase: TypedSupabaseClient, profileId: string) {
+  loading = null
+  setState({ profileId: null, ids: new Set(), loaded: false, pending: new Set() })
+  await ensureLoaded(supabase, profileId)
+}
+
 export function resetFavorites() {
   loading = null
   setState({ profileId: null, ids: new Set(), loaded: false, pending: new Set() })

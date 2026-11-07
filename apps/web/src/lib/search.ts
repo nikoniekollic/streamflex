@@ -4,6 +4,7 @@ import { MOCK_GENRES, MOCK_TITLES } from '@/lib/mock-catalog'
 import { invokeCatalog } from '@/lib/catalog-api'
 import { env } from '@/lib/env'
 import type { Database } from '@/types/database'
+import { orderSpec, sortTitles, validSort, type SortKey } from '@/lib/sort'
 
 type SearchRow = Database['public']['Functions']['search_titles']['Returns'][number]
 
@@ -14,6 +15,7 @@ export type SearchParams = {
   q?: string
   type?: 'movie' | 'series'
   genre?: string
+  sort?: SortKey
   page?: number
 }
 
@@ -30,6 +32,8 @@ export function validateSearchParams(s: Record<string, unknown>): SearchParams {
   if (typeof s.q === 'string' && s.q.trim()) out.q = s.q.trim().slice(0, 100)
   if (s.type === 'movie' || s.type === 'series') out.type = s.type
   if (typeof s.genre === 'string' && /^[a-z0-9-]+$/.test(s.genre)) out.genre = s.genre
+  const sort = validSort(s.sort)
+  if (sort) out.sort = sort
   const page = Number(s.page)
   if (Number.isInteger(page) && page > 1 && page <= 20) out.page = page
   return out
@@ -62,8 +66,41 @@ async function loadGenres(supabase: TypedSupabaseClient) {
   return data ?? []
 }
 
+/** Exploration triée (sans mot-clé) : le tri est fait par la base, sur tout le catalogue publié. */
+async function browseSorted(supabase: TypedSupabaseClient, p: SearchParams, limit: number): Promise<SearchResult> {
+  const genres = await loadGenres(supabase)
+  const embed = p.genre ? 'title_genres!inner(genres!inner(slug, name))' : 'title_genres(genres(slug, name))'
+  let q = supabase
+    .from('titles')
+    .select(`id, type, slug, title, synopsis, release_year, runtime_minutes, maturity_rating, poster_url, backdrop_url, logo_url, published_at, ${embed}`, { count: 'exact' })
+    .eq('is_published', true)
+  if (p.type) q = q.eq('type', p.type)
+  if (p.genre) q = q.eq('title_genres.genres.slug', p.genre)
+  for (const o of orderSpec(p.sort)) q = q.order(o.column, o)
+  const { data, error, count } = await q.range(0, limit - 1)
+  if (error) throw error
+  const rows = (data ?? []) as unknown as (Omit<CatalogTitle, 'genres'> & { title_genres: { genres: { slug: string; name: string } | null }[] })[]
+  const results: CatalogTitle[] = rows.map(({ title_genres, ...t }) => ({ ...t, genres: title_genres.flatMap((g) => (g.genres ? [g.genres] : [])) }))
+  const total = count ?? results.length
+  return { results, total, hasMore: total > results.length, genres, isMock: false }
+}
+
 export async function searchTitles(supabase: TypedSupabaseClient, p: SearchParams, kids = false): Promise<SearchResult> {
   const limit = (p.page ?? 1) * SEARCH_PAGE_SIZE
+  if (p.sort && !p.q && !kids) {
+    try {
+      const r = await browseSorted(supabase, p, limit)
+      if (r.results.length > 0) return r
+    } catch {
+      /* repli : recherche classique + tri local */
+    }
+  }
+  const out = await searchRanked(supabase, p, kids, limit)
+  // Avec un mot-clé : on garde la pertinence pour choisir les résultats, puis on les ordonne
+  return p.sort ? { ...out, results: sortTitles(out.results, p.sort) } : out
+}
+
+async function searchRanked(supabase: TypedSupabaseClient, p: SearchParams, kids: boolean, limit: number): Promise<SearchResult> {
 
   // 1) Redis via Edge `catalog` (clé = q normalisée + filtres + page, TTL 1 h)
   let rows: SearchRow[]

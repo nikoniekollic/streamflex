@@ -705,6 +705,10 @@ Pixeldrain et Alldebrid ont été **abandonnés** (étapes 6, 7, 11 : ne plus s'
 - **Admin → Apparence** (`/admin/appearance`) : thème (palettes, couleurs, police, arrondi), nom des modèles (police, palettes, couleur fixe, taille, halo), aperçu (adapté / remplir / étirer, ratio, largeur, durée, volume, pause, lecture silencieuse), simulation en direct ; bouton pause dans le panneau de survol
 - À déployer : `npx supabase db push --linked` ; `npx supabase functions deploy onefichier-import` ; push Vercel. Pour réparer les faux modèles : Admin → Modèles → « Fusionner », ou relancer un import avec « Corriger les fichiers déjà importés »
 
+## Étape 33 — Tris et effacements (2026-11-08)
+- `lib/sort.ts` + `SortSelect` : plus récent / ancien / plus long / plus court / A→Z / Z→A sur Catalogue (`?sort=`), Recherche (tri base si pas de mot-clé, sinon tri local des résultats), page d'un modèle, rangées de l'accueil (local). **Les fichiers importés n'ont pas de `runtime_minutes`** : le tri par durée les met en dernier tant que la durée n'est pas renseignée
+- `ClearMarks` (pages Modèles) : efface vus / favoris du profil, tout le catalogue ou un seul modèle, via RPC `clear_my_marks` (migration `20261108180000_clear_marks.sql`, à pousser)
+
 ## ~~Problème ouvert — lecture~~ (résolu ci-dessus)
 - Fichiers importés : `resolve-stream` renvoie 200 + URL, mais le lecteur reste sur la roue sans démarrer ; avancer dans la vidéo donne « Sources indisponibles »
 - Correctifs déployés : suppression de `probeStream` (double téléchargement), `refresh` → lien neuf (`force`)
