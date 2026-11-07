@@ -49,7 +49,10 @@ async function flush() {
   for (let i = 0; i < ids.length; i += 150) {
     const chunk = ids.slice(i, i + 150)
     const { data, error } = await (supabase as unknown as SupabaseClient).from('titles').select('id, model_id, runtime_minutes, len_key, cover_pos').in('id', chunk)
-    if (error) continue
+    if (error) {
+      for (const id of chunk) coverOfTitle.set(id, null) // ne bloque pas les aperçus : moment au hasard
+      continue
+    }
     type Row = { id: string; model_id: string | null; runtime_minutes: number | null; len_key: number | null; cover_pos: number | null }
     const found = new Map(((data ?? []) as Row[]).map((r) => [r.id, r]))
     for (const id of chunk) {
@@ -68,6 +71,7 @@ function request(id: string) {
   if (!UUID.test(id)) {
     nameOfTitle.set(id, null)
     lengthOfTitle.set(id, null)
+    coverOfTitle.set(id, null)
     return
   }
   queue.add(id)
@@ -103,8 +107,9 @@ export function formatMinutes(m: number): string {
 }
 
 /** Moment de l'image de la jaquette (fraction de la durée), chargé par lots avec le nom du modèle. */
-export function useCoverPos(titleId: string): number | null {
+/** undefined = pas encore chargé (l'aperçu attend, pour se placer tout de suite au bon moment) ; null = aucun moment enregistré. */
+export function useCoverPos(titleId: string): number | null | undefined {
   useSyncExternalStore(subscribe, () => version)
   useEffect(() => request(titleId), [titleId])
-  return coverOfTitle.get(titleId) ?? null
+  return coverOfTitle.has(titleId) ? coverOfTitle.get(titleId) : undefined
 }

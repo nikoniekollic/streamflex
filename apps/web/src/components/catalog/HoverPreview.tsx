@@ -91,7 +91,7 @@ const KEEP_SLOT_MS = 3000 // une carte qui sort de l'écran garde sa place 3 s (
 /** Rang d'une jaquette dans la page : ligne par ligne, de gauche à droite (première ligne = chargée en premier). */
 const pageOrder = (r: DOMRect) => Math.round((r.top + window.scrollY) / 20) * 10_000 + Math.round(r.left)
 
-export function HoverPreview({ title, active, coverPos = null }: { title: CatalogTitle; active: boolean; coverPos?: number | null }) {
+export function HoverPreview({ title, active, coverPos }: { title: CatalogTitle; active: boolean; coverPos?: number | null }) {
   const titleId = title.id
   // Un même film peut apparaître dans plusieurs rangées : visibilité et élément vidéo sont propres à chaque carte
   const visKey = `${titleId}#${useId()}`
@@ -181,7 +181,8 @@ export function HoverPreview({ title, active, coverPos = null }: { title: Catalo
   // L'élément vidéo de la jaquette est posé dans la carte (créé, ou repris tel quel de la réserve)
   useEffect(() => {
     const h = host.current
-    if (!show || !url || !h) return
+    // on attend le moment enregistré de la jaquette : sinon la vidéo se placerait au hasard avant de le connaître
+    if (!show || !url || !h || coverRef.current === undefined) return
     const slot = acquireSlot(titleId, url, cfg.clipSeconds, pageOrder(h.getBoundingClientRect()), coverRef.current)
     slotRef.current = slot
     attachSlot(slot, h)
@@ -204,7 +205,7 @@ export function HoverPreview({ title, active, coverPos = null }: { title: Catalo
       detachSlot(slot)
       if (slotRef.current === slot) slotRef.current = null
     }
-  }, [show, url, titleId, cfg.clipSeconds, profileId, visKey])
+  }, [show, url, titleId, cfg.clipSeconds, profileId, visKey, coverPos !== undefined])
 
   useEffect(() => {
     if (!active) setPaused(false)
