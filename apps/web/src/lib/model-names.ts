@@ -1,4 +1,5 @@
 import { useEffect, useSyncExternalStore } from 'react'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 
 // Nom du modèle de chaque jaquette : les requêtes du catalogue ne renvoient pas model_id,
@@ -6,6 +7,9 @@ import { supabase } from '@/lib/supabase'
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 const nameOfTitle = new Map<string, string | null>()
+/** minutes : durée réelle si connue, sinon estimée d'après la taille du fichier (estimated = true) */
+export type TitleLength = { minutes: number; estimated: boolean }
+const lengthOfTitle = new Map<string, TitleLength | null>()
 const listeners = new Set<() => void>()
 let version = 0
 let modelsPromise: Promise<Map<string, string>> | null = null
@@ -42,12 +46,15 @@ async function flush() {
   const models = await loadModels()
   for (let i = 0; i < ids.length; i += 150) {
     const chunk = ids.slice(i, i + 150)
-    const { data, error } = await supabase.from('titles').select('id, model_id').in('id', chunk)
+    const { data, error } = await (supabase as unknown as SupabaseClient).from('titles').select('id, model_id, runtime_minutes, len_key').in('id', chunk)
     if (error) continue
-    const found = new Map((data ?? []).map((r) => [r.id, r.model_id]))
+    type Row = { id: string; model_id: string | null; runtime_minutes: number | null; len_key: number | null }
+    const found = new Map(((data ?? []) as Row[]).map((r) => [r.id, r]))
     for (const id of chunk) {
-      const mid = found.get(id)
-      nameOfTitle.set(id, mid ? (models.get(mid) ?? null) : null)
+      const r = found.get(id)
+      nameOfTitle.set(id, r?.model_id ? (models.get(r.model_id) ?? null) : null)
+      const minutes = r?.runtime_minutes ?? (r?.len_key ? Math.max(1, Math.round(r.len_key)) : null)
+      lengthOfTitle.set(id, minutes ? { minutes, estimated: r?.runtime_minutes == null } : null)
     }
   }
   notify()
@@ -57,6 +64,7 @@ function request(id: string) {
   if (nameOfTitle.has(id) || queue.has(id)) return
   if (!UUID.test(id)) {
     nameOfTitle.set(id, null)
+    lengthOfTitle.set(id, null)
     return
   }
   queue.add(id)
@@ -73,4 +81,20 @@ export function useModelName(titleId: string): string | null {
   useSyncExternalStore(subscribe, () => version)
   useEffect(() => request(titleId), [titleId])
   return nameOfTitle.get(titleId) ?? null
+}
+
+/** Durée du titre (réelle ou estimée), chargée par lots avec le nom du modèle. */
+export function useTitleLength(titleId: string, known?: number | null): TitleLength | null {
+  useSyncExternalStore(subscribe, () => version)
+  useEffect(() => (known ? undefined : request(titleId)), [titleId, known])
+  if (known) return { minutes: known, estimated: false }
+  return lengthOfTitle.get(titleId) ?? null
+}
+
+/** 95 min → « 1 h 35 », 42 min → « 42 min » */
+export function formatMinutes(m: number): string {
+  if (m < 60) return `${m} min`
+  const h = Math.floor(m / 60)
+  const r = m % 60
+  return r ? `${h} h ${String(r).padStart(2, '0')}` : `${h} h`
 }

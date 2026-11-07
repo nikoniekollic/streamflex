@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { createFileRoute, useRouter, type ErrorComponentProps } from '@tanstack/react-router'
 import { VideoPlayer } from '@/components/player/VideoPlayer'
 import { StreamStatus } from '@/components/player/StreamStatus'
@@ -6,6 +6,7 @@ import { useWatchProgress } from '@/hooks/useWatchProgress'
 import { useStream } from '@/hooks/useStream'
 import { useBookmarks } from '@/hooks/useBookmarks'
 import { StreamError, loadWatch, type Quality } from '@/lib/stream'
+import { cycleRepeat, nextInQueue, previousInQueue, syncQueue, toggleShuffle, useQueue } from '@/lib/queue'
 import { loadSubtitleUrl } from '@/lib/subtitles'
 import { requireActiveProfile } from '@/lib/route-guards'
 
@@ -115,11 +116,29 @@ function WatchSession() {
     [resolve],
   )
 
+  // File de lecture (playlist, lecture aléatoire) : la vidéo affichée en fait-elle partie ?
+  const queue = useQueue()
+  useEffect(() => {
+    syncQueue(title.id)
+  }, [title.id])
+  const inQueue = !!queue && queue.order[queue.index] === title.id
+
+  const goQueue = useCallback(
+    (id: string | null) => {
+      if (!id) return
+      void flush()
+      void navigate({ to: '/watch/$id', params: { id }, search: { t: 0 }, replace: true })
+    },
+    [flush, navigate],
+  )
+  const goNextQueue = useCallback(() => void nextInQueue(supabase).then(goQueue), [supabase, goQueue])
+
   const goNext = useCallback(() => {
+    if (inQueue) return goNextQueue()
     if (!nextEpisode) return
     void flush()
     void navigate({ to: '/watch/$id', params: { id: title.id }, search: { episode: nextEpisode.id }, replace: true })
-  }, [flush, navigate, nextEpisode, title.id])
+  }, [flush, goNextQueue, inQueue, navigate, nextEpisode, title.id])
 
   const subtitle = episode
     ? `S${episode.season_number} · É${episode.episode_number}${episode.name ? ` — ${episode.name}` : ''}`
@@ -158,8 +177,22 @@ function WatchSession() {
         void flush()
         goNext()
       }}
-      onNext={nextEpisode ? goNext : undefined}
-      nextLabel={nextEpisode ? `Épisode suivant (É${nextEpisode.episode_number})` : undefined}
+      onNext={inQueue || nextEpisode ? goNext : undefined}
+      nextLabel={inQueue ? 'Vidéo suivante' : nextEpisode ? `Épisode suivant (É${nextEpisode.episode_number})` : undefined}
+      loop={inQueue && queue?.repeat === 'one'}
+      queue={
+        inQueue && queue
+          ? {
+              label: queue.label,
+              position: `${queue.index + 1}${queue.random ? '' : ` / ${queue.order.length}`}`,
+              shuffle: queue.shuffle,
+              repeat: queue.repeat,
+              onShuffle: toggleShuffle,
+              onRepeat: cycleRepeat,
+              onPrevious: queue.index > 0 ? () => goQueue(previousInQueue()) : undefined,
+            }
+          : undefined
+      }
       onBack={back}
       onError={onMediaError}
       bookmarks={bm.bookmarks}

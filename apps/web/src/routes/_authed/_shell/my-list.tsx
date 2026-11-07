@@ -1,7 +1,8 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
-import { Plus } from 'lucide-react'
+import { Heart, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { MovieCard, MovieCardSkeleton } from '@/components/catalog/MovieCard'
+import { PlayListButtons } from '@/components/catalog/RandomPlay'
 import { fetchMyList, useFavorites } from '@/lib/favorites'
 
 const GRID = 'grid grid-cols-2 gap-x-3 gap-y-6 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6'
@@ -40,6 +41,9 @@ function MyList() {
             {visible.length} titre{visible.length > 1 ? 's' : ''}
           </span>
         )}
+        <div className="ml-auto">
+          <PlayListButtons label="Ma liste" ids={visible.filter((t) => t.type === 'movie').map((t) => t.id)} />
+        </div>
       </div>
 
       {visible.length === 0 ? (
@@ -49,7 +53,7 @@ function MyList() {
           </span>
           <h2 className="text-xl font-semibold">Ta liste est vide</h2>
           <p className="max-w-sm text-sm text-muted-foreground">
-            Ajoute des films et séries avec le bouton <Plus className="inline size-4" /> pour les retrouver ici.
+            Ajoute des films et séries avec le bouton <Heart className="inline size-4" /> pour les retrouver ici.
           </p>
           <Button asChild variant="secondary">
             <Link to="/search">Explorer le catalogue</Link>

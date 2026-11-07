@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { NativeSelect } from '@/components/ui/native-select'
 import { FavoriteButton } from '@/components/catalog/FavoriteButton'
+import { PlaylistMenu } from '@/components/catalog/PlaylistMenu'
 import { ReviewsSection } from '@/components/catalog/ReviewsSection'
 import { PreviewClip } from '@/components/catalog/HoverPreview'
 import { fetchTitleDetail, type SeasonItem } from '@/lib/title'
@@ -91,6 +92,7 @@ function TitlePage() {
               </Link>
             </Button>
             <FavoriteButton title={t} variant="button" />
+            {t.type === 'movie' && <PlaylistMenu titleId={t.id} variant="button" />}
           </div>
           {t.resume && t.resume.ratio > 0 && (
             <div className="h-1 w-64 overflow-hidden rounded-full bg-neutral-600">

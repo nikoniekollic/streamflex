@@ -8,6 +8,8 @@ import { GeneratedCover, ModelCover } from '@/components/catalog/GeneratedCover'
 import { isModelCover, stripModelMark } from '@/lib/cover'
 import { ModelName } from '@/components/catalog/ModelName'
 import { HoverPreview } from '@/components/catalog/HoverPreview'
+import { PlaylistMenu } from '@/components/catalog/PlaylistMenu'
+import { formatMinutes, useTitleLength } from '@/lib/model-names'
 
 type MovieCardProps = {
   title: CatalogTitle
@@ -27,6 +29,7 @@ export function MovieCard({ title, variant = 'poster', progress, watch, favorite
   const [hovered, setHovered] = useState(false)
   const cardRef = useRef<HTMLDivElement>(null)
   const isMovie = title.type === 'movie'
+  const length = useTitleLength(title.id, title.runtime_minutes)
   const src = isBackdrop ? (title.backdrop_url ?? title.poster_url) : (title.poster_url ?? title.backdrop_url)
 
   const content = (
@@ -64,6 +67,16 @@ export function MovieCard({ title, variant = 'poster', progress, watch, favorite
           ))}
         </div>
       </div>
+
+      {isMovie && length && (
+        <span
+          className="pointer-events-none absolute right-1.5 bottom-1.5 z-[4] rounded bg-black/75 px-1.5 py-0.5 text-[11px] font-semibold text-white tabular-nums"
+          title={length.estimated ? 'Durée estimée d’après la taille du fichier' : 'Durée'}
+        >
+          {length.estimated ? '≈ ' : ''}
+          {formatMinutes(length.minutes)}
+        </span>
+      )}
 
       {isBackdrop && (
         <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 to-transparent px-2 pt-6 pb-1.5 group-hover/card:opacity-0">
@@ -123,10 +136,10 @@ export function MovieCard({ title, variant = 'poster', progress, watch, favorite
     >
       {link}
       {favorite && (
-        <FavoriteButton
-          title={title}
-          className="absolute top-2 right-2 opacity-0 group-focus-within/card:opacity-100 group-hover/card:opacity-100 aria-pressed:opacity-100 max-md:opacity-100"
-        />
+        <div className="absolute top-2 right-2 z-[5] flex gap-1.5">
+          {isMovie && <PlaylistMenu titleId={title.id} />}
+          <FavoriteButton title={title} />
+        </div>
       )}
     </div>
   )

@@ -10,6 +10,10 @@ import {
   Play,
   RotateCcw,
   RotateCw,
+  Repeat,
+  Repeat1,
+  Shuffle,
+  SkipBack,
   SkipForward,
   Volume1,
   Volume2,
@@ -22,7 +26,22 @@ import { AudioMenu, QualityMenu, SubtitlesMenu, type NativeAudio } from '@/compo
 import { BookmarkDialog, BookmarkPanel } from '@/components/player/Bookmarks'
 import { formatTimestamp, type NewBookmark, type VideoBookmark } from '@/lib/bookmarks'
 
+/** File de lecture (playlist / lecture aléatoire) : commandes façon VK */
+export type PlayerQueue = {
+  label: string
+  /** « 3 / 24 » */
+  position: string
+  shuffle: boolean
+  repeat: 'off' | 'all' | 'one'
+  onShuffle: () => void
+  onRepeat: () => void
+  onPrevious?: () => void
+}
+
 export type VideoPlayerProps = {
+  queue?: PlayerQueue
+  /** répète la vidéo en boucle (mode « répéter un ») */
+  loop?: boolean
   src: string
   poster?: string | null
   title: string
@@ -65,6 +84,8 @@ function readVolume(): { volume: number; muted: boolean } {
 }
 
 export function VideoPlayer({
+  queue,
+  loop = false,
   src,
   poster,
   title,
@@ -419,6 +440,7 @@ export function VideoPlayer({
       <video
         ref={videoRef}
         src={src}
+        loop={loop}
         poster={poster ?? undefined}
         autoPlay
         playsInline
@@ -637,6 +659,28 @@ export function VideoPlayer({
                   )}
                 </span>
               </IconButton>
+            )}
+            {queue && (
+              <>
+                <span className="hidden max-w-40 truncate px-1 text-sm text-neutral-300 md:inline" title={queue.label}>
+                  {queue.label} · {queue.position}
+                </span>
+                <IconButton label={queue.shuffle ? 'Lecture aléatoire : activée' : 'Lecture aléatoire : désactivée'} onClick={queue.onShuffle} active={queue.shuffle}>
+                  <Shuffle className={cn(queue.shuffle && 'text-primary')} />
+                </IconButton>
+                <IconButton
+                  label={queue.repeat === 'off' ? 'Répétition : désactivée' : queue.repeat === 'all' ? 'Répéter la liste' : 'Répéter cette vidéo'}
+                  onClick={queue.onRepeat}
+                  active={queue.repeat !== 'off'}
+                >
+                  {queue.repeat === 'one' ? <Repeat1 className="text-primary" /> : <Repeat className={cn(queue.repeat === 'all' && 'text-primary')} />}
+                </IconButton>
+                {queue.onPrevious && (
+                  <IconButton label="Vidéo précédente" onClick={queue.onPrevious}>
+                    <SkipBack />
+                  </IconButton>
+                )}
+              </>
             )}
             {onNext && (
               <IconButton label={nextLabel ?? 'Épisode suivant'} onClick={onNext}>

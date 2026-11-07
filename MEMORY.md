@@ -709,6 +709,12 @@ Pixeldrain et Alldebrid ont été **abandonnés** (étapes 6, 7, 11 : ne plus s'
 - `lib/sort.ts` + `SortSelect` : plus récent / ancien / plus long / plus court / A→Z / Z→A sur Catalogue (`?sort=`), Recherche (tri base si pas de mot-clé, sinon tri local des résultats), page d'un modèle, rangées de l'accueil (local). **Les fichiers importés n'ont pas de `runtime_minutes`** : le tri par durée les met en dernier tant que la durée n'est pas renseignée
 - `ClearMarks` (pages Modèles) : efface vus / favoris du profil, tout le catalogue ou un seul modèle, via RPC `clear_my_marks` (migration `20261108180000_clear_marks.sql`, à pousser)
 
+## Étape 34 — Coeur, durées, playlists, admin groupé (2026-11-08) ⏳ migration `20261108220000_playlists.sql` À POUSSER
+- Jaquettes : coeur (Ma liste) + bouton « liste de lecture » toujours visibles en haut, durée en bas à droite (`useTitleLength`, « ≈ » si estimée d'après la taille, voir `titles.len_key`)
+- Playlists par profil (`playlists`, `playlist_items`, RPC `random_title_ids`) : `/playlists`, `/playlists/$id`, menu `PlaylistMenu` sur cartes + page titre
+- File de lecture façon VK (`lib/queue.ts`, sessionStorage) : lecture / aléatoire d'une liste, de Ma liste, d'un modèle ou du catalogue (infinie) ; lecteur : aléatoire, répéter (liste / une vidéo), précédent / suivant
+- Admin catalogue : filtres catégorie + modèle (dont « sans … »), cases à cocher, « sélectionner les N résultats », actions groupées (publier, dépublier, catégorie, modèle, supprimer)
+
 ## ~~Problème ouvert — lecture~~ (résolu ci-dessus)
 - Fichiers importés : `resolve-stream` renvoie 200 + URL, mais le lecteur reste sur la roue sans démarrer ; avancer dans la vidéo donne « Sources indisponibles »
 - Correctifs déployés : suppression de `probeStream` (double téléchargement), `refresh` → lien neuf (`force`)

@@ -44,6 +44,11 @@ export function AppHeader() {
             Modèles
           </Link>
         )}
+        {!isKids && (
+          <Link to="/playlists" activeProps={{ className: 'font-semibold text-white' }}>
+            Listes
+          </Link>
+        )}
         <Link to="/my-list" activeProps={{ className: 'font-semibold text-white' }}>
           Ma liste
         </Link>

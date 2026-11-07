@@ -1,6 +1,7 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { PaginationBar } from '@/components/ui/pagination-bar'
 import { SortSelect } from '@/components/catalog/SortSelect'
+import { RandomPlayButton } from '@/components/catalog/RandomPlay'
 import { orderSpec, validSort, type SortKey } from '@/lib/sort'
 import { MovieCard } from '@/components/catalog/MovieCard'
 import type { CatalogTitle } from '@/lib/catalog'
@@ -39,7 +40,10 @@ function Browse() {
     <section className="px-6 py-10 md:px-12">
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold">Catalogue</h1>
-        <SortSelect value={sort} onChange={(v) => void navigate({ to: '/browse', search: v ? { sort: v } : {} })} />
+        <div className="flex flex-wrap items-center gap-3">
+          <RandomPlayButton label="Catalogue" />
+          <SortSelect value={sort} onChange={(v) => void navigate({ to: '/browse', search: v ? { sort: v } : {} })} />
+        </div>
       </div>
       {titles.length === 0 ? (
         <p className="text-muted-foreground">Aucun titre publié pour le moment.</p>

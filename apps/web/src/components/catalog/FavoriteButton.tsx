@@ -1,5 +1,5 @@
 import type React from 'react'
-import { Check, Plus } from 'lucide-react'
+import { Heart } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useFavorite } from '@/lib/favorites'
 import { Button } from '@/components/ui/button'
@@ -14,7 +14,6 @@ type Props = {
 export function FavoriteButton({ title, variant = 'icon', className }: Props) {
   const { isFavorite, pending, toggle } = useFavorite(title)
   const label = isFavorite ? 'Retirer de Ma liste' : 'Ajouter à Ma liste'
-  const Icon = isFavorite ? Check : Plus
 
   const onClick = (e: React.MouseEvent) => {
     e.preventDefault()
@@ -33,7 +32,7 @@ export function FavoriteButton({ title, variant = 'icon', className }: Props) {
         onClick={onClick}
         className={cn('h-11 bg-neutral-500/60 px-6 text-base font-semibold text-white hover:bg-neutral-500/40 md:h-12', className)}
       >
-        <Icon className={cn('size-6 transition-transform', isFavorite && 'scale-110')} />
+        <Heart className={cn('size-6 transition-transform', isFavorite && 'scale-110 fill-current text-primary')} />
         {isFavorite ? 'Dans ma liste' : 'Ma liste'}
       </Button>
     )
@@ -50,11 +49,11 @@ export function FavoriteButton({ title, variant = 'icon', className }: Props) {
       className={cn(
         'flex size-8 items-center justify-center rounded-full border-2 bg-black/60 backdrop-blur-sm transition-all',
         'hover:scale-110 focus-visible:ring-2 focus-visible:ring-white focus-visible:outline-none disabled:opacity-60',
-        isFavorite ? 'border-white bg-white text-black' : 'border-neutral-300 text-white hover:border-white',
+        isFavorite ? 'border-primary bg-primary text-primary-foreground' : 'border-neutral-300 text-white hover:border-white',
         className,
       )}
     >
-      <Icon className="size-4" strokeWidth={3} />
+      <Heart className={cn('size-4', isFavorite && 'fill-current')} strokeWidth={2.5} />
     </button>
   )
 }

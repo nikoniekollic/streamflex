@@ -4,6 +4,7 @@ import { MovieCard } from '@/components/catalog/MovieCard'
 import { PaginationBar } from '@/components/ui/pagination-bar'
 import { SortSelect } from '@/components/catalog/SortSelect'
 import { ClearMarks } from '@/components/catalog/ClearMarks'
+import { RandomPlayButton } from '@/components/catalog/RandomPlay'
 import { validSort, type SortKey } from '@/lib/sort'
 import { TITLES_PER_PAGE, fetchModelPage } from '@/lib/model-catalog'
 import { modelNameStyle } from '@/lib/cover'
@@ -65,7 +66,10 @@ function ModelPage() {
         </div>
       </div>
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <ClearMarks modelId={model.id} modelName={model.name} />
+        <div className="flex flex-wrap items-center gap-2">
+          <RandomPlayButton label={model.name} modelId={model.id} />
+          <ClearMarks modelId={model.id} modelName={model.name} />
+        </div>
         <SortSelect value={sort} onChange={(v) => go({ sort: v })} />
       </div>
       {titles.length === 0 ? (

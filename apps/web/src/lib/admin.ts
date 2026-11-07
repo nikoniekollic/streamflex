@@ -100,33 +100,99 @@ export const emptyTitle = (): TitleFormValues => ({
 export type AdminListRow = Pick<
   Tables<'titles'>,
   'id' | 'type' | 'slug' | 'title' | 'release_year' | 'poster_url' | 'is_published' | 'updated_at'
-> & { genres: string[]; sourceCount: number }
+> & { genres: string[]; sourceCount: number; model: string | null }
 
-export type AdminListSearch = { page?: number; q?: string; type?: 'movie' | 'series'; status?: 'published' | 'draft' }
+/** genre : id numérique de catégorie ou « none » (sans catégorie) ; model : id de modèle ou « none » (sans modèle) */
+export type AdminListSearch = { page?: number; q?: string; type?: 'movie' | 'series'; status?: 'published' | 'draft'; genre?: string; model?: string }
 
-export async function fetchAdminList(supabase: TypedSupabaseClient, s: AdminListSearch) {
-  let query = supabase
-    .from('titles')
-    .select('id, type, slug, title, release_year, poster_url, is_published, updated_at, title_genres(genres(name)), media_sources(count)', {
-      count: 'exact',
-    })
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** Filtres communs à la liste et à « tout sélectionner » (mêmes règles). */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function applyAdminFilters(query: any, s: AdminListSearch) {
   if (s.q) query = query.ilike('title', `%${s.q.replace(/[%_]/g, '\\$&')}%`)
   if (s.type) query = query.eq('type', s.type)
   if (s.status) query = query.eq('is_published', s.status === 'published')
+  if (s.model === 'none') query = query.is('model_id', null)
+  else if (s.model && UUID_RE.test(s.model)) query = query.eq('model_id', s.model)
+  if (s.genre === 'none') query = query.is('title_genres', null)
+  else if (s.genre && /^\d+$/.test(s.genre)) query = query.eq('genre_f.genre_id', Number(s.genre))
+  return query
+}
+
+const genreJoin = (s: AdminListSearch) => (s.genre && /^\d+$/.test(s.genre) ? ', genre_f:title_genres!inner(genre_id)' : '')
+
+export async function fetchAdminList(supabase: TypedSupabaseClient, s: AdminListSearch) {
+  const query = applyAdminFilters(
+    supabase
+      .from('titles')
+      .select(`id, type, slug, title, release_year, poster_url, is_published, updated_at, title_genres(genres(name)), media_sources(count), models(name)${genreJoin(s)}`, {
+        count: 'exact',
+      }),
+    s,
+  )
   const from = ((s.page ?? 1) - 1) * PAGE_SIZE
   const { data, error, count } = await query.order('updated_at', { ascending: false }).range(from, from + PAGE_SIZE - 1)
   if (error) throw error
 
-  type Raw = Omit<AdminListRow, 'genres' | 'sourceCount'> & {
+  type Raw = Omit<AdminListRow, 'genres' | 'sourceCount' | 'model'> & {
     title_genres: { genres: { name: string } | null }[]
     media_sources: { count: number }[]
+    models: { name: string } | null
   }
-  const rows: AdminListRow[] = ((data ?? []) as unknown as Raw[]).map(({ title_genres, media_sources, ...r }) => ({
+  const rows: AdminListRow[] = ((data ?? []) as unknown as Raw[]).map(({ title_genres, media_sources, models, ...r }) => ({
     ...r,
+    model: models?.name ?? null,
     genres: title_genres.flatMap((g) => (g.genres ? [g.genres.name] : [])),
     sourceCount: media_sources[0]?.count ?? 0,
   }))
   return { rows, total: count ?? 0, pageCount: Math.max(1, Math.ceil((count ?? 0) / PAGE_SIZE)) }
+}
+
+/** Tous les identifiants correspondant aux filtres (pour « sélectionner tous les résultats »), 20 000 au plus. */
+export async function fetchAdminIds(supabase: TypedSupabaseClient, s: AdminListSearch): Promise<string[]> {
+  const ids: string[] = []
+  for (let from = 0; from < 20_000; from += 1000) {
+    const q = applyAdminFilters(supabase.from('titles').select(`id${genreJoin(s)}${s.genre === 'none' ? ', title_genres(genre_id)' : ''}`), s)
+    const { data, error } = await q.order('updated_at', { ascending: false }).order('id').range(from, from + 999)
+    if (error) throw error
+    const rows = (data ?? []) as unknown as { id: string }[]
+    ids.push(...rows.map((r) => r.id))
+    if (rows.length < 1000) break
+  }
+  return ids
+}
+
+const chunks = <T,>(list: T[], n: number) => Array.from({ length: Math.ceil(list.length / n) }, (_, i) => list.slice(i * n, i * n + n))
+
+// ───────── Actions groupées (par lots : longueur d'URL et délais)
+export async function bulkSetPublished(supabase: TypedSupabaseClient, ids: string[], value: boolean) {
+  for (const c of chunks(ids, 100)) {
+    const { error } = await supabase
+      .from('titles')
+      .update({ is_published: value, ...(value ? { published_at: new Date().toISOString() } : {}) })
+      .in('id', c)
+    if (error) throw error
+  }
+  void invalidateCatalogCache(supabase)
+}
+
+export async function bulkDelete(supabase: TypedSupabaseClient, ids: string[]) {
+  for (const c of chunks(ids, 100)) {
+    const { error } = await supabase.from('titles').delete().in('id', c)
+    if (error) throw error
+  }
+  void invalidateCatalogCache(supabase)
+}
+
+export async function bulkGenre(supabase: TypedSupabaseClient, ids: string[], genreId: number, add: boolean) {
+  for (const c of chunks(ids, 100)) {
+    const { error } = add
+      ? await supabase.from('title_genres').upsert(c.map((title_id) => ({ title_id, genre_id: genreId })), { onConflict: 'title_id,genre_id', ignoreDuplicates: true })
+      : await supabase.from('title_genres').delete().eq('genre_id', genreId).in('title_id', c)
+    if (error) throw error
+  }
+  void invalidateCatalogCache(supabase)
 }
 
 export async function fetchGenres(supabase: TypedSupabaseClient) {
