@@ -39,7 +39,12 @@ async function call<T>(path: string, d: ClientDebrid, params: Record<string, str
 /** Lien 1fichier → URL directe lisible par <video>. */
 export async function unlockInBrowser(d: ClientDebrid): Promise<{ url: string; ttl: number }> {
   const ttl = 2 * 3600
-  const data = await call<{ link?: string; delayed?: number }>('/link/unlock', d, { link: d.link })
+  // une coupure réseau ponctuelle (plusieurs débridages en parallèle) est réessayée une fois avant d'être signalée
+  const data = await call<{ link?: string; delayed?: number }>('/link/unlock', d, { link: d.link }).catch(async (e) => {
+    if (!(e instanceof DebridClientError && e.code === 'NETWORK')) throw e
+    await new Promise((r) => setTimeout(r, 400))
+    return call<{ link?: string; delayed?: number }>('/link/unlock', d, { link: d.link })
+  })
   if (data.link) return { url: data.link, ttl }
   if (data.delayed) {
     for (let i = 0; i < 6; i++) {

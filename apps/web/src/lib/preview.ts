@@ -10,9 +10,9 @@ import { DebridClientError, unlockInBrowser, type ClientDebrid } from '@/lib/all
 //  • liens gardés en mémoire ET dans le navigateur (retour sur une page = aucun nouvel appel).
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const BATCH = 24 // une requête serveur prépare jusqu'à 24 films (le coût fixe d'un appel est ~0,6 s)
-const UNLOCK_BUDGET_PER_MIN = 300 // moitié de la limite d'Alldebrid (600/min, 12/s)
+const UNLOCK_BUDGET_PER_MIN = 360 // 60 % de la limite d'Alldebrid (600/min) : le lecteur garde de la marge
 const FLUSH_DELAY_MS = 150 // regroupe les jaquettes qui apparaissent ensemble
-const UNLOCK_PARALLEL = 6 // un débridage dure ~1,2 s : 6 en parallèle = ~5 par seconde, sous les 12/s autorisés
+const UNLOCK_PARALLEL = 8 // mesuré le 8 nov. : 1 en parallèle = 1,5 lien/s, 3 = 2,4/s, 6 = 5,5/s (aucune sérialisation) ; limite d'Alldebrid : 12/s
 const UNLOCK_GAP_MS = 80
 const WARM_MAX = 600 // titres préparés par session (le cache n'est pas compté)
 const OK_TTL_MS = 100 * 60_000 // les liens Alldebrid valent ~2 h : on les jette un peu avant
