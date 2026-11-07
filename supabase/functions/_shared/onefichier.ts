@@ -9,11 +9,14 @@ const API = 'https://api.1fichier.com/v1'
 const LINK_TTL_S = 180 // un lien déjà obtenu est réutilisé 3 min (relectures, reprises, seek)
 const BREAKER_HOURS = 24
 
-export type Lane = { name: 'onefichier' | 'onefichier_admin'; gapMs: number; cap: number }
+export type Lane = { name: 'onefichier' | 'onefichier_admin' | 'onefichier_watch'; gapMs: number; cap: number }
 /** Lecture vidéo : ≥ 8 s entre deux appels, 120 / h */
 export const LANE_PLAY: Lane = { name: 'onefichier', gapMs: 8_000, cap: 120 }
 /** Explorateur / import admin : ≥ 4 s entre deux appels, 240 / h */
 export const LANE_ADMIN: Lane = { name: 'onefichier_admin', gapMs: 4_000, cap: 240 }
+
+/** Surveillance automatique : >= 8 s entre deux appels, 60 / h (environ 30 dossiers par heure) */
+export const LANE_WATCH: Lane = { name: 'onefichier_watch', gapMs: 8_000, cap: 60 }
 
 export type OnefichierFailure = 'offline' | 'host_busy' | 'auth' | 'unavailable'
 export class OnefichierError extends Error {

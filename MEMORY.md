@@ -682,7 +682,20 @@ Pixeldrain et Alldebrid ont été **abandonnés** (étapes 6, 7, 11 : ne plus s'
 - À déployer : `supabase db push` (0021) ; `supabase functions deploy onefichier-import resolve-stream` ; saisir la clé Alldebrid dans `/admin/security`
 - Limites : 240 appels admin/h → ~120 dossiers/h ; 5 000 fichiers max par dossier ; typecheck complet impossible (`routeTree.gen.ts` absent), syntaxe edge vérifiée seulement par transpilation
 
-## 🔴 Problème ouvert — lecture
+### Résultat (2026-11-07) ✅ LECTURE RÉSOLUE
+- Alldebrid refuse les IP de serveurs (`NO_SERVER` depuis Supabase) → **débridage dans le navigateur** (`apps/web/src/lib/alldebrid.ts`) : `resolve-stream` renvoie `clientDebrid {link,key,agent}` aux abonnés actifs ; plus de repli direct ; cache `stream:v6`. Lecture confirmée par l'utilisateur.
+- Risque assumé : la clé Alldebrid est visible dans l'onglet Réseau des abonnés → régénérer si abus
+- CSP `connect-src` autorise `api.alldebrid.com` ; `vercel.json` sans `cleanUrls` (404 sur liens directs)
+- Migrations 0017→0021 renommées en versions horodatées (la base les a enregistrées ainsi) ; CLI : `npx supabase db push --linked`, `functions deploy` sans `--linked`
+
+## Étape 31 — Surveillance, captures, nom du modèle, aperçu (2026-11-07) ⏳ NON DÉPLOYÉ
+- **Surveillance** : migration `20261107180000_watch_covers.sql` (testée dans un bloc annulé) — `watch_folders` (intervalle adaptatif 15 min → 24 h), `watch_config` (secret, url, clé anon), `watch_tick()` via **pg_cron toutes les 5 min** → `net.http_post` vers `onefichier-import` (JWT anon + en-tête `x-watch-secret` vérifié par `watch_verify`) ; voie 1fichier dédiée `onefichier_watch` (60 appels/h, 8 s d'écart, disjoncteur partagé) ; pause pendant un import en arrière-plan ; UI `WatchPanel` dans `/admin/import` (activer, analyser maintenant, stats). Active en cliquant « Activer » (enregistre URL + clé anon)
+- **Captures** : `/admin/captures` (`lib/captures.ts`) — débride (Alldebrid navigateur), capture un instant aléatoire (canvas, `crossOrigin=anonymous`), envoie dans le bucket public `covers`, remplace `poster_url`. S'arrête après 3 échecs de suite (**CORS Alldebrid non vérifié**). Le trigger du modèle n'écrase plus une vraie jaquette (seulement null / `#model`)
+- **Nom du modèle** au centre des cartes : `lib/model-names.ts` (titres→model_id par lots de 150 + table models en cache), `ModelName.tsx`, police/couleurs par hash (`modelNameStyle`, polices système : la CSP interdit les polices distantes)
+- **Aperçu au survol** : `HoverPreview.tsx` + `lib/preview.ts` — film seulement, souris seulement, délai 700 ms, file unique ≥ 1,2 s d'écart, cache 90 min, disjoncteur après 5 échecs ; `resolve-stream` accepte `preview:true` (ne compte pas comme lecture)
+- À déployer : `npx supabase db push --linked` ; `npx supabase functions deploy onefichier-import resolve-stream` ; push Vercel. Un import en cours reprend via le battement de cœur de la page Import
+
+## ~~Problème ouvert — lecture~~ (résolu ci-dessus)
 - Fichiers importés : `resolve-stream` renvoie 200 + URL, mais le lecteur reste sur la roue sans démarrer ; avancer dans la vidéo donne « Sources indisponibles »
 - Correctifs déployés : suppression de `probeStream` (double téléchargement), `refresh` → lien neuf (`force`)
 - Hypothèse non confirmée : le lien `get_token` n'accepte qu'une connexion / une requête (Range) → échec du seek et des mp4 dont l'index est en fin de fichier

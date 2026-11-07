@@ -91,6 +91,8 @@ export type ResolveParams = {
   audio?: string
   refresh?: boolean
   exclude?: string[]
+  /** aperçu / capture : ne compte pas comme une lecture (monitoring des fichiers) */
+  preview?: boolean
 }
 
 export async function resolveStream(supabase: TypedSupabaseClient, params: ResolveParams): Promise<StreamInfo> {

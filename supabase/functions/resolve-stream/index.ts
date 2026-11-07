@@ -6,7 +6,7 @@ import { denyIfBanned, denyIfNoSubscription } from '../_shared/guard.ts'
 import { background } from '../_shared/background.ts'
 import { ResolveError, resolveSource, type FailureKind, type MediaSource } from '../_shared/providers.ts'
 
-type Body = { profileId?: string; titleId?: string; episodeId?: string | null; quality?: string; audio?: string; refresh?: boolean; exclude?: string[] }
+type Body = { profileId?: string; titleId?: string; episodeId?: string | null; quality?: string; audio?: string; refresh?: boolean; exclude?: string[]; preview?: boolean }
 type CachedStream = { url: string; expiresAt: number }
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
@@ -39,7 +39,7 @@ async function handle(req: Request): Promise<Response> {
   } catch {
     return json({ error: 'invalid_body' }, 400)
   }
-  const { profileId, titleId, episodeId = null, quality, audio, refresh = false, exclude = [] } = body
+  const { profileId, titleId, episodeId = null, quality, audio, refresh = false, exclude = [], preview = false } = body
   if (audio !== undefined && !/^[a-z]{2,3}(-[A-Za-z0-9]{2,8})?$/.test(audio)) return json({ error: 'invalid_audio' }, 400)
   if (!profileId || !UUID.test(profileId)) return json({ error: 'profile_required' }, 400)
   if (!titleId || !UUID.test(titleId) || (episodeId && !UUID.test(episodeId))) return json({ error: 'invalid_ids' }, 400)
@@ -100,7 +100,7 @@ async function handle(req: Request): Promise<Response> {
     if (!refresh) {
       const hit = await cache.get<CachedStream>(key)
       if (hit && hit.expiresAt > Date.now() + 60_000) {
-        await background(admin.rpc('mark_source_streamed', { p_source_id: src.id })) // activité du fichier (monitoring)
+        if (!preview) await background(admin.rpc('mark_source_streamed', { p_source_id: src.id })) // activité du fichier (monitoring)
         return json({ url: hit.url, provider: src.provider, quality: src.quality, sourceId: src.id, qualities, audios, audio: src.audio_languages ?? [], expiresAt: hit.expiresAt, cached: true })
       }
     } else {
@@ -110,12 +110,12 @@ async function handle(req: Request): Promise<Response> {
       const r = await resolveSource(src, { refresh })
       if (r.clientDebrid) {
         // Débridage côté navigateur : rien à mettre en cache (la clé ne doit pas traîner dans Redis)
-        await background(admin.rpc('mark_source_streamed', { p_source_id: src.id }))
+        if (!preview) await background(admin.rpc('mark_source_streamed', { p_source_id: src.id }))
         return json({ url: '', clientDebrid: r.clientDebrid, provider: src.provider, quality: src.quality, sourceId: src.id, qualities, audios, audio: src.audio_languages ?? [], expiresAt: Date.now() + 2 * 3600 * 1000, cached: false })
       }
       const expiresAt = Date.now() + r.ttl * 1000
       await cache.set(key, { url: r.url, expiresAt } satisfies CachedStream, r.ttl - 120)
-      await background(admin.rpc('mark_source_streamed', { p_source_id: src.id })) // activité du fichier (monitoring)
+      if (!preview) await background(admin.rpc('mark_source_streamed', { p_source_id: src.id })) // activité du fichier (monitoring)
       await admin.from('media_sources').update({ last_checked_at: new Date().toISOString(), last_status: 200 }).eq('id', src.id)
       return json({ url: r.url, provider: src.provider, quality: src.quality, sourceId: src.id, qualities, audios, audio: src.audio_languages ?? [], expiresAt, cached: false })
     } catch (e) {

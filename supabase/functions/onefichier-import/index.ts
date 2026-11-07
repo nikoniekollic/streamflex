@@ -6,7 +6,7 @@ import { corsHeaders, json } from '../_shared/cors.ts'
 import { adminClient } from '../_shared/admin-client.ts'
 import { denyIfBanned } from '../_shared/guard.ts'
 import { background } from '../_shared/background.ts'
-import { LANE_ADMIN, OnefichierError, onefichierCall } from '../_shared/onefichier.ts'
+import { LANE_ADMIN, LANE_WATCH, OnefichierError, onefichierCall, type Lane } from '../_shared/onefichier.ts'
 
 const VIDEO_EXT = new Set(['mp4', 'mkv', 'avi', 'mov', 'm4v', 'webm', 'wmv', 'flv', 'mpg', 'mpeg', 'ts', 'm2ts'])
 const MAX_IMPORT = 100
@@ -67,10 +67,10 @@ async function guardFolder(folderId: number) {
   await db.from('api_governor').upsert({ name, last_call_at: new Date().toISOString() })
 }
 
-async function listFolder(folderId: number, annotate = true) {
+async function listFolder(folderId: number, annotate = true, lane: Lane = LANE_ADMIN) {
   await guardFolder(folderId)
   // 1) sous-dossiers (et fichiers si l'API les inclut déjà)
-  const body = await onefichierCall('folder/ls.cgi', { folder_id: folderId }, LANE_ADMIN)
+  const body = await onefichierCall('folder/ls.cgi', { folder_id: folderId }, lane)
   let rawItems: Record<string, unknown>[] = Array.isArray(body.items) ? body.items : Array.isArray(body.files) ? body.files : []
   const rawFolders: Record<string, unknown>[] = Array.isArray(body.sub_folders) ? body.sub_folders : Array.isArray(body.folders) ? body.folders : []
   const hadItems = 'items' in body || 'files' in body
@@ -78,7 +78,7 @@ async function listFolder(folderId: number, annotate = true) {
   // 2) fichiers du dossier : appel dédié (file/ls.cgi) seulement si le premier n'en contenait pas
   if (rawItems.length === 0) {
     try {
-      const fb = await onefichierCall('file/ls.cgi', { folder_id: folderId }, LANE_ADMIN)
+      const fb = await onefichierCall('file/ls.cgi', { folder_id: folderId }, lane)
       filesBody.keys = Object.keys(fb)
       rawItems = Array.isArray(fb.items) ? fb.items : Array.isArray(fb.files) ? fb.files : []
     } catch (e) {
@@ -208,6 +208,33 @@ function retrySeconds(message: string): number {
   return Math.min(Math.max(m ? Number(m[1]) + 2 : 60, 10), 600)
 }
 
+/** Importe les vidéos d'un dossier par lots (titres + sources) ; les fichiers déjà connus sont ignorés. */
+async function importVideos(videos: { id: string; name: string; size: number | null }[], modelName: string | null, publish: boolean) {
+  const db = adminClient()
+  let imported = 0
+  let ignored = 0
+  let failed = 0
+  const model = modelName && videos.length > 0 && modelName !== 'Racine' ? await ensureModel(modelName) : null
+  for (let i = 0; i < videos.length; i += BATCH_ROWS) {
+    const rows = videos.slice(i, i + BATCH_ROWS).map((f) => {
+      const title = cleanTitle(f.name)
+      return { id: f.id, slug: slugFor(title, f.id), title, quality: guessQuality(f.name), size: f.size, container: ext(f.name) }
+    })
+    const { data, error } = await db.rpc('import_onefichier_batch', {
+      p_files: rows,
+      p_publish: publish,
+      p_model_id: model?.id ?? null,
+      p_poster: model?.image_url ? `${model.image_url}#model` : null,
+    })
+    if (error) failed += rows.length
+    else {
+      imported += Number(data?.imported ?? 0)
+      ignored += Number(data?.ignored ?? 0)
+    }
+  }
+  return { imported, ignored, failed }
+}
+
 /** Traite UN dossier. Retourne true s'il reste du travail à enchaîner tout de suite. */
 async function tickOnce(jobId: string): Promise<boolean> {
   const db = adminClient()
@@ -228,28 +255,10 @@ async function tickOnce(jobId: string): Promise<boolean> {
   try {
     const listing = await listFolder(entry.id, false)
     const videos = listing.files.filter((f) => f.video)
-    let imported = 0
-    let ignored = listing.files.length - videos.length
-    let failed = 0
-    let model: Model | null = null
-    if (job.model_per_folder && entry.model && videos.length > 0) model = await ensureModel(entry.model)
-    for (let i = 0; i < videos.length; i += BATCH_ROWS) {
-      const rows = videos.slice(i, i + BATCH_ROWS).map((f) => {
-        const title = cleanTitle(f.name)
-        return { id: f.id, slug: slugFor(title, f.id), title, quality: guessQuality(f.name), size: f.size, container: ext(f.name) }
-      })
-      const { data, error } = await db.rpc('import_onefichier_batch', {
-        p_files: rows,
-        p_publish: job.publish === true,
-        p_model_id: model?.id ?? null,
-        p_poster: model?.image_url ? `${model.image_url}#model` : null,
-      })
-      if (error) failed += rows.length
-      else {
-        imported += Number(data?.imported ?? 0)
-        ignored += Number(data?.ignored ?? 0)
-      }
-    }
+    const r = await importVideos(videos, job.model_per_folder ? entry.model : null, job.publish === true)
+    const imported = r.imported
+    const ignored = listing.files.length - videos.length + r.ignored
+    const failed = r.failed
     const subs: QueueEntry[] = listing.folders.map((f) => ({ id: f.id, name: f.name, model: f.name }))
     const next = [...rest, ...subs]
     const finished = next.length === 0
@@ -321,6 +330,82 @@ async function resumeStalled() {
   for (const j of data ?? []) await background(runTick(j.id))
 }
 
+// ───────── Surveillance automatique : quelques dossiers « échus » par passage, fréquence adaptative
+async function watchTick(): Promise<string> {
+  const db = adminClient()
+  const note = async (message: string) => {
+    await db.from('watch_config').update({ last_tick_at: new Date().toISOString(), last_message: message.slice(0, 400) }).eq('id', 1)
+    return message
+  }
+  const { data: cfg } = await db.from('watch_config').select('enabled, publish, model_per_folder, folders_per_tick').eq('id', 1).single()
+  if (!cfg?.enabled) return 'désactivée'
+  const { count: busy } = await db.from('import_jobs').select('id', { count: 'exact', head: true }).in('status', ['pending', 'running', 'waiting'])
+  if ((busy ?? 0) > 0) return note('Import en cours : surveillance en pause')
+
+  const { data: due } = await db
+    .from('watch_folders')
+    .select('folder_id, name, interval_min')
+    .eq('active', true)
+    .lte('next_scan_at', new Date().toISOString())
+    .order('next_scan_at', { ascending: true })
+    .limit(cfg.folders_per_tick)
+  if (!due || due.length === 0) return note('Rien à analyser pour le moment')
+
+  let imported = 0
+  let newFolders = 0
+  let scanned = 0
+  let stopped: string | null = null
+  for (const f of due) {
+    try {
+      const listing = await listFolder(f.folder_id, false, LANE_WATCH)
+      const videos = listing.files.filter((x) => x.video)
+      const r = await importVideos(videos, cfg.model_per_folder ? f.name : null, cfg.publish === true)
+      let fresh = 0
+      if (listing.folders.length > 0) {
+        const { data } = await db
+          .from('watch_folders')
+          .upsert(listing.folders.map((x) => ({ folder_id: x.id, parent_id: f.folder_id, name: x.name })), { onConflict: 'folder_id', ignoreDuplicates: true })
+          .select('folder_id')
+        fresh = data?.length ?? 0
+      }
+      const hot = r.imported > 0 || fresh > 0
+      const interval = hot ? 15 : Math.min(f.interval_min * 2, 1440)
+      const { data: row } = await db.from('watch_folders').select('imported_total').eq('folder_id', f.folder_id).single()
+      await db
+        .from('watch_folders')
+        .update({
+          interval_min: interval,
+          next_scan_at: new Date(Date.now() + interval * 60_000).toISOString(),
+          last_scanned_at: new Date().toISOString(),
+          ...(hot ? { last_new_at: new Date().toISOString() } : {}),
+          files_seen: listing.files.length,
+          imported_total: Number(row?.imported_total ?? 0) + r.imported,
+        })
+        .eq('folder_id', f.folder_id)
+      imported += r.imported
+      newFolders += fresh
+      scanned++
+    } catch (e) {
+      const msg = (e as Error).message
+      if (e instanceof OnefichierError && e.failure === 'auth') {
+        stopped = msg
+        break
+      }
+      // occupé / injoignable / dossier disparu : on décale ce dossier, sans insister
+      const gone = e instanceof OnefichierError && e.failure === 'offline'
+      await db
+        .from('watch_folders')
+        .update({ next_scan_at: new Date(Date.now() + (gone ? 1440 : 20) * 60_000).toISOString(), ...(gone ? { active: false } : {}) })
+        .eq('folder_id', f.folder_id)
+      if (e instanceof OnefichierError && e.failure === 'host_busy') {
+        stopped = msg
+        break
+      }
+    }
+  }
+  return note(stopped ? `Arrêt : ${stopped}` : `${scanned} dossier(s) analysé(s), ${imported} nouveau(x) fichier(s), ${newFolders} nouveau(x) dossier(s)`)
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
   if (req.method !== 'POST') return json({ error: 'method_not_allowed' }, 405)
@@ -333,6 +418,15 @@ Deno.serve(async (req) => {
       return json({ accepted: true }, 202)
     }
     return json({ error: 'forbidden' }, 403)
+  }
+
+  // Réveil par pg_cron : le secret de la table watch_config authentifie l'appel
+  const watchSecret = req.headers.get('x-watch-secret')
+  if (watchSecret) {
+    const { data: ok } = await adminClient().rpc('watch_verify', { p_secret: watchSecret })
+    if (ok !== true) return json({ error: 'forbidden' }, 403)
+    await background(watchTick())
+    return json({ accepted: true }, 202)
   }
 
   const banned = await denyIfBanned(req)
@@ -357,6 +451,10 @@ Deno.serve(async (req) => {
       const folderId = Number(body.folder_id ?? 0)
       if (!Number.isInteger(folderId) || folderId < 0) return json({ error: 'invalid_folder' }, 400)
       return json(await listFolder(folderId))
+    }
+    if (body.action === 'watch_now') {
+      await background(watchTick())
+      return json({ accepted: true }, 202)
     }
     if (body.action === 'job_start') {
       const folderId = Number(body.folder_id ?? 0)

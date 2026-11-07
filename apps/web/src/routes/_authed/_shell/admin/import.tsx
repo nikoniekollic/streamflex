@@ -5,6 +5,7 @@ import { CheckCircle2, ChevronRight, CircleSlash, FileVideo, Folder, FolderDown,
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { ImportJobsPanel } from '@/components/admin/ImportJobsPanel'
+import { WatchPanel } from '@/components/admin/WatchPanel'
 import { importFiles, listFolder, startImportJob, type ImportResult, type Listing, type RemoteFile, type RemoteFolder } from '@/lib/onefichier-import'
 
 export const Route = createFileRoute('/_authed/_shell/admin/import')({
@@ -132,6 +133,7 @@ function ImportAdmin() {
   return (
     <div className="flex flex-col gap-5">
       <ImportJobsPanel supabase={supabase} refreshKey={jobsKey} />
+      <WatchPanel supabase={supabase} />
       <section className="flex flex-col gap-3 rounded-lg border p-4">
         <h2 className="flex items-center gap-2 font-semibold">
           <FolderDown className="size-5" /> Explorateur du compte 1fichier

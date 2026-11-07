@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { Play } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -5,6 +6,8 @@ import type { CatalogTitle } from '@/lib/catalog'
 import { FavoriteButton } from '@/components/catalog/FavoriteButton'
 import { GeneratedCover, ModelCover } from '@/components/catalog/GeneratedCover'
 import { isModelCover, stripModelMark } from '@/lib/cover'
+import { ModelName } from '@/components/catalog/ModelName'
+import { HoverPreview } from '@/components/catalog/HoverPreview'
 
 type MovieCardProps = {
   title: CatalogTitle
@@ -21,6 +24,7 @@ type MovieCardProps = {
 
 export function MovieCard({ title, variant = 'poster', progress, watch, favorite = true, caption, className }: MovieCardProps) {
   const isBackdrop = variant === 'backdrop'
+  const [hovered, setHovered] = useState(false)
   const src = isBackdrop ? (title.backdrop_url ?? title.poster_url) : (title.poster_url ?? title.backdrop_url)
 
   const content = (
@@ -40,7 +44,10 @@ export function MovieCard({ title, variant = 'poster', progress, watch, favorite
         <GeneratedCover seed={title.id} label={title.title} />
       )}
 
-      <div className="absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/90 via-black/20 to-transparent p-3 opacity-0 transition-opacity duration-300 group-focus-within/card:opacity-100 group-hover/card:opacity-100">
+      <ModelName titleId={title.id} />
+      {title.type === 'movie' && <HoverPreview titleId={title.id} active={hovered} />}
+
+      <div className="absolute inset-0 z-[3] flex flex-col justify-end bg-gradient-to-t from-black/90 via-black/20 to-transparent p-3 opacity-0 transition-opacity duration-300 group-focus-within/card:opacity-100 group-hover/card:opacity-100">
         <div className="flex items-center gap-2">
           <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-white text-black">
             <Play className="size-4 fill-current" />
@@ -99,6 +106,8 @@ export function MovieCard({ title, variant = 'poster', progress, watch, favorite
 
   return (
     <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       className={cn(
         'group/card relative overflow-hidden rounded-md bg-neutral-900',
         'transition-all duration-300 ease-out will-change-transform',
