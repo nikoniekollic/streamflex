@@ -18,3 +18,6 @@ verify_jwt = false   # appelé par pg_net ; authentifié par x-webhook-secret
 
 [functions.source-maintenance]
 verify_jwt = true    # admin uniquement (is_admin) : métadonnées / téléchargement de maintenance
+
+[functions.onefichier-import]
+verify_jwt = true    # admin uniquement (is_admin) : explorateur et import du compte 1fichier
