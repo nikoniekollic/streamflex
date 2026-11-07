@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { Play } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -25,6 +25,8 @@ type MovieCardProps = {
 export function MovieCard({ title, variant = 'poster', progress, watch, favorite = true, caption, className }: MovieCardProps) {
   const isBackdrop = variant === 'backdrop'
   const [hovered, setHovered] = useState(false)
+  const cardRef = useRef<HTMLDivElement>(null)
+  const isMovie = title.type === 'movie'
   const src = isBackdrop ? (title.backdrop_url ?? title.poster_url) : (title.poster_url ?? title.backdrop_url)
 
   const content = (
@@ -45,7 +47,7 @@ export function MovieCard({ title, variant = 'poster', progress, watch, favorite
       )}
 
       <ModelName titleId={title.id} />
-      {title.type === 'movie' && <HoverPreview titleId={title.id} active={hovered} />}
+      {isMovie && <HoverPreview title={title} active={hovered} cardRef={cardRef} />}
 
       <div className="absolute inset-0 z-[3] flex flex-col justify-end bg-gradient-to-t from-black/90 via-black/20 to-transparent p-3 opacity-0 transition-opacity duration-300 group-focus-within/card:opacity-100 group-hover/card:opacity-100">
         <div className="flex items-center gap-2">
@@ -106,13 +108,15 @@ export function MovieCard({ title, variant = 'poster', progress, watch, favorite
 
   return (
     <div
+      ref={cardRef}
       onPointerEnter={(e) => e.pointerType === 'mouse' && setHovered(true)}
       onPointerLeave={() => setHovered(false)}
       className={cn(
         'group/card relative overflow-hidden rounded-md bg-neutral-900',
-        'transition-all duration-300 ease-out will-change-transform',
-        'hover:z-10 hover:scale-105 hover:shadow-2xl hover:ring-2 hover:shadow-black/70 hover:ring-white/80',
-        'focus-within:z-10 focus-within:scale-105 focus-within:ring-2 focus-within:ring-white',
+        // Films : aucun transform sur la carte (le panneau d'aperçu en position fixe doit pouvoir sortir du carrousel)
+        isMovie ? 'transition-shadow duration-300' : 'transition-all duration-300 ease-out will-change-transform',
+        isMovie ? 'hover:z-10 hover:ring-2 hover:ring-white/80' : 'hover:z-10 hover:scale-105 hover:shadow-2xl hover:ring-2 hover:shadow-black/70 hover:ring-white/80',
+        isMovie ? 'focus-within:z-10 focus-within:ring-2 focus-within:ring-white' : 'focus-within:z-10 focus-within:scale-105 focus-within:ring-2 focus-within:ring-white',
         isBackdrop ? 'aspect-video' : 'aspect-[2/3]',
         className,
       )}
