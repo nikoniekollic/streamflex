@@ -27,6 +27,8 @@ export type PoolSlot = {
   order: number
   loading: boolean
   timer?: ReturnType<typeof setTimeout>
+  /** repli si le saut vers l'instant aléatoire traîne */
+  fallback?: ReturnType<typeof setTimeout>
   subs: Set<() => void>
 }
 
@@ -63,6 +65,7 @@ function destroy(slot: PoolSlot) {
   const i = waiting.indexOf(slot)
   if (i >= 0) waiting.splice(i, 1)
   releaseLoad(slot)
+  clearTimeout(slot.fallback)
   slot.el.pause()
   slot.el.removeAttribute('src')
   slot.el.load()
@@ -110,6 +113,7 @@ export function acquireSlot(titleId: string, url: string, clip: number, order = 
 
   const slot: PoolSlot = { titleId, url, el, ready: false, failed: false, anchor: 0, clip, attached: false, order, loading: false, subs: new Set() }
   const done = () => {
+    clearTimeout(slot.fallback)
     if (!slot.ready) {
       slot.ready = true
       notify(slot)
@@ -121,8 +125,16 @@ export function acquireSlot(titleId: string, url: string, clip: number, order = 
     const d = el.duration
     reportDuration(supabase, titleId, d)
     // instant aléatoire, assez tôt pour qu'il reste de quoi remplir l'extrait
-    if (Number.isFinite(d) && d > slot.clip * 2) el.currentTime = Math.min(d * (0.1 + Math.random() * 0.7), d - slot.clip - 1)
-    else done()
+    if (Number.isFinite(d) && d > slot.clip * 2) {
+      el.currentTime = Math.min(d * (0.1 + Math.random() * 0.7), d - slot.clip - 1)
+      // Mesuré : certains fichiers mettent 15 à 20 s à répondre à un saut (l'hébergeur rouvre le fichier à ce décalage).
+      // Au bout de 4 s on montre ce qui est déjà tamponné (le début du fichier) au lieu de laisser la jaquette sans image.
+      slot.fallback = setTimeout(() => {
+        if (slot.ready || !el.buffered.length) return
+        slot.anchor = Math.max(0, el.buffered.end(0) - 0.3)
+        el.currentTime = slot.anchor
+      }, 4000)
+    } else done()
   })
   el.addEventListener('seeked', () => {
     slot.anchor = el.currentTime
