@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { supabase } from '@/lib/supabase'
 import { useActiveProfile } from '@/components/profile/ActiveProfileContext'
-import { getPreviewUrl, type Wanted } from '@/lib/preview'
+import { getPreviewUrl, peekPreviewUrl, warmPreview, type Wanted } from '@/lib/preview'
 
 type ClipProps = {
   titleId: string
@@ -13,22 +13,53 @@ type ClipProps = {
   delayMs?: number
   /** son activé (aperçu au survol) ou muet (fond de la page d'un titre) */
   audio?: boolean
+  /** prépare le lien dès que l'élément est visible à l'écran (survol instantané ensuite) */
+  warm?: boolean
   className?: string
 }
 
 /** Extrait vidéo d'un instant aléatoire du film (lien Alldebrid débridé dans le navigateur), lu en boucle. */
-export function PreviewClip({ titleId, active, clipSeconds = 30, delayMs = 700, audio = false, className }: ClipProps) {
+export function PreviewClip({ titleId, active, clipSeconds = 30, delayMs = 700, audio = false, warm = false, className }: ClipProps) {
   const { activeProfile } = useActiveProfile()
   const [src, setSrc] = useState<string | null>(null)
   const [playing, setPlaying] = useState(false)
   const start = useRef(0)
   const profileId = activeProfile?.id
+  const sentinel = useRef<HTMLSpanElement>(null)
+
+  // Visible à l'écran ≥ 1,2 s (pas pendant un défilement rapide) → on résout le lien en avance
+  useEffect(() => {
+    const el = sentinel.current
+    if (!warm || !el || !profileId || !('IntersectionObserver' in window)) return
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const io = new IntersectionObserver(
+      ([entry]) => {
+        if (timer) clearTimeout(timer)
+        timer = entry.isIntersecting ? setTimeout(() => warmPreview(supabase, profileId, titleId), 1200) : null
+      },
+      { rootMargin: '100px' },
+    )
+    io.observe(el)
+    return () => {
+      io.disconnect()
+      if (timer) clearTimeout(timer)
+    }
+  }, [warm, profileId, titleId])
 
   useEffect(() => {
     if (!active || !profileId) {
       setSrc(null)
       setPlaying(false)
       return
+    }
+    // Lien déjà préparé : la vidéo démarre tout de suite, sans aucune attente
+    const ready = peekPreviewUrl(titleId)
+    if (ready) {
+      setSrc(ready)
+      return () => {
+        setSrc(null)
+        setPlaying(false)
+      }
     }
     const wanted: Wanted = { cancelled: false }
     const t = setTimeout(() => {
@@ -44,9 +75,12 @@ export function PreviewClip({ titleId, active, clipSeconds = 30, delayMs = 700, 
     }
   }, [active, profileId, titleId, delayMs])
 
-  if (!src) return null
+  const sentinelEl = warm ? <span ref={sentinel} aria-hidden className="pointer-events-none absolute inset-0" /> : null
+  // Structure stable : le repère observé ne doit jamais être recréé quand la vidéo apparaît
   return (
-    <video
+    <>
+    {sentinelEl}
+    {src && <video
       src={src}
       playsInline
       preload="auto"
@@ -81,12 +115,13 @@ export function PreviewClip({ titleId, active, clipSeconds = 30, delayMs = 700, 
         console.warn('[StreamFlex][preview] la vidéo ne se charge pas')
         setSrc(null)
       }}
-      className={cn('pointer-events-none size-full object-cover transition-opacity duration-500', playing ? 'opacity-100' : 'opacity-0', className)}
-    />
+      className={cn('pointer-events-none size-full object-cover transition-opacity duration-300', playing ? 'opacity-100' : 'opacity-0', className)}
+    />}
+    </>
   )
 }
 
 /** Aperçu au survol d'une jaquette : ~30 s aléatoires, avec le son. */
 export function HoverPreview({ titleId, active }: { titleId: string; active: boolean }) {
-  return <PreviewClip titleId={titleId} active={active} audio delayMs={600} className="absolute inset-0 z-[1]" />
+  return <PreviewClip titleId={titleId} active={active} audio warm delayMs={120} className="absolute inset-0 z-[1]" />
 }
