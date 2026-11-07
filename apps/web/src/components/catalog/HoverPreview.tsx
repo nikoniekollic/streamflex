@@ -40,6 +40,9 @@ export function PreviewClip({ titleId, active, clipSeconds = 30, delayMs = 700, 
   const profileId = activeProfile?.id
   const sentinel = useRef<HTMLSpanElement>(null)
   const video = useRef<HTMLVideoElement>(null)
+  // Image figée tirée de la vidéo (lue par le navigateur, sans rien stocker) : distingue les films entre eux
+  const [stillUrl, setStillUrl] = useState<string | null>(null)
+  const [stillReady, setStillReady] = useState(false)
 
   // Ce titre a-t-il une place parmi les quelques cartes qui jouent en silence ?
   useSyncExternalStore(subscribeAmbient, getAmbientVersion)
@@ -51,17 +54,28 @@ export function PreviewClip({ titleId, active, clipSeconds = 30, delayMs = 700, 
     const el = sentinel.current
     if (!warm || !el || !profileId || !('IntersectionObserver' in window)) return
     let timer: ReturnType<typeof setTimeout> | null = null
+    let alive = true
     const io = new IntersectionObserver(
       ([entry]) => {
         if (timer) clearTimeout(timer)
         timer = null
-        if (entry.isIntersecting) timer = setTimeout(() => void warmPreview(supabase, profileId, titleId), 1200)
+        if (entry.isIntersecting) {
+          timer = setTimeout(() => {
+            void warmPreview(supabase, profileId, titleId).then((url) => {
+              if (url && alive) setStillUrl(url)
+            })
+          }, 1200)
+        } else {
+          setStillUrl(null) // hors écran : on libère la connexion
+          setStillReady(false)
+        }
         setAmbientVisible(titleId, entry.isIntersecting && entry.intersectionRatio >= 0.6 && ambientAllowed())
       },
       { rootMargin: '100px', threshold: [0, 0.6] },
     )
     io.observe(el)
     return () => {
+      alive = false
       io.disconnect()
       if (timer) clearTimeout(timer)
       setAmbientVisible(titleId, false)
@@ -123,6 +137,23 @@ export function PreviewClip({ titleId, active, clipSeconds = 30, delayMs = 700, 
   return (
     <>
       {sentinelEl}
+      {stillUrl && warm && !(src && playing) && (
+        <video
+          key={stillUrl}
+          src={stillUrl}
+          muted
+          playsInline
+          preload="metadata"
+          aria-hidden
+          onLoadedMetadata={(e) => {
+            const v = e.currentTarget
+            if (Number.isFinite(v.duration) && v.duration > 20) v.currentTime = v.duration * (0.1 + Math.random() * 0.75)
+          }}
+          onSeeked={() => setStillReady(true)}
+          onError={() => setStillUrl(null)}
+          className={cn('pointer-events-none absolute inset-0 z-[1] size-full object-cover transition-opacity duration-500', stillReady ? 'opacity-100' : 'opacity-0')}
+        />
+      )}
       {src && mode && (
         <video
           key={mode}

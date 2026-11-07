@@ -5,9 +5,9 @@ import { resolveStream } from '@/lib/stream'
 // (file « préchauffage », lente et espacée), et le survol passe devant tout : quand la souris arrive,
 // le lien est déjà prêt et la vidéo démarre sans attendre l'Edge Function ni Alldebrid.
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-const WARM_GAP_MS = 1500 // préchauffage : un lien toutes les 1,5 s
+const WARM_GAP_MS = 800 // préchauffage : un lien toutes les 0,8 s
 const HOVER_GAP_MS = 250 // survol : quasi immédiat, légèrement lissé
-const WARM_MAX = 80 // plafond de liens préchauffés par session
+const WARM_MAX = 200 // plafond de liens préchauffés par session
 const OK_TTL_MS = 90 * 60_000 // les liens Alldebrid valent ~2 h
 const FAIL_TTL_MS = 10 * 60_000
 const BREAKER_AFTER = 5
