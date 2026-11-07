@@ -11,19 +11,22 @@ export type SecretName =
   | 'CATALOG_WEBHOOK_SECRET'
 
 const TTL_MS = 5 * 60_000
-const cache = new Map<SecretName, { value: string | undefined; at: number }>()
+// La PROMESSE est mise en cache : un lot de 24 films demande la clé 24 fois en même temps, une seule lecture du Vault part
+const cache = new Map<SecretName, { value: Promise<string | undefined>; at: number }>()
 
-export async function getSecret(name: SecretName): Promise<string | undefined> {
+export function getSecret(name: SecretName): Promise<string | undefined> {
   const hit = cache.get(name)
   if (hit && Date.now() - hit.at < TTL_MS) return hit.value
-  let value: string | undefined
-  try {
-    const { data, error } = await adminClient().rpc('get_api_key', { p_name: name })
-    if (!error && typeof data === 'string' && data) value = data
-  } catch {
-    /* Vault indisponible → fallback env */
-  }
-  value ??= Deno.env.get(name) || undefined
+  const value = (async () => {
+    let v: string | undefined
+    try {
+      const { data, error } = await adminClient().rpc('get_api_key', { p_name: name })
+      if (!error && typeof data === 'string' && data) v = data
+    } catch {
+      /* Vault indisponible → fallback env */
+    }
+    return v ?? (Deno.env.get(name) || undefined)
+  })()
   cache.set(name, { value, at: Date.now() })
   return value
 }

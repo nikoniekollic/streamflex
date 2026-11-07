@@ -114,6 +114,7 @@ export function MovieCard({ title, variant = 'poster', progress, watch, favorite
         to="/watch/$id"
         params={{ id: title.id }}
         search={search}
+        preload={false}
         className={linkClass}
         aria-label={`Lire ${title.title}`}
         onClick={(e) => {
@@ -130,6 +131,7 @@ export function MovieCard({ title, variant = 'poster', progress, watch, favorite
       <Link
         to="/title/$slug"
         params={{ slug: title.slug }}
+        preload={isMovie ? false : 'intent'} // film : le clic ouvre le lecteur, inutile de précharger la page de détail
         className={linkClass}
         aria-label={isMovie ? `Lire ${title.title}` : title.title}
         onClick={(e) => {
