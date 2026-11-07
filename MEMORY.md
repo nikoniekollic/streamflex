@@ -761,7 +761,7 @@ Pixeldrain et Alldebrid ont été **abandonnés** (étapes 6, 7, 11 : ne plus s'
 - Piège : sans garde, 48 cartes de modèles = 48 liens à débrider d'un coup → `CoverThumb` n'attend que les vignettes proches de l'écran (IntersectionObserver 500 px), rang = ligne puis colonne
 - `CoverThumb` : image de la vidéo au moment enregistré (`cover_pos`), via la réserve `video-pool` ; utilisé pour la colonne « Visuel » du catalogue admin et les cartes de modèles ; RPC `catalog_models` renvoie `cover_title_id` (film le plus récent) + `cover_pos`
 
-## Étape 42 — Position du nom, recapture des modèles, flèches du lecteur, roue crantée (2026-11-10) ⏳ migration `20261110100000_model_recapture.sql` + `resolve-stream` + site À DÉPLOYER
+## Étape 42 — Position du nom, recapture des modèles, flèches du lecteur, roue crantée (2026-11-10) ✅ déployé et vérifié (clic jaquette → file de 48 « Catalogue » à l'index cliqué ; flèches + roue + panneau avec images ; suivant ≈ 0,65 s ; recapture d'un modèle OK)
 - Apparence : position du nom des modèles (haut/centre/bas × gauche/centre/droite) ; lecteur : ajustement de la vidéo (bandes noires par défaut / remplir / étirer)
 - Admin → Modèles : cases à cocher, « Recapturer la sélection » / « Recapturer tous » (`admin_recapture_models` : film + moment au hasard, `models.cover_title_id`) ; avatar = image capturée
 - Lecteur : flèches précédent / suivant de part et d'autre de la vidéo ; **roue crantée avant « Marquer ce moment »** (qualité — la plus haute par défaut —, vitesse, ajustement de l'image) ; remplace l'ancien menu qualité
