@@ -8,6 +8,7 @@ import { CSS_POS, useSiteSettings, type CardFit, type Fit } from '@/lib/site-set
 import {
   ambientAllowed,
   cancelWarm,
+  directPreview,
   getAmbientVersion,
   getPreviewUrl,
   invalidatePreview,
@@ -120,6 +121,7 @@ export function HoverPreview({ title, active, coverPos }: { title: CatalogTitle;
     const el = sentinel.current
     if (!el || !profileId || !('IntersectionObserver' in window)) return
     let alive = true
+    const directWanted: Wanted = { cancelled: false }
     let leave: ReturnType<typeof setTimeout> | undefined
     // 1) Préparation du lien : zone élargie (700 px sous l'écran) → les jaquettes du bas sont prêtes avant d'arriver
     const warmIo = new IntersectionObserver(
@@ -127,11 +129,18 @@ export function HoverPreview({ title, active, coverPos }: { title: CatalogTitle;
         if (entry.isIntersecting) {
           const cached = peekPreviewUrl(titleId)
           if (cached) setUrl(cached)
-          else
-            void warmPreview(supabase, profileId, titleId, pageOrder(entry.boundingClientRect)).then((u) => {
-              if (u && alive) setUrl(u)
-            })
-        } else cancelWarm(titleId)
+          else {
+            directWanted.cancelled = false
+            void warmPreview(supabase, profileId, titleId, pageOrder(entry.boundingClientRect))
+              .then((u) => (u || !alive ? u : directPreview(supabase, profileId, titleId, directWanted))) // Alldebrid indisponible : lien direct 1fichier, un par un
+              .then((u) => {
+                if (u && alive) setUrl(u)
+              })
+          }
+        } else {
+          directWanted.cancelled = true
+          cancelWarm(titleId)
+        }
       },
       { rootMargin: '700px 0px', threshold: 0 },
     )
@@ -150,6 +159,7 @@ export function HoverPreview({ title, active, coverPos }: { title: CatalogTitle;
     viewIo.observe(el)
     return () => {
       alive = false
+      directWanted.cancelled = true
       warmIo.disconnect()
       viewIo.disconnect()
       clearTimeout(leave)
@@ -170,9 +180,11 @@ export function HoverPreview({ title, active, coverPos }: { title: CatalogTitle;
   useEffect(() => {
     if (!active || !profileId || url) return
     const wanted: Wanted = { cancelled: false }
-    void getPreviewUrl(supabase, profileId, titleId, wanted).then((u) => {
-      if (!wanted.cancelled && u) setUrl(u)
-    })
+    void getPreviewUrl(supabase, profileId, titleId, wanted)
+      .then((u) => (u || wanted.cancelled ? u : directPreview(supabase, profileId, titleId, wanted)))
+      .then((u) => {
+        if (!wanted.cancelled && u) setUrl(u)
+      })
     return () => {
       wanted.cancelled = true
     }
