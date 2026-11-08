@@ -1,0 +1,182 @@
+import { useCallback, useEffect, useRef, useState } from 'react'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import { Clock, Loader2, Pause, Play } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { useActiveProfile } from '@/components/profile/ActiveProfileContext'
+import { resolveMany } from '@/lib/preview'
+import { setExactLength } from '@/lib/model-names'
+import type { TypedSupabaseClient } from '@/lib/supabase'
+
+const BATCH = 24 // liens résolus en un seul appel serveur
+const PARALLEL = 14 // vidéos lues en même temps
+const PROBE_TIMEOUT_MS = 20_000
+const MAX_EMPTY_BATCHES = 5 // lots entiers sans aucune durée d'affilée : on s'arrête (liens refusés, Alldebrid en pause…)
+
+/** Lit la durée d'une vidéo (métadonnées seulement, quelques Ko). null si illisible. */
+function probe(url: string | null): Promise<number | null> {
+  if (!url) return Promise.resolve(null)
+  return new Promise((resolve) => {
+    const v = document.createElement('video')
+    v.preload = 'metadata'
+    v.muted = true
+    let timer: ReturnType<typeof setTimeout>
+    const end = (s: number | null) => {
+      clearTimeout(timer)
+      v.onloadedmetadata = null
+      v.onerror = null
+      v.removeAttribute('src')
+      v.load()
+      resolve(s)
+    }
+    timer = setTimeout(() => end(null), PROBE_TIMEOUT_MS)
+    v.onloadedmetadata = () => end(Number.isFinite(v.duration) && v.duration > 0 ? v.duration : null)
+    v.onerror = () => end(null)
+    v.src = url
+  })
+}
+
+async function mapLimit<T, R>(items: T[], limit: number, fn: (x: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = new Array(items.length)
+  let i = 0
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, async () => {
+      while (i < items.length) {
+        const k = i++
+        out[k] = await fn(items[k])
+      }
+    }),
+  )
+  return out
+}
+
+type Stats = { total: number; missing: number }
+type Progress = { read: number; failed: number; note: string }
+
+/**
+ * Lecture complète des durées : les vidéos publiées SANS durée connue sont lues une à une (métadonnées seulement), la durée réelle
+ * est enregistrée dans la base. Les vidéos qui en ont déjà une sont ignorées : relancer après un nouveau scan ne lit que les nouvelles.
+ */
+export function DurationScanPanel({ supabase }: { supabase: TypedSupabaseClient }) {
+  const db = supabase as unknown as SupabaseClient
+  const { activeProfile } = useActiveProfile()
+  const [stats, setStats] = useState<Stats | null>(null)
+  const [running, setRunning] = useState(false)
+  const [progress, setProgress] = useState<Progress>({ read: 0, failed: 0, note: '' })
+  const alive = useRef(false)
+
+  const loadStats = useCallback(async () => {
+    const base = () => db.from('titles').select('id', { count: 'exact', head: true }).eq('type', 'movie').eq('is_published', true)
+    const [all, missing] = await Promise.all([base(), base().is('duration_s', null)])
+    setStats({ total: all.count ?? 0, missing: missing.count ?? 0 })
+  }, [db])
+
+  useEffect(() => {
+    void loadStats()
+    return () => {
+      alive.current = false // quitter la page arrête la lecture (reprise possible : tout est enregistré au fil de l'eau)
+    }
+  }, [loadStats])
+
+  /** Lot suivant : identifiants + liens (la résolution du lot suivant démarre pendant la lecture du lot courant) */
+  const nextBatch = useCallback(
+    async (after: string) => {
+      const { data } = await db.from('titles').select('id').eq('type', 'movie').eq('is_published', true).is('duration_s', null).gt('id', after).order('id').limit(BATCH)
+      const ids = ((data ?? []) as { id: string }[]).map((r) => r.id)
+      return { ids, urls: ids.length && activeProfile ? resolveMany(supabase, activeProfile.id, ids) : Promise.resolve([] as (string | null)[]) }
+    },
+    [db, supabase, activeProfile],
+  )
+
+  const start = async () => {
+    if (!activeProfile || alive.current) return
+    alive.current = true
+    setRunning(true)
+    let read = 0
+    let failed = 0
+    let empty = 0
+    let note = ''
+    try {
+      let cur = await nextBatch('')
+      while (alive.current && cur.ids.length > 0) {
+        const next = nextBatch(cur.ids[cur.ids.length - 1]) // préparé pendant qu'on lit celui-ci
+        const urls = await cur.urls
+        const res = await mapLimit(cur.ids.map((id, i) => ({ id, url: urls[i] ?? null })), PARALLEL, async (x) => ({ id: x.id, s: await probe(x.url) }))
+        const ok = res.filter((r): r is { id: string; s: number } => r.s != null)
+        if (ok.length) {
+          const { error } = await db.rpc('admin_set_durations', { p_items: ok.map((r) => ({ id: r.id, s: Math.round(r.s) })) })
+          if (error) {
+            note = `Enregistrement impossible : ${error.message}`
+            break
+          }
+          ok.forEach((r) => setExactLength(r.id, r.s))
+        }
+        read += ok.length
+        failed += res.length - ok.length
+        empty = ok.length === 0 ? empty + 1 : 0
+        if (empty >= MAX_EMPTY_BATCHES) {
+          note = 'Arrêt : aucune durée lisible sur les derniers lots (liens refusés ou Alldebrid en pause). Réessaie dans quelques minutes.'
+          break
+        }
+        setProgress({ read, failed, note })
+        if (read % 240 < BATCH) void loadStats()
+        cur = await next
+      }
+      if (!note && alive.current) note = 'Terminé : toutes les vidéos lisibles ont maintenant leur durée.'
+    } catch (e) {
+      note = `Erreur : ${(e as Error).message}`
+    } finally {
+      alive.current = false
+      setRunning(false)
+      setProgress({ read, failed, note })
+      void loadStats()
+    }
+  }
+
+  const stop = () => {
+    alive.current = false
+  }
+
+  const done = stats ? stats.total - stats.missing : 0
+  const pct = stats && stats.total > 0 ? Math.round((done / stats.total) * 100) : 0
+
+  return (
+    <section className="flex flex-col gap-3 rounded-lg border p-4">
+      <h2 className="flex items-center gap-2 font-semibold">
+        <Clock className="size-5" /> Durées réelles des vidéos
+      </h2>
+      <p className="text-xs text-muted-foreground">
+        « Lecture » ouvre chaque vidéo qui n’a pas encore de durée (métadonnées seulement, quelques Ko) et enregistre sa durée réelle dans la base, pour l’affichage sur les jaquettes et le tri. Les vidéos qui en ont déjà une sont ignorées : après un nouveau scan, relance la
+        lecture, seules les nouvelles seront lues. Garde cet onglet ouvert pendant la lecture ; elle se reprend où elle en était.
+      </p>
+      <div className="flex flex-wrap items-center gap-3">
+        {running ? (
+          <Button variant="secondary" onClick={stop}>
+            <Pause className="size-4" /> Arrêter
+          </Button>
+        ) : (
+          <Button onClick={() => void start()} disabled={!activeProfile || !stats || stats.missing === 0}>
+            <Play className="size-4" /> Lecture
+          </Button>
+        )}
+        {running && <Loader2 className="size-4 animate-spin text-muted-foreground" />}
+        {stats && (
+          <span className="text-sm text-muted-foreground">
+            {done.toLocaleString('fr-FR')} / {stats.total.toLocaleString('fr-FR')} durées connues ({pct} %) · {stats.missing.toLocaleString('fr-FR')} à lire
+          </span>
+        )}
+      </div>
+      {stats && stats.total > 0 && (
+        <div className="h-2 overflow-hidden rounded-full bg-muted" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
+          <div className="h-full bg-primary transition-all" style={{ width: `${pct}%` }} />
+        </div>
+      )}
+      {(running || progress.read > 0 || progress.failed > 0) && (
+        <p className="text-xs text-muted-foreground">
+          Cette lecture : {progress.read.toLocaleString('fr-FR')} durée(s) enregistrée(s), {progress.failed.toLocaleString('fr-FR')} illisible(s) (fichier absent ou lien refusé : relues à la prochaine lecture).
+        </p>
+      )}
+      {progress.note && <p className="text-sm">{progress.note}</p>}
+      {!activeProfile && <p className="text-xs text-destructive">Choisis un profil pour lancer la lecture.</p>}
+    </section>
+  )
+}
