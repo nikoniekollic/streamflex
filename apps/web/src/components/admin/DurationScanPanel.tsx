@@ -80,7 +80,10 @@ export function DurationScanPanel({ supabase }: { supabase: TypedSupabaseClient 
   /** Lot suivant : identifiants + liens (la résolution du lot suivant démarre pendant la lecture du lot courant) */
   const nextBatch = useCallback(
     async (after: string) => {
-      const { data } = await db.from('titles').select('id').eq('type', 'movie').eq('is_published', true).is('duration_s', null).gt('id', after).order('id').limit(BATCH)
+      let q = db.from('titles').select('id').eq('type', 'movie').eq('is_published', true).is('duration_s', null)
+      if (after) q = q.gt('id', after)
+      const { data, error } = await q.order('id').limit(BATCH)
+      if (error) throw new Error(error.message)
       const ids = ((data ?? []) as { id: string }[]).map((r) => r.id)
       return { ids, urls: ids.length && activeProfile ? resolveMany(supabase, activeProfile.id, ids) : Promise.resolve([] as (string | null)[]) }
     },
