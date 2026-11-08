@@ -67,30 +67,38 @@ async function guardFolder(folderId: number) {
   await db.from('api_governor').upsert({ name, last_call_at: new Date().toISOString() })
 }
 
-async function listFolder(folderId: number, annotate = true, lane: Lane = LANE_ADMIN) {
+type Child = { id: number; name: string; date: string | null; files: number | null; size: number | null }
+
+const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : typeof v === 'string' && /^\d+$/.test(v) ? Number(v) : null)
+
+/**
+ * Liste un dossier. UN SEUL appel : `files: 1` ajoute les fichiers à la réponse (avant, un second appel `file/ls` doublait le
+ * temps, et sa limite de 12 s faisait répondre « 1fichier injoignable » sur les gros dossiers). Sans `files`, la réponse ne
+ * contient que les sous-dossiers, avec leur nombre de fichiers et leur taille (signature de changement), très légère.
+ */
+async function listFolder(folderId: number, opts: { annotate?: boolean; lane?: Lane; files?: boolean } = {}) {
+  const { annotate = true, lane = LANE_ADMIN, files: withFiles = true } = opts
   await guardFolder(folderId)
-  // 1) sous-dossiers (et fichiers si l'API les inclut déjà)
-  const body = await onefichierCall('folder/ls.cgi', { folder_id: folderId }, lane)
+  const body = await onefichierCall('folder/ls.cgi', { folder_id: folderId, ...(withFiles ? { files: 1 } : {}) }, lane)
   let rawItems: Record<string, unknown>[] = Array.isArray(body.items) ? body.items : Array.isArray(body.files) ? body.files : []
   const rawFolders: Record<string, unknown>[] = Array.isArray(body.sub_folders) ? body.sub_folders : Array.isArray(body.folders) ? body.folders : []
-  const hadItems = 'items' in body || 'files' in body
-  const filesBody: { keys: string[] } = { keys: [] }
-  // 2) fichiers du dossier : appel dédié (file/ls.cgi) seulement si le premier n'en contenait pas
-  if (rawItems.length === 0) {
+  // secours : si 1fichier a ignoré le drapeau `files` alors que le dossier contient des fichiers, un second appel dédié les liste
+  let usedFallback = false
+  if (withFiles && rawItems.length === 0 && (num(body.files) ?? 0) > 0) {
     try {
       const fb = await onefichierCall('file/ls.cgi', { folder_id: folderId }, lane)
-      filesBody.keys = Object.keys(fb)
       rawItems = Array.isArray(fb.items) ? fb.items : Array.isArray(fb.files) ? fb.files : []
+      usedFallback = true
     } catch (e) {
-      // dossier sans fichier : 1fichier peut répondre « KO » plutôt qu'une liste vide
       if (!(e instanceof OnefichierError) || e.failure !== 'offline') throw e
     }
   }
-  const capped = rawItems.length >= CAP
-  if (!hadItems && filesBody.keys.length === 0 && rawFolders.length === 0 && !('sub_folders' in body) && !('folders' in body)) {
+  const recognised = 'items' in body || 'sub_folders' in body || 'folders' in body || 'folder_id' in body || 'name' in body
+  if (!recognised) {
     console.error('[onefichier-import] réponse inattendue', Object.keys(body))
     throw new OnefichierError('unavailable', `Réponse 1fichier inattendue (champs : ${Object.keys(body).join(', ') || 'aucun'})`, 502)
   }
+  const capped = rawItems.length >= CAP
   const files: RemoteFile[] = []
   for (const it of rawItems) {
     const link = it.url ?? it.link ?? it.download_url ?? Object.values(it).find((v) => typeof v === 'string' && /1fichier\.com/.test(v))
@@ -99,22 +107,20 @@ async function listFolder(folderId: number, annotate = true, lane: Lane = LANE_A
     const ct = it['content-type'] ?? it.content_type ?? it.contentType
     files.push({ id, name: String(it.filename ?? it.name ?? id), size: Number(it.size) > 0 ? Number(it.size) : null, date: typeof it.date === 'string' ? it.date : null, ctype: typeof ct === 'string' ? ct : null })
   }
-  const folders = rawFolders
-    .map((f) => ({ id: Number(f.id), name: String(f.name ?? f.id), date: typeof f.create_date === 'string' ? f.create_date : null }))
+  const folders: Child[] = rawFolders
+    .map((f) => ({ id: Number(f.id), name: String(f.name ?? f.id), date: typeof f.create_date === 'string' ? f.create_date : null, files: num(f.files), size: num(f.size) }))
     .filter((f) => Number.isInteger(f.id))
   const known = annotate ? await knownIds(files.map((f) => f.id)) : new Set<string>()
-  const debug = {
-    keys: [...Object.keys(body), ...filesBody.keys.map((k) => `file/ls:${k}`)],
-    items: rawItems.length,
-    withId: files.length,
-    sampleKeys: rawItems[0] ? Object.keys(rawItems[0]) : [],
-    sampleUrl: rawItems[0] ? String(rawItems[0].url ?? '').slice(0, 60) : null,
-    sample: rawItems[0] ? JSON.stringify(rawItems[0]).slice(0, 400) : null,
-    foldersRaw: rawFolders.length,
-    hadItems,
+  console.log('[onefichier-import] ls', folderId, JSON.stringify({ items: rawItems.length, withId: files.length, folders: folders.length, withFiles, usedFallback }))
+  return {
+    folderName: String(body.name ?? ''),
+    folders,
+    files: files.map((f) => ({ ...f, known: known.has(f.id), video: isVideo(f) })),
+    capped,
+    ownFiles: num(body.files),
+    ownSize: num(body.size),
+    debug: { keys: Object.keys(body), items: rawItems.length, withId: files.length, sampleKeys: rawItems[0] ? Object.keys(rawItems[0]) : [], sampleUrl: rawItems[0] ? String(rawItems[0].url ?? '').slice(0, 60) : null, foldersRaw: rawFolders.length, hadItems: 'items' in body },
   }
-  console.log('[onefichier-import] ls', folderId, JSON.stringify(debug))
-  return { folderName: String(body.name ?? ''), folders, files: files.map((f) => ({ ...f, known: known.has(f.id), video: isVideo(f) })), debug, capped }
 }
 
 type Model = { id: string; image_url: string | null }
@@ -219,37 +225,82 @@ function retrySeconds(message: string): number {
   return Math.min(Math.max(m ? Number(m[1]) + 2 : 60, 10), 600)
 }
 
-/** Importe les vidéos d'un dossier par lots (titres + sources) ; les fichiers déjà connus sont ignorés. */
-async function importVideos(videos: { id: string; name: string; size: number | null }[], modelName: string | null, publish: boolean, reassign = false) {
+/**
+ * Synchronise les vidéos d'UN dossier avec la base (par lots de 500) : nouveaux fichiers importés, fichiers renommés (titre mis à
+ * jour s'il n'avait pas été modifié à la main), fichiers déplacés (modèle suivi), fichiers revenus (republiés). `complete` = la
+ * liste est entière (non plafonnée) : les fichiers de ce dossier qui n'y figurent plus sont marqués « manquants ».
+ */
+async function syncFolder(folderId: number, videos: { id: string; name: string; size: number | null }[], modelName: string | null, publish: boolean, reassign = false, complete = true) {
   const db = adminClient()
   let imported = 0
   let ignored = 0
   let failed = 0
   let fixed = 0
+  let renamed = 0
+  let restored = 0
+  let missing = 0
+  let suspect = false
   const model = modelName && videos.length > 0 && modelName !== 'Racine' ? await ensureModel(modelName) : null
   for (let i = 0; i < videos.length; i += BATCH_ROWS) {
     const rows = videos.slice(i, i + BATCH_ROWS).map((f) => {
       const title = cleanTitle(f.name)
-      return { id: f.id, slug: slugFor(title, f.id), title, quality: guessQuality(f.name), size: f.size, container: ext(f.name) }
+      return { id: f.id, slug: slugFor(title, f.id), title, name: f.name, quality: guessQuality(f.name), size: f.size, container: ext(f.name) }
     })
-    const { data, error } = await db.rpc('import_onefichier_batch', {
+    const { data, error } = await db.rpc('sync_onefichier_folder', {
+      p_folder: folderId,
       p_files: rows,
       p_publish: publish,
       p_model_id: model?.id ?? null,
       p_poster: model?.image_url ? `${model.image_url}#model` : null,
       p_reassign: reassign,
     })
-    if (error) failed += rows.length
-    else {
+    if (error) {
+      console.error('[onefichier-import] sync', folderId, error.message)
+      failed += rows.length
+    } else {
       imported += Number(data?.imported ?? 0)
       ignored += Number(data?.ignored ?? 0)
-      fixed += Number(data?.fixed ?? 0)
+      fixed += Number(data?.moved ?? 0)
+      renamed += Number(data?.renamed ?? 0)
+      restored += Number(data?.restored ?? 0)
     }
   }
-  return { imported, ignored, failed, fixed }
+  if (complete && failed === 0) {
+    const { data, error } = await db.rpc('sync_onefichier_missing', { p_folder: folderId, p_ids: videos.map((v) => v.id) })
+    if (!error) {
+      missing = Number(data?.missing ?? 0)
+      suspect = data?.suspect === true
+    }
+  }
+  return { imported, ignored, failed, fixed, renamed, restored, missing, suspect }
 }
 
-/** Traite UN dossier. Retourne true s'il reste du travail à enchaîner tout de suite. */
+const JOB_PARALLEL = 4 // dossiers listés en même temps (le régulateur espace les appels : 1,4 requête/s au plus)
+
+type JobRow = { model_per_folder: boolean; publish: boolean; reassign: boolean; model_mode: string }
+type Outcome =
+  | { ok: true; entry: QueueEntry; listing: Awaited<ReturnType<typeof listFolder>>; r: Awaited<ReturnType<typeof syncFolder>>; subs: QueueEntry[] }
+  | { ok: false; entry: QueueEntry; kind: 'auth' | 'transient' | 'skip'; msg: string }
+
+/** Liste et synchronise UN dossier de l'import. */
+async function scanForJob(entry: QueueEntry, job: JobRow): Promise<Outcome> {
+  try {
+    const listing = await listFolder(entry.id, { annotate: false })
+    const videos = listing.files.filter((f) => f.video)
+    const r = await syncFolder(entry.id, videos, job.model_per_folder ? entry.model : null, job.publish === true, job.reassign === true, !listing.capped)
+    const subs: QueueEntry[] = listing.folders.map((f) => ({ id: f.id, name: f.name, model: childModel(entry, f.name, job.model_mode), depth: (entry.depth ?? 0) + 1 }))
+    return { ok: true, entry, listing, r, subs }
+  } catch (e) {
+    const msg = (e as Error).message
+    if (e instanceof OnefichierError && e.failure === 'auth') return { ok: false, entry, kind: 'auth', msg }
+    const transient = e instanceof OnefichierError && (e.failure === 'host_busy' || e.failure === 'unavailable')
+    if (transient && (entry.tries ?? 0) + 1 < MAX_TRIES * 3) return { ok: false, entry, kind: 'transient', msg }
+    console.error('[onefichier-import] dossier ignoré', entry.id, msg)
+    return { ok: false, entry, kind: 'skip', msg }
+  }
+}
+
+/** Traite un lot de dossiers (jusqu'à JOB_PARALLEL à la fois). Retourne true s'il reste du travail à enchaîner tout de suite. */
 async function tickOnce(jobId: string): Promise<boolean> {
   const db = adminClient()
   const { data: locked } = await db.rpc('import_job_lock', { p_job: jobId, p_seconds: 150 })
@@ -264,61 +315,73 @@ async function tickOnce(jobId: string): Promise<boolean> {
     await done({ status: 'completed', completed_at: new Date().toISOString(), current_folder: null, last_message: 'Terminé' })
     return false
   }
-  const entry = queue[0]
-  const rest = queue.slice(1)
-  try {
-    const listing = await listFolder(entry.id, false)
-    const videos = listing.files.filter((f) => f.video)
-    const r = await importVideos(videos, job.model_per_folder ? entry.model : null, job.publish === true, job.reassign === true)
-    const imported = r.imported
-    const ignored = listing.files.length - videos.length + r.ignored
-    const failed = r.failed
-    const subs: QueueEntry[] = listing.folders.map((f) => ({ id: f.id, name: f.name, model: childModel(entry, f.name, job.model_mode), depth: (entry.depth ?? 0) + 1 }))
-    const next = [...rest, ...subs]
-    const finished = next.length === 0
-    await done({
-      queue: next,
-      status: finished ? 'completed' : 'running',
-      completed_at: finished ? new Date().toISOString() : null,
-      folders_done: job.folders_done + 1,
-      files_seen: Number(job.files_seen) + listing.files.length,
-      imported: Number(job.imported) + imported,
-      ignored: Number(job.ignored) + ignored,
-      failed: Number(job.failed) + failed,
-      current_folder: finished ? null : next[0].name,
-      resume_at: null,
-      last_message: `${entry.name}${entry.model && entry.model !== entry.name ? ` (modèle ${entry.model})` : ''} : ${imported} importés${r.fixed ? `, ${r.fixed} corrigés` : ''}, ${ignored} ignorés${listing.capped ? ' — ⚠ dossier plafonné à 5 000 (répartis en sous-dossiers)' : ''}${failed ? `, ${failed} échecs` : ''}`,
-    })
-    return !finished
-  } catch (e) {
-    const msg = (e as Error).message
-    if (e instanceof OnefichierError && e.failure === 'auth') {
-      await done({ status: 'error', last_message: msg }) // disjoncteur / clé invalide : on s'arrête
-      return false
+  const batch = queue.slice(0, JOB_PARALLEL)
+  const rest = queue.slice(JOB_PARALLEL)
+  const outcomes = await Promise.all(batch.map((entry) => scanForJob(entry, job as JobRow)))
+
+  let imported = 0
+  let ignored = 0
+  let failed = 0
+  let seen = 0
+  let foldersDone = 0
+  let fixed = 0
+  let removedHint = 0
+  let authMsg: string | null = null
+  let waitS = 0
+  let waitMsg = ''
+  const retry: QueueEntry[] = []
+  const subs: QueueEntry[] = []
+  const lines: string[] = []
+  for (const o of outcomes) {
+    if (o.ok) {
+      const nonVideo = o.listing.files.length - o.listing.files.filter((f) => f.video).length
+      foldersDone++
+      seen += o.listing.files.length
+      imported += o.r.imported
+      ignored += nonVideo + o.r.ignored
+      failed += o.r.failed
+      fixed += o.r.fixed + o.r.renamed
+      removedHint += o.r.missing
+      subs.push(...o.subs)
+      lines.push(`${o.entry.name}${o.entry.model && o.entry.model !== o.entry.name ? ` (modèle ${o.entry.model})` : ''} : ${o.r.imported} importés${o.r.fixed || o.r.renamed ? `, ${o.r.fixed + o.r.renamed} corrigés` : ''}${o.listing.capped ? ' — ⚠ plafonné à 5 000 (répartis en sous-dossiers)' : ''}`)
+    } else if (o.kind === 'auth') authMsg = o.msg
+    else if (o.kind === 'transient') {
+      retry.push({ ...o.entry, tries: (o.entry.tries ?? 0) + 1 })
+      waitS = Math.max(waitS, retrySeconds(o.msg))
+      waitMsg = `${o.entry.name} : ${o.msg}`
+    } else {
+      foldersDone++
+      failed++
+      lines.push(`${o.entry.name} : ignoré — ${o.msg}`)
     }
-    const tries = (entry.tries ?? 0) + 1
-    const transient = e instanceof OnefichierError && (e.failure === 'host_busy' || e.failure === 'unavailable')
-    if (transient && tries < MAX_TRIES * 3) {
-      const wait = retrySeconds(msg)
-      await done({
-        queue: [{ ...entry, tries }, ...rest],
-        status: 'waiting',
-        resume_at: new Date(Date.now() + wait * 1000).toISOString(),
-        last_message: `${entry.name} : en attente de 1fichier (${wait} s) — ${msg}`,
-      })
-      return false // repris par le battement de cœur de l'interface (job_status)
-    }
-    console.error('[onefichier-import] dossier ignoré', entry.id, msg)
-    await done({
-      queue: rest,
-      status: rest.length ? 'running' : 'completed',
-      completed_at: rest.length ? null : new Date().toISOString(),
-      folders_done: job.folders_done + 1,
-      failed: Number(job.failed) + 1,
-      last_message: `${entry.name} : ignoré — ${msg}`,
-    })
-    return rest.length > 0
   }
+  const next = [...retry, ...rest, ...subs]
+  const progress = {
+    queue: next,
+    folders_done: job.folders_done + foldersDone,
+    files_seen: Number(job.files_seen) + seen,
+    imported: Number(job.imported) + imported,
+    ignored: Number(job.ignored) + ignored,
+    failed: Number(job.failed) + failed,
+  }
+  if (authMsg) {
+    await done({ ...progress, status: 'error', last_message: authMsg }) // disjoncteur / clé invalide : on s'arrête
+    return false
+  }
+  if (retry.length > 0 && foldersDone === 0) {
+    await done({ ...progress, status: 'waiting', resume_at: new Date(Date.now() + waitS * 1000).toISOString(), last_message: `en attente de 1fichier (${waitS} s) — ${waitMsg}` })
+    return false // repris par le battement de cœur de l'interface (job_status)
+  }
+  const finished = next.length === 0
+  await done({
+    ...progress,
+    status: finished ? 'completed' : 'running',
+    completed_at: finished ? new Date().toISOString() : null,
+    current_folder: finished ? null : next[0].name,
+    resume_at: null,
+    last_message: `${lines.slice(0, 3).join(' · ')}${lines.length > 3 ? ` · +${lines.length - 3} dossiers` : ''}${fixed ? ` · ${fixed} fichiers mis à jour` : ''}${removedHint ? ` · ${removedHint} absents` : ''}`,
+  })
+  return !finished
 }
 
 /** Enchaîne les dossiers pendant ~90 s, puis relance un nouveau tick pour la suite. */
@@ -344,7 +407,118 @@ async function resumeStalled() {
   for (const j of data ?? []) await background(runTick(j.id))
 }
 
-// ───────── Surveillance automatique : quelques dossiers « échus » par passage, fréquence adaptative
+// ───────── Surveillance permanente : signature des dossiers, relevés ciblés, synchronisation (suppression / déplacement / renommage)
+//  • un dossier qui a des sous-dossiers est relu toutes les 10 min SANS ses fichiers (réponse légère : sous-dossiers + leur nombre de
+//    fichiers et leur taille) ; un sous-dossier dont la signature a changé est marqué « à relire en entier » ;
+//  • un dossier sans sous-dossier n'est relu en entier que s'il a changé, ou une fois par jour (filet de sécurité : renommages) ;
+//  • chaque relevé complet synchronise la base : nouveaux, renommés, déplacés ; les fichiers absents sont retirés après un délai de grâce.
+const STRUCTURE_MIN = 10
+const FULL_MAX_H = 24
+const GRACE_MIN = 90
+const WATCH_BUDGET_MS = 100_000
+const WATCH_PARALLEL = 3
+
+type WatchRow = {
+  folder_id: number
+  parent_id: number | null
+  name: string
+  model_name: string | null
+  has_children: boolean
+  force_full: boolean
+  full_at: string | null
+  files_count: number | null
+  size_bytes: number | null
+  parent_files: number | null
+  parent_size: number | null
+  imported_total: number
+}
+type WatchStats = { scanned: number; full: number; imported: number; fresh: number; updated: number; missing: number; suspect: boolean; stopped: string | null }
+
+/** Un listage par dossier toutes les 30 s au plus (règle 1fichier) : un dossier listé trop récemment attend la passe suivante. */
+async function folderReady(folderId: number): Promise<boolean> {
+  const { data } = await adminClient().from('api_governor').select('last_call_at').eq('name', `ls:${folderId}`).maybeSingle()
+  return !data?.last_call_at || Date.now() - new Date(data.last_call_at).getTime() > (FOLDER_GAP_S + 2) * 1000
+}
+
+async function scanWatched(f: WatchRow, cfg: { model_per_folder: boolean; publish: boolean }, st: WatchStats) {
+  const db = adminClient()
+  const iso = (ms: number) => new Date(Date.now() + ms).toISOString()
+  if (!(await folderReady(f.folder_id))) return
+  const sigChanged = (f.parent_files ?? -1) !== (f.files_count ?? -1) || (f.parent_size ?? -1) !== (f.size_bytes ?? -1)
+  const stale = !f.full_at || Date.now() - new Date(f.full_at).getTime() > FULL_MAX_H * 3_600_000
+  const full = f.force_full || stale || sigChanged || !f.has_children
+  try {
+    const listing = await listFolder(f.folder_id, { annotate: false, lane: LANE_WATCH, files: full })
+    const { data: ch } = await db.rpc('watch_apply_children', {
+      p_parent: f.folder_id,
+      p_children: listing.folders.map((c) => ({ id: c.id, name: c.name, files: c.files, size: c.size })),
+    })
+    st.fresh += Number(ch?.fresh ?? 0)
+    st.scanned++
+    const isRoot = f.folder_id === 0 || f.parent_id == null
+    const hasChildren = listing.folders.length > 0
+    if (full) {
+      const videos = listing.files.filter((x) => x.video)
+      const r = await syncFolder(f.folder_id, videos, cfg.model_per_folder ? f.model_name : null, cfg.publish === true, false, !listing.capped)
+      // signature relevée : celle annoncée par le parent (la racine n'a que la sienne)
+      const { data: cur } = await db.from('watch_folders').select('parent_files, parent_size').eq('folder_id', f.folder_id).single()
+      const sig = isRoot ? { files: listing.ownFiles, size: listing.ownSize } : { files: cur?.parent_files ?? null, size: cur?.parent_size ?? null }
+      await db
+        .from('watch_folders')
+        .update({
+          files_count: sig.files,
+          size_bytes: sig.size,
+          ...(isRoot ? { parent_files: sig.files, parent_size: sig.size } : {}),
+          full_at: new Date().toISOString(),
+          force_full: false,
+          has_children: hasChildren,
+          capped: listing.capped,
+          files_seen: listing.files.length,
+          imported_total: Number(f.imported_total) + r.imported,
+          last_scanned_at: new Date().toISOString(),
+          ...(r.imported > 0 ? { last_new_at: new Date().toISOString() } : {}),
+          interval_min: hasChildren ? STRUCTURE_MIN : FULL_MAX_H * 60,
+          next_scan_at: iso((hasChildren ? STRUCTURE_MIN : FULL_MAX_H * 60) * 60_000),
+        })
+        .eq('folder_id', f.folder_id)
+      st.full++
+      st.imported += r.imported
+      st.updated += r.renamed + r.fixed + r.restored
+      st.missing += r.missing
+      st.suspect ||= r.suspect
+    } else {
+      // relevé léger : seul le dossier racine annonce lui-même sa signature
+      let force = false
+      if (isRoot && listing.ownFiles != null) {
+        force = listing.ownFiles !== f.files_count || listing.ownSize !== f.size_bytes
+        await db.from('watch_folders').update({ parent_files: listing.ownFiles, parent_size: listing.ownSize }).eq('folder_id', f.folder_id)
+      }
+      await db
+        .from('watch_folders')
+        .update({
+          has_children: hasChildren,
+          last_scanned_at: new Date().toISOString(),
+          next_scan_at: force ? iso((FOLDER_GAP_S + 8) * 1000) : iso(STRUCTURE_MIN * 60_000),
+          ...(force ? { force_full: true } : {}),
+        })
+        .eq('folder_id', f.folder_id)
+    }
+  } catch (e) {
+    const msg = (e as Error).message
+    if (e instanceof OnefichierError && e.failure === 'auth') {
+      st.stopped = msg
+      return
+    }
+    if (e instanceof OnefichierError && e.failure === 'offline') {
+      // dossier introuvable (supprimé) : une seule fois (les 404 répétés font bannir) ; le balayage retire ses fichiers après le délai de grâce
+      await db.from('watch_folders').update({ missing_since: new Date().toISOString(), next_scan_at: iso(24 * 3_600_000) }).eq('folder_id', f.folder_id).is('missing_since', null)
+      return
+    }
+    await db.from('watch_folders').update({ next_scan_at: iso(10 * 60_000) }).eq('folder_id', f.folder_id) // occupé / injoignable : on décale
+    if (e instanceof OnefichierError && e.failure === 'host_busy') st.stopped = msg
+  }
+}
+
 async function watchTick(): Promise<string> {
   const db = adminClient()
   const note = async (message: string) => {
@@ -358,74 +532,40 @@ async function watchTick(): Promise<string> {
 
   const { data: due } = await db
     .from('watch_folders')
-    .select('folder_id, parent_id, name, model_name, interval_min')
+    .select('folder_id, parent_id, name, model_name, has_children, force_full, full_at, files_count, size_bytes, parent_files, parent_size, imported_total')
     .eq('active', true)
+    .is('missing_since', null)
     .lte('next_scan_at', new Date().toISOString())
+    .order('force_full', { ascending: false })
     .order('next_scan_at', { ascending: true })
     .limit(cfg.folders_per_tick)
-  if (!due || due.length === 0) return note('Rien à analyser pour le moment')
-
-  let imported = 0
-  let newFolders = 0
-  let scanned = 0
-  let stopped: string | null = null
-  for (const f of due) {
-    try {
-      const listing = await listFolder(f.folder_id, false, LANE_WATCH)
-      const videos = listing.files.filter((x) => x.video)
-      const r = await importVideos(videos, cfg.model_per_folder ? f.model_name : null, cfg.publish === true)
-      let fresh = 0
-      if (listing.folders.length > 0) {
-        const { data } = await db
-          .from('watch_folders')
-          .upsert(
-            listing.folders.map((x) => ({
-              folder_id: x.id,
-              parent_id: f.folder_id,
-              name: x.name,
-              // juste sous la racine : le dossier est un modèle ; plus bas (ou dossier générique) : il hérite
-              model_name: f.folder_id === 0 || f.parent_id == null ? (GENERIC_FOLDER.test(x.name.trim()) ? null : x.name) : f.model_name,
-            })),
-            { onConflict: 'folder_id', ignoreDuplicates: true })
-          .select('folder_id')
-        fresh = data?.length ?? 0
-      }
-      const hot = r.imported > 0 || fresh > 0
-      const interval = hot ? 15 : Math.min(f.interval_min * 2, 1440)
-      const { data: row } = await db.from('watch_folders').select('imported_total').eq('folder_id', f.folder_id).single()
-      await db
-        .from('watch_folders')
-        .update({
-          interval_min: interval,
-          next_scan_at: new Date(Date.now() + interval * 60_000).toISOString(),
-          last_scanned_at: new Date().toISOString(),
-          ...(hot ? { last_new_at: new Date().toISOString() } : {}),
-          files_seen: listing.files.length,
-          imported_total: Number(row?.imported_total ?? 0) + r.imported,
-        })
-        .eq('folder_id', f.folder_id)
-      imported += r.imported
-      newFolders += fresh
-      scanned++
-    } catch (e) {
-      const msg = (e as Error).message
-      if (e instanceof OnefichierError && e.failure === 'auth') {
-        stopped = msg
-        break
-      }
-      // occupé / injoignable / dossier disparu : on décale ce dossier, sans insister
-      const gone = e instanceof OnefichierError && e.failure === 'offline'
-      await db
-        .from('watch_folders')
-        .update({ next_scan_at: new Date(Date.now() + (gone ? 1440 : 20) * 60_000).toISOString(), ...(gone ? { active: false } : {}) })
-        .eq('folder_id', f.folder_id)
-      if (e instanceof OnefichierError && e.failure === 'host_busy') {
-        stopped = msg
-        break
-      }
+  const st: WatchStats = { scanned: 0, full: 0, imported: 0, fresh: 0, updated: 0, missing: 0, suspect: false, stopped: null }
+  const list = (due ?? []) as WatchRow[]
+  const t0 = Date.now()
+  let i = 0
+  const worker = async () => {
+    while (!st.stopped && Date.now() - t0 < WATCH_BUDGET_MS) {
+      const f = list[i++]
+      if (!f) return
+      await scanWatched(f, cfg, st)
     }
   }
-  return note(stopped ? `Arrêt : ${stopped}` : `${scanned} dossier(s) analysé(s), ${imported} nouveau(x) fichier(s), ${newFolders} nouveau(x) dossier(s)`)
+  await Promise.all(Array.from({ length: WATCH_PARALLEL }, worker))
+
+  // balayage : retire du site ce qui manque depuis plus de GRACE_MIN minutes (dépublié, jamais effacé : revient si le fichier revient)
+  let swept = ''
+  if (!st.stopped) {
+    const { data: sw } = await db.rpc('sync_onefichier_sweep', { p_grace_min: GRACE_MIN })
+    const removed = Number(sw?.files_removed ?? 0)
+    const gone = Number(sw?.folders_gone ?? 0)
+    if (removed || gone) swept = `, ${removed} fichier(s) retiré(s)${gone ? ` (${gone} dossier(s) disparu(s))` : ''}`
+  }
+  if (list.length === 0) return note(`Rien à relire pour le moment${swept}`)
+  return note(
+    st.stopped
+      ? `Arrêt : ${st.stopped}`
+      : `${st.scanned} dossier(s) relu(s) (${st.full} en entier), ${st.imported} nouveau(x), ${st.updated} mis à jour, ${st.missing} absent(s), ${st.fresh} nouveau(x) dossier(s)${swept}${st.suspect ? ' — ⚠ liste douteuse ignorée' : ''}`,
+  )
 }
 
 Deno.serve(async (req) => {

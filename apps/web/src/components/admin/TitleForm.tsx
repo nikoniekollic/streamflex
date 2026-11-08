@@ -109,7 +109,7 @@ export function TitleForm({ initial, genres: initialGenres, onSaved, onCancel, e
                     <FormLabel>Type</FormLabel>
                     <FormControl>
                       <NativeSelect {...field} disabled={isEdit}>
-                        <option value="movie">Film</option>
+                        <option value="movie">Vidéo</option>
                         <option value="series">Série</option>
                       </NativeSelect>
                     </FormControl>

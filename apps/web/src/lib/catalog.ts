@@ -53,7 +53,7 @@ export function buildRows(titles: CatalogTitle[], genreOrder: { slug: string; na
     if (list.length >= MIN_ROW_SIZE) rows.push({ key: `genre-${g.slug}`, label: g.name, titles: list })
   }
   if (series.length >= MIN_ROW_SIZE) rows.push({ key: 'series', label: 'Séries', titles: series.slice(0, ROW_LIMIT) })
-  if (movies.length >= MIN_ROW_SIZE) rows.push({ key: 'movies', label: 'Films', titles: movies.slice(0, ROW_LIMIT) })
+  if (movies.length >= MIN_ROW_SIZE) rows.push({ key: 'videos', label: 'Vidéos', titles: movies.slice(0, ROW_LIMIT) })
 
   return rows
 }

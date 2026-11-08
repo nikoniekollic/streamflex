@@ -68,8 +68,9 @@ export function WatchPanel({ supabase }: { supabase: TypedSupabaseClient }) {
         <Eye className="size-5" /> Surveillance automatique
       </h2>
       <p className="text-xs text-muted-foreground">
-        Toutes les 5 minutes, quelques dossiers « échus » sont relus (budget dédié : 60 appels / h, ≥ 8 s d'écart). Un dossier où il y a du neuf est revu toutes les 15 min ; sans nouveauté, l'intervalle double jusqu'à 24 h. Les nouveaux
-        dossiers et fichiers sont importés seuls. La surveillance se met en pause pendant un import en arrière-plan.
+        Surveillance permanente, sans effort : les dossiers qui en contiennent d'autres sont relus toutes les 10 min (réponse légère avec le nombre de fichiers et la taille de chaque sous-dossier), et seuls
+        ceux qui ont changé sont relus en entier (les autres une fois par jour). Nouveaux fichiers et dossiers : importés seuls. Fichier ou dossier renommé : le titre ou le modèle suit. Fichier déplacé : le modèle suit.
+        Fichier ou dossier supprimé : la vidéo est retirée du site après 90 min (elle revient seule si le fichier revient). Pause pendant un import en arrière-plan.
       </p>
       {err && <p className="text-sm text-destructive">{err}</p>}
       <div className="flex flex-wrap items-center gap-3">

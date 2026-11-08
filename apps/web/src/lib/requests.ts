@@ -10,7 +10,7 @@ export type MyRequest = Pick<
 export type AdminRequest = Database['public']['Functions']['admin_list_requests']['Returns'][number]
 
 export const STATUS_LABEL: Record<RequestStatus, string> = { pending: 'En attente', added: 'Ajouté', rejected: 'Refusé' }
-export const TYPE_LABEL = { movie: 'Film', series: 'Série' } as const
+export const TYPE_LABEL = { movie: 'Vidéo', series: 'Série' } as const
 const THIS_YEAR = new Date().getFullYear()
 
 export const requestSchema = z.object({
@@ -19,7 +19,7 @@ export const requestSchema = z.object({
     .trim()
     .min(2, 'Au moins 2 caractères')
     .max(200, '200 caractères maximum'),
-  media_type: z.enum(['movie', 'series'], { message: 'Choisis Film ou Série' }),
+  media_type: z.enum(['movie', 'series'], { message: 'Choisis Vidéo ou Série' }),
   release_year: z
     .string()
     .trim()

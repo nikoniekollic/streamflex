@@ -151,7 +151,7 @@ function AdminList() {
         <div className="w-36">
           <NativeSelect aria-label="Type" value={search.type ?? ''} onChange={(e) => update({ type: (e.target.value || undefined) as AdminListSearch['type'] })}>
             <option value="">Tous types</option>
-            <option value="movie">Films</option>
+            <option value="movie">Vidéos</option>
             <option value="series">Séries</option>
           </NativeSelect>
         </div>
@@ -344,7 +344,7 @@ function AdminList() {
                 <TableCell>
                   <Badge variant="secondary">
                     {r.type === 'movie' ? <Film /> : <Tv />}
-                    {r.type === 'movie' ? 'Film' : 'Série'}
+                    {r.type === 'movie' ? 'Vidéo' : 'Série'}
                   </Badge>
                 </TableCell>
                 <TableCell className="max-w-40 truncate text-sm">{r.model ?? '—'}</TableCell>

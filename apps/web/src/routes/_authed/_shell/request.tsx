@@ -117,12 +117,12 @@ function RequestPage() {
                       <Select onValueChange={field.onChange} value={field.value ?? ''}>
                         <FormControl>
                           <SelectTrigger className="w-full">
-                            <SelectValue placeholder="Film ou série" />
+                            <SelectValue placeholder="Vidéo ou série" />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
                           <SelectItem value="movie">
-                            <Film /> Film
+                            <Film /> Vidéo
                           </SelectItem>
                           <SelectItem value="series">
                             <Tv /> Série

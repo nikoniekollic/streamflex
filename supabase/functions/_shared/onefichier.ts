@@ -12,11 +12,13 @@ const BREAKER_HOURS = 24
 export type Lane = { name: 'onefichier' | 'onefichier_admin' | 'onefichier_watch'; gapMs: number; cap: number }
 /** Lecture vidéo : ≥ 8 s entre deux appels, 120 / h */
 export const LANE_PLAY: Lane = { name: 'onefichier', gapMs: 8_000, cap: 120 }
-/** Explorateur / import admin : ≥ 4 s entre deux appels, 240 / h */
-export const LANE_ADMIN: Lane = { name: 'onefichier_admin', gapMs: 4_000, cap: 240 }
+// L'API 1fichier autorise 3 requêtes par seconde (429 au-delà ; les erreurs 401/403/404/410 répétées bannissent). Les trois voies
+// partagent ce budget : lecture ≈ 0,12/s + explorateur/import ≈ 1,4/s + surveillance ≈ 0,8/s ≈ 2,3/s au maximum.
+/** Explorateur / import admin : ≥ 0,7 s entre deux appels, 4 000 / h */
+export const LANE_ADMIN: Lane = { name: 'onefichier_admin', gapMs: 700, cap: 4_000 }
 
-/** Surveillance automatique : >= 8 s entre deux appels, 60 / h (environ 30 dossiers par heure) */
-export const LANE_WATCH: Lane = { name: 'onefichier_watch', gapMs: 8_000, cap: 60 }
+/** Surveillance automatique : ≥ 1,2 s entre deux appels, 2 000 / h */
+export const LANE_WATCH: Lane = { name: 'onefichier_watch', gapMs: 1_200, cap: 2_000 }
 
 export type OnefichierFailure = 'offline' | 'host_busy' | 'auth' | 'unavailable'
 export class OnefichierError extends Error {
@@ -35,7 +37,7 @@ export async function onefichierCall(path: string, payload: Record<string, unkno
   const key = await getSecret('ONEFICHIER_API_KEY')
   if (!key) throw new OnefichierError('auth', 'ONEFICHIER_API_KEY non configurée', 503)
 
-  const { data: slot, error } = await admin.rpc('onefichier_take_slot', { p_lane: lane.name, p_gap_ms: lane.gapMs, p_cap: lane.cap, p_max_wait_ms: 9000 })
+  const { data: slot, error } = await admin.rpc('onefichier_take_slot', { p_lane: lane.name, p_gap_ms: lane.gapMs, p_cap: lane.cap, p_max_wait_ms: lane.name === 'onefichier' ? 9000 : 20000 })
   if (error || !slot) throw new OnefichierError('unavailable', 'Régulateur 1fichier indisponible', 503)
   if (!slot.ok) throw new OnefichierError('host_busy', `1fichier en pause (${slot.reason}, ${slot.retry_s}s)`, 503)
   if (slot.wait_ms > 0) await sleep(slot.wait_ms)
@@ -46,7 +48,7 @@ export async function onefichierCall(path: string, payload: Record<string, unkno
       method: 'POST',
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(path.startsWith('folder/') ? 40_000 : 12_000),
+      signal: AbortSignal.timeout(/^(folder\/|file\/ls)/.test(path) ? 45_000 : 12_000), // un listage de 5 000 fichiers est long
     })
   } catch {
     throw new OnefichierError('unavailable', '1fichier injoignable', 502)

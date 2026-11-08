@@ -141,7 +141,7 @@ function ImportAdmin() {
           <FolderDown className="size-5" /> Explorateur du compte 1fichier
         </h2>
         <p className="text-xs text-muted-foreground">
-          Chaque dossier ouvert = 1 appel à l’API 1fichier, espacé automatiquement (≥ 4 s, 240 / h max) pour ne pas bloquer ton compte pendant que ton script tourne. L’import lui-même n’appelle pas 1fichier.
+          Chaque dossier ouvert = 1 appel à l’API 1fichier, espacé automatiquement (≈ 0,7 s, dans la limite de 3 requêtes par seconde de 1fichier) pour ne pas bloquer ton compte pendant que ton script tourne. L’import en arrière-plan liste 4 dossiers à la fois et met aussi à jour les fichiers déjà importés (renommés, déplacés, supprimés).
         </p>
         {!listing && (
           <Button className="self-start" onClick={() => open(path)} disabled={loading}>

@@ -219,7 +219,7 @@ export function TopTitlesTable({ rows, days }: { rows: TopTitle[]; days: number 
                       </Link>
                       <Badge variant="outline" className="mt-1">
                         {r.type === 'movie' ? <Film /> : <Tv />}
-                        {r.type === 'movie' ? 'Film' : 'Série'}
+                        {r.type === 'movie' ? 'Vidéo' : 'Série'}
                       </Badge>
                     </div>
                   </div>

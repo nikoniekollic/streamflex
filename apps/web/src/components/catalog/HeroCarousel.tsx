@@ -168,7 +168,7 @@ export function HeroCarousel({ titles }: { titles: CatalogTitle[] }) {
             <div className="absolute inset-0 flex flex-col justify-end gap-3 p-6 pb-16 md:max-w-3xl md:p-10 md:pb-16">
               <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold tracking-wide text-neutral-100 uppercase">
                 {isFresh(t) && <span className="rounded-full bg-primary px-2 py-0.5">Nouveau</span>}
-                <span className="rounded-full bg-white/15 px-2 py-0.5 backdrop-blur">{t.type === 'series' ? 'Série' : 'Film'}</span>
+                <span className="rounded-full bg-white/15 px-2 py-0.5 backdrop-blur">{t.type === 'series' ? 'Série' : 'Vidéo'}</span>
                 {t.release_year && <span className="rounded-full bg-white/15 px-2 py-0.5 backdrop-blur">{t.release_year}</span>}
                 {t.maturity_rating && <span className="rounded-full bg-white/15 px-2 py-0.5 backdrop-blur">{t.maturity_rating}</span>}
               </div>

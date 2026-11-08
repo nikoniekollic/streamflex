@@ -80,7 +80,7 @@ function RegisterPage() {
     <Card className="gap-8 border-white/10 bg-black/75 py-10 shadow-2xl backdrop-blur-sm">
       <CardHeader className="px-8 md:px-12">
         <CardTitle className="text-3xl font-bold">Créer un compte</CardTitle>
-        <CardDescription>Films et séries en illimité.</CardDescription>
+        <CardDescription>Vidéos en illimité.</CardDescription>
       </CardHeader>
       <CardContent className="px-8 md:px-12">
         <Form {...form}>

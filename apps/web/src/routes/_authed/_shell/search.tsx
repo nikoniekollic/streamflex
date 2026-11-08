@@ -22,7 +22,7 @@ const GRID = 'grid grid-cols-2 gap-x-3 gap-y-6 sm:grid-cols-3 md:grid-cols-4 lg:
 
 const TYPES: { value: SearchParams['type']; label: string }[] = [
   { value: undefined, label: 'Tout' },
-  { value: 'movie', label: 'Films' },
+  { value: 'movie', label: 'Vidéos' },
   { value: 'series', label: 'Séries' },
 ]
 
