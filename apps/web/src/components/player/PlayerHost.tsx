@@ -5,7 +5,7 @@ import { WatchSession } from '@/components/player/WatchSession'
 import { StreamError, loadWatch, type StreamErrorCode, type WatchData } from '@/lib/stream'
 import { prefetchStream, takeWatch } from '@/lib/prefetch'
 import { closePlayer, openPlayer, usePlayerOverlay } from '@/lib/player-overlay'
-import { useSiteSettings } from '@/lib/site-settings'
+import { ratioCss, useSiteSettings } from '@/lib/site-settings'
 
 type Load = { status: 'loading' } | { status: 'ready'; data: WatchData } | { status: 'error'; code: StreamErrorCode }
 
@@ -68,7 +68,7 @@ export function PlayerHost() {
         className="relative overflow-hidden bg-black shadow-2xl ring-1 shadow-black/60 ring-white/10"
         style={
           windowed
-            ? { width: `min(${player.size}vw, calc(${player.size}vh * 16 / 9))`, aspectRatio: '16 / 9', borderRadius: player.radius }
+            ? { width: `min(${player.size}vw, calc(${player.size}vh * ${player.ratio.split(':')[0]} / ${player.ratio.split(':')[1]}))`, aspectRatio: ratioCss(player.ratio), borderRadius: player.radius }
             : { width: '100vw', height: '100dvh' }
         }
       >

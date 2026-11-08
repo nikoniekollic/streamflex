@@ -7,6 +7,8 @@ import { supabase } from '@/lib/supabase'
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 const nameOfTitle = new Map<string, string | null>()
+const modelIdOfTitle = new Map<string, string | null>()
+const emojiOfModel = new Map<string, string | null>()
 /** minutes : durée réelle si connue, sinon estimée d'après la taille du fichier (estimated = true) */
 export type TitleLength = { minutes: number; estimated: boolean }
 const lengthOfTitle = new Map<string, TitleLength | null>()
@@ -27,12 +29,15 @@ function loadModels(): Promise<Map<string, string>> {
   modelsPromise ??= (async () => {
     const map = new Map<string, string>()
     for (let off = 0; off < 20_000; off += 1000) {
-      const { data, error } = await supabase.from('models').select('id, name').range(off, off + 999)
+      const { data, error } = await (supabase as unknown as SupabaseClient).from('models').select('id, name, emoji').range(off, off + 999)
       if (error) {
         modelsPromise = null // on réessaiera
         break
       }
-      for (const m of data ?? []) map.set(m.id, m.name)
+      for (const m of (data ?? []) as { id: string; name: string; emoji: string | null }[]) {
+        map.set(m.id, m.name)
+        emojiOfModel.set(m.id, m.emoji ?? null)
+      }
       if ((data?.length ?? 0) < 1000) break
     }
     return map
@@ -58,6 +63,7 @@ async function flush() {
     for (const id of chunk) {
       const r = found.get(id)
       nameOfTitle.set(id, r?.model_id ? (models.get(r.model_id) ?? null) : null)
+      modelIdOfTitle.set(id, r?.model_id ?? null)
       const minutes = r?.runtime_minutes ?? (r?.len_key ? Math.max(1, Math.round(r.len_key)) : null)
       lengthOfTitle.set(id, minutes ? { minutes, estimated: r?.runtime_minutes == null } : null)
       coverOfTitle.set(id, r?.cover_pos ?? null)
@@ -70,6 +76,7 @@ function request(id: string) {
   if (nameOfTitle.has(id) || queue.has(id)) return
   if (!UUID.test(id)) {
     nameOfTitle.set(id, null)
+    modelIdOfTitle.set(id, null)
     lengthOfTitle.set(id, null)
     coverOfTitle.set(id, null)
     return
@@ -112,4 +119,15 @@ export function useCoverPos(titleId: string): number | null | undefined {
   useSyncExternalStore(subscribe, () => version)
   useEffect(() => request(titleId), [titleId])
   return coverOfTitle.has(titleId) ? coverOfTitle.get(titleId) : undefined
+}
+
+export type ModelInfo = { id: string; name: string; emoji: string | null }
+
+/** Modèle du titre (id, nom, emoji propre), chargé par lots avec le reste ; null = aucun / pas encore chargé. */
+export function useModelInfo(titleId: string): ModelInfo | null {
+  useSyncExternalStore(subscribe, () => version)
+  useEffect(() => request(titleId), [titleId])
+  const id = modelIdOfTitle.get(titleId)
+  const name = nameOfTitle.get(titleId)
+  return id && name ? { id, name, emoji: emojiOfModel.get(id) ?? null } : null
 }

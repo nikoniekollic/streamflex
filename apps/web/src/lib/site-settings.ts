@@ -13,9 +13,16 @@ export type CardFit = 'cover' | 'contain' | 'stretch'
 export type Pos = 'center' | 'top' | 'bottom'
 export const CSS_POS: Record<Pos, string> = { center: 'center', top: 'center top', bottom: 'center bottom' }
 
+/** Formats proposés partout (jaquettes, modèles, bannière, lecteur) ; « w:h » libre accepté aussi. */
+export const RATIOS = ['1:1', '4:5', '3:4', '2:3', '9:16', '4:16', '4:3', '3:2', '16:10', '16:9', '21:9', '2:1', '3:1'] as const
+const RATIO_RE = /^\d{1,2}:\d{1,2}$/
+const okRatio = (v: unknown, d: string) => (typeof v === 'string' && RATIO_RE.test(v) && !v.split(':').includes('0') ? v : d)
+/** « 16:9 » → « 16 / 9 » (propriété CSS aspect-ratio) */
+export const ratioCss = (r: string) => r.replace(':', ' / ')
+
 export type SiteSettings = {
   theme: { preset: string; primary: string | null; background: string | null; font: string; radius: number }
-  names: { show: boolean; font: string; colorMode: 'auto' | 'palette' | 'fixed'; palette: string; color: string; stroke: string; glow: boolean; size: number; upper: 'auto' | 'on' | 'off'; vpos: 'top' | 'center' | 'bottom'; hpos: 'left' | 'center' | 'right' }
+  names: { show: boolean; font: string; colorMode: 'auto' | 'palette' | 'fixed'; palette: string; color: string; stroke: string; glow: boolean; size: number; upper: 'auto' | 'on' | 'off'; x: number; y: number }
   preview: {
     // jaquette survolée
     fit: Fit
@@ -35,14 +42,18 @@ export type SiteSettings = {
     bannerClip: number
   }
   /** lecteur en premier plan : fenêtre centrée sur un fond flou transparent, ou plein écran */
-  player: { mode: 'window' | 'full'; size: number; backdrop: number; blur: number; radius: number; fit: 'contain' | 'cover' | 'stretch' }
+  player: { mode: 'window' | 'full'; size: number; backdrop: number; blur: number; radius: number; fit: 'contain' | 'cover' | 'stretch'; ratio: string }
+  /** formats des jaquettes de films et de modèles, icônes rondes en bas des jaquettes */
+  cards: { ratio: string; modelRatio: string; icons: boolean; modelEmoji: string; videoEmoji: string; emojiFromName: boolean }
+  /** bannière d'accueil : hauteur (en % de la hauteur de l'écran) ou format fixe */
+  hero: { ratio: string; height: number; radius: number }
   /** jaquettes de modèles : photo, image capturée d'une de leurs vidéos, ou photo puis capture si absente */
   models: { image: 'auto' | 'photo' | 'capture' }
 }
 
 export const DEFAULT_SETTINGS: SiteSettings = {
   theme: { preset: 'default', primary: null, background: null, font: 'system', radius: 0.625 },
-  names: { show: true, font: 'auto', colorMode: 'auto', palette: 'neon', color: '#ffffff', stroke: '#1a0a0a', glow: true, size: 1, upper: 'auto', vpos: 'center', hpos: 'center' },
+  names: { show: true, font: 'auto', colorMode: 'auto', palette: 'neon', color: '#ffffff', stroke: '#1a0a0a', glow: true, size: 1, upper: 'auto', x: 50, y: 50 },
   preview: {
     fit: 'auto',
     hoverPos: 'center',
@@ -58,7 +69,9 @@ export const DEFAULT_SETTINGS: SiteSettings = {
     bannerPos: 'center',
     bannerClip: 30,
   },
-  player: { mode: 'window', size: 72, backdrop: 55, blur: 14, radius: 16, fit: 'contain' },
+  player: { mode: 'window', size: 72, backdrop: 55, blur: 14, radius: 16, fit: 'contain', ratio: '16:9' },
+  cards: { ratio: '2:3', modelRatio: '2:3', icons: true, modelEmoji: '😀', videoEmoji: '▶️', emojiFromName: true },
+  hero: { ratio: 'auto', height: 62, radius: 16 },
   models: { image: 'auto' },
 }
 
@@ -103,6 +116,8 @@ export function normalizeSettings(input: unknown): SiteSettings {
   const p = o.preview ?? {}
   const pl = o.player ?? {}
   const md = o.models ?? {}
+  const cd = o.cards ?? {}
+  const hr = o.hero ?? {}
   const POS = ['center', 'top', 'bottom'] as const
   return {
     theme: {
@@ -122,8 +137,9 @@ export function normalizeSettings(input: unknown): SiteSettings {
       glow: n.glow !== false,
       size: clamp(n.size, 0.6, 1.8, 1),
       upper: oneOf(n.upper, ['auto', 'on', 'off'] as const, 'auto'),
-      vpos: oneOf(n.vpos, ['top', 'center', 'bottom'] as const, 'center'),
-      hpos: oneOf(n.hpos, ['left', 'center', 'right'] as const, 'center'),
+      // anciens réglages (haut / centre / bas, gauche / centre / droite) convertis en coordonnées
+      x: clamp(n.x, 0, 100, n.hpos === 'left' ? 10 : n.hpos === 'right' ? 90 : 50),
+      y: clamp(n.y, 0, 100, n.vpos === 'top' ? 16 : n.vpos === 'bottom' ? 80 : 50),
     },
     preview: {
       fit: oneOf(p.fit, ['auto', 'cover', 'stretch'] as const, 'auto'),
@@ -148,8 +164,22 @@ export function normalizeSettings(input: unknown): SiteSettings {
       blur: clamp(pl.blur, 0, 40, d.player.blur),
       radius: clamp(pl.radius, 0, 32, d.player.radius),
       fit: oneOf(pl.fit, ['contain', 'cover', 'stretch'] as const, 'contain'),
+      ratio: okRatio(pl.ratio, '16:9'),
     },
     models: { image: oneOf(md.image, ['auto', 'photo', 'capture'] as const, 'auto') },
+    cards: {
+      ratio: okRatio(cd.ratio, '2:3'),
+      modelRatio: okRatio(cd.modelRatio, '2:3'),
+      icons: cd.icons !== false,
+      modelEmoji: typeof cd.modelEmoji === 'string' && cd.modelEmoji ? cd.modelEmoji.slice(0, 16) : d.cards.modelEmoji,
+      videoEmoji: typeof cd.videoEmoji === 'string' && cd.videoEmoji ? cd.videoEmoji.slice(0, 16) : d.cards.videoEmoji,
+      emojiFromName: cd.emojiFromName !== false,
+    },
+    hero: {
+      ratio: hr.ratio === 'auto' ? 'auto' : okRatio(hr.ratio, 'auto'),
+      height: clamp(hr.height, 25, 95, d.hero.height),
+      radius: clamp(hr.radius, 0, 40, d.hero.radius),
+    },
   }
 }
 

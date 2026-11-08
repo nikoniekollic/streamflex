@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react'
 import { useModelName } from '@/lib/model-names'
 import { modelNameStyle } from '@/lib/cover'
 import { useSiteSettings } from '@/lib/site-settings'
@@ -8,23 +9,34 @@ export function ModelName({ titleId }: { titleId: string }) {
   return <ModelLabel name={name} />
 }
 
-const V = { top: 'items-start', center: 'items-center', bottom: 'items-end' } as const // haut : sous les boutons ; bas : au-dessus du compteur de vidéos
-const H = { left: 'justify-start', center: 'justify-center', right: 'justify-end' } as const
+/** Position du nom : le coin/centre du texte est placé au point (x %, y %) de la jaquette ; 0/0 = coin haut gauche, 50/50 = centre. */
+export function nameBox(names: { x: number; y: number }): { outer: string; style: CSSProperties } {
+  return {
+    outer: 'pointer-events-none absolute inset-0 z-[2] overflow-hidden',
+    style: {
+      position: 'absolute',
+      left: `${names.x}%`,
+      top: `${names.y}%`,
+      transform: `translate(-${names.x}%, -${names.y}%)`,
+      width: 'max-content',
+      maxWidth: 'calc(100% - 1rem)',
+      textAlign: names.x < 34 ? 'left' : names.x > 66 ? 'right' : 'center',
+    },
+  }
+}
 
 /** Libellé stylé d'un nom de modèle (jaquettes de films, cartes de modèles). */
 export function ModelLabel({ name }: { name: string | null }) {
   const { names } = useSiteSettings()
   if (!name || !names.show) return null
   const s = modelNameStyle(name, names)
+  const box = nameBox(names)
   return (
-    <div
-      aria-hidden
-      className={`pointer-events-none absolute inset-0 z-[2] flex overflow-hidden px-2 ${V[names.vpos]} ${H[names.hpos]} ${names.vpos === 'top' ? 'pt-12' : names.vpos === 'bottom' ? 'pb-9' : ''}`}
-      style={{ textAlign: names.hpos }}
-    >
+    <div aria-hidden className={box.outer}>
       <span
-        className="line-clamp-3 max-w-full leading-tight break-words"
+        className="line-clamp-3 leading-tight break-words"
         style={{
+          ...box.style,
           fontFamily: s.fontFamily,
           fontWeight: s.fontWeight,
           fontStyle: s.fontStyle,

@@ -5,9 +5,13 @@ import { Loader2, RotateCcw, Save } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { NAME_FONTS, modelNameStyle } from '@/lib/cover'
+import { nameBox } from '@/components/catalog/ModelName'
+import { EmojiPickerButton } from '@/components/emoji/EmojiPickerButton'
 import {
   CSS_POS,
   DEFAULT_SETTINGS,
+  RATIOS,
+  ratioCss,
   NAME_PALETTES,
   SITE_FONTS,
   THEME_PRESETS,
@@ -64,6 +68,36 @@ function Demo({ label, width, ratio, fit, pos }: { label: string; width: number;
       <div className="overflow-hidden rounded-md bg-black ring-1 ring-white/20" style={{ width, aspectRatio: ratio }}>
         <img src={DEMO} alt="" className="size-full" style={{ objectFit: fit as 'cover', objectPosition: pos }} />
       </div>
+    </div>
+  )
+}
+
+/** Format : liste de formats usuels, « auto » (si permis) ou format libre largeur:hauteur. */
+function RatioField({ value, onChange, allowAuto }: { value: string; onChange: (v: string) => void; allowAuto?: boolean }) {
+  const known = value === 'auto' || (RATIOS as readonly string[]).includes(value)
+  const [w, h] = value.split(':')
+  return (
+    <div className="flex items-center gap-2">
+      <select
+        className={selectCls}
+        value={known ? value : 'custom'}
+        onChange={(e) => (e.target.value === 'custom' ? onChange(known && value !== 'auto' ? value : '16:9') : onChange(e.target.value))}
+        aria-label="Format"
+      >
+        {allowAuto && <option value="auto">Auto (selon la hauteur)</option>}
+        {RATIOS.map((r) => (
+          <option key={r} value={r}>
+            {r}
+          </option>
+        ))}
+        <option value="custom">Personnalisé…</option>
+      </select>
+      {!known && (
+        <span className="flex items-center gap-1 text-sm">
+          <input type="number" min={1} max={99} value={w} onChange={(e) => onChange(`${Math.min(99, Math.max(1, Number(e.target.value) || 1))}:${h || 1}`)} className="h-9 w-14 rounded-md border bg-background px-2" aria-label="Largeur du format" />:
+          <input type="number" min={1} max={99} value={h} onChange={(e) => onChange(`${w || 1}:${Math.min(99, Math.max(1, Number(e.target.value) || 1))}`)} className="h-9 w-14 rounded-md border bg-background px-2" aria-label="Hauteur du format" />
+        </span>
+      )}
     </div>
   )
 }
@@ -146,7 +180,7 @@ function AppearanceAdmin() {
 
   const reset = (group: keyof SiteSettings) => edit(group, DEFAULT_SETTINGS[group] as never)
 
-  const { theme, names, preview, player, models } = draft
+  const { theme, names, preview, player, models, cards, hero } = draft
 
   return (
     <div className="flex flex-col gap-6">
@@ -226,11 +260,12 @@ function AppearanceAdmin() {
           {SAMPLE_NAMES.map((n, i) => {
             const st = modelNameStyle(n, names)
             return (
-              <div key={n} className={`relative flex aspect-[2/3] overflow-hidden rounded-md px-2 ${{ top: 'items-start pt-8', center: 'items-center', bottom: 'items-end pb-6' }[names.vpos]} ${{ left: 'justify-start', center: 'justify-center', right: 'justify-end' }[names.hpos]}`} style={{ textAlign: names.hpos, background: ['linear-gradient(160deg,#4c1d95,#0f172a)', 'linear-gradient(160deg,#9f1239,#1c1917)', 'linear-gradient(160deg,#065f46,#0c0a09)'][i] }}>
+              <div key={n} className="relative aspect-[2/3] overflow-hidden rounded-md" style={{ background: ['linear-gradient(160deg,#4c1d95,#0f172a)', 'linear-gradient(160deg,#9f1239,#1c1917)', 'linear-gradient(160deg,#065f46,#0c0a09)'][i] }}>
                 {names.show && (
                   <span
                     className="line-clamp-3 leading-tight break-words"
                     style={{
+                      ...nameBox(names).style,
                       fontFamily: st.fontFamily,
                       fontWeight: st.fontWeight,
                       fontStyle: st.fontStyle,
@@ -276,24 +311,35 @@ function AppearanceAdmin() {
           <Field label="Taille">
             <Range value={names.size} min={0.6} max={1.8} step={0.05} onChange={(v) => edit('names', { size: v })} format={(v) => `${Math.round(v * 100)} %`} />
           </Field>
-          <Field label="Position verticale">
-            <select className={selectCls} value={names.vpos} onChange={(e) => edit('names', { vpos: e.target.value as SiteSettings['names']['vpos'] })}>
-              <option value="top">En haut</option>
-              <option value="center">Au centre</option>
-              <option value="bottom">En bas</option>
-            </select>
-          </Field>
-          <Field label="Position horizontale">
-            <select className={selectCls} value={names.hpos} onChange={(e) => edit('names', { hpos: e.target.value as SiteSettings['names']['hpos'] })}>
-              <option value="left">À gauche</option>
-              <option value="center">Centré</option>
-              <option value="right">À droite</option>
-            </select>
-          </Field>
           <Field label="Halo lumineux">
             <label className="flex h-9 items-center gap-2">
               <input type="checkbox" checked={names.glow} onChange={(e) => edit('names', { glow: e.target.checked })} /> Activé
             </label>
+          </Field>
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-[auto_1fr_1fr]">
+          <Field label="Position du nom sur la jaquette">
+            <div className="grid w-fit grid-cols-3 gap-1" role="group" aria-label="Positions prédéfinies">
+              {[10, 50, 90].flatMap((y) =>
+                [14, 50, 86].map((x) => (
+                  <button
+                    key={`${x}-${y}`}
+                    type="button"
+                    aria-label={`Nom à ${x} % / ${y} %`}
+                    aria-pressed={names.x === x && names.y === y}
+                    onClick={() => edit('names', { x, y })}
+                    className={cn('size-8 rounded-md border hover:bg-accent', names.x === x && names.y === y && 'border-primary bg-primary/30')}
+                  />
+                )),
+              )}
+            </div>
+          </Field>
+          <Field label="Horizontale (gauche → droite)">
+            <Range value={names.x} min={0} max={100} step={1} onChange={(v) => edit('names', { x: v })} format={(v) => `${v} %`} />
+          </Field>
+          <Field label="Verticale (haut → bas)">
+            <Range value={names.y} min={0} max={100} step={1} onChange={(v) => edit('names', { y: v })} format={(v) => `${v} %`} />
           </Field>
         </div>
 
@@ -437,6 +483,9 @@ function AppearanceAdmin() {
               <option value="stretch">Étirer (déforme l’image)</option>
             </select>
           </Field>
+          <Field label="Format de la fenêtre">
+            <RatioField value={player.ratio} onChange={(v) => edit('player', { ratio: v })} />
+          </Field>
           <Field label="Taille de la fenêtre">
             <Range value={player.size} min={40} max={100} step={1} onChange={(v) => edit('player', { size: v })} format={(v) => `${v} %`} />
           </Field>
@@ -465,7 +514,7 @@ function AppearanceAdmin() {
               >
                 <div
                   className="grid place-items-center bg-black text-[10px] text-neutral-300 shadow-xl ring-1 ring-white/10"
-                  style={player.mode === 'full' ? { width: '100%', height: '100%' } : { width: `${player.size}%`, aspectRatio: '16 / 9', maxHeight: `${player.size}%`, borderRadius: player.radius / 2 }}
+                  style={player.mode === 'full' ? { width: '100%', height: '100%' } : { width: `${player.size}%`, aspectRatio: ratioCss(player.ratio), maxHeight: `${player.size}%`, borderRadius: player.radius / 2 }}
                 >
                   Lecteur
                 </div>
@@ -491,6 +540,91 @@ function AppearanceAdmin() {
           </Field>
         </div>
         <p className="text-xs text-muted-foreground">L’image capturée est celle de la vidéo la plus récente du modèle, à son moment enregistré (admin → Jaquettes) : elle distingue les modèles entre eux.</p>
+      </Section>
+
+      <Section title="Icônes rondes en bas des jaquettes" hint="Deux boutons ronds dans la bande du bas de chaque jaquette : le premier mène à la page du modèle, le second à la page de la vidéo.">
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={cards.icons} onChange={(e) => edit('cards', { icons: e.target.checked })} /> Afficher les deux icônes
+        </label>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Emoji du bouton « page du modèle » (par défaut)">
+            <div className="flex items-center gap-3">
+              <EmojiPickerButton value={cards.modelEmoji} onChange={(v) => edit('cards', { modelEmoji: v })} label="Choisir l’emoji du modèle" />
+              <span className="text-xs text-muted-foreground">Plus de 3 700 emojis, recherche en français. Un modèle peut avoir le sien (Admin → Modèles).</span>
+            </div>
+          </Field>
+          <Field label="Emoji du bouton « page de la vidéo »">
+            <div className="flex items-center gap-3">
+              <EmojiPickerButton value={cards.videoEmoji} onChange={(v) => edit('cards', { videoEmoji: v })} label="Choisir l’emoji de la vidéo" />
+            </div>
+          </Field>
+        </div>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={cards.emojiFromName} onChange={(e) => edit('cards', { emojiFromName: e.target.checked })} /> Reprendre l’emoji présent dans le nom du modèle ou dans le titre de la vidéo, s’il y en a un
+        </label>
+        <div className="flex items-end gap-2">
+          <div className="relative aspect-[2/3] w-28 overflow-hidden rounded-md bg-gradient-to-br from-fuchsia-900 to-slate-900 ring-1 ring-white/20">
+            <div className="absolute inset-x-0 bottom-0 flex gap-1.5 bg-black px-1.5 py-1.5">
+              {cards.icons && (
+                <>
+                  <span className="flex size-7 items-center justify-center rounded-full bg-white/15 text-base">{cards.modelEmoji}</span>
+                  <span className="flex size-7 items-center justify-center rounded-full bg-white/15 text-base">{cards.videoEmoji}</span>
+                </>
+              )}
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">Simulation</p>
+        </div>
+      </Section>
+
+      <Section title="Formats et bannière d’accueil" hint="Format (ratio) des jaquettes, des cartes de modèles et de la bannière ; la bannière se règle avec un aperçu en temps réel.">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <Field label="Jaquettes de films">
+            <RatioField value={cards.ratio} onChange={(v) => edit('cards', { ratio: v })} />
+          </Field>
+          <Field label="Cartes de modèles">
+            <RatioField value={cards.modelRatio} onChange={(v) => edit('cards', { modelRatio: v })} />
+          </Field>
+          <Field label="Bannière d’accueil : format">
+            <RatioField value={hero.ratio} onChange={(v) => edit('hero', { ratio: v })} allowAuto />
+          </Field>
+          <Field label="Bannière d’accueil : hauteur (format « auto »)">
+            <Range value={hero.height} min={25} max={95} step={1} onChange={(v) => edit('hero', { height: v })} format={(v) => `${v} % de l’écran`} />
+          </Field>
+          <Field label="Bannière d’accueil : arrondi">
+            <Range value={hero.radius} min={0} max={40} step={1} onChange={(v) => edit('hero', { radius: v })} format={(v) => `${v} px`} />
+          </Field>
+        </div>
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto]">
+          <div>
+            <p className="mb-1 text-xs text-muted-foreground">Aperçu en direct de la bannière (écran d’ordinateur 16:9 en miniature)</p>
+            <div className="relative mx-auto aspect-video w-full max-w-xl overflow-hidden rounded-md bg-neutral-950 ring-1 ring-white/20">
+              <div className="flex h-5 items-center bg-neutral-900 px-2 text-[8px] text-neutral-400">STREAMFLEX</div>
+              <div className="p-2">
+                <div
+                  className="relative w-full overflow-hidden bg-gradient-to-br from-violet-800 via-fuchsia-900 to-slate-900"
+                  style={{ borderRadius: hero.radius / 3, ...(hero.ratio === 'auto' ? { height: `${hero.height * 0.9}%`, minHeight: 24, aspectRatio: undefined } : { aspectRatio: ratioCss(hero.ratio), maxHeight: '88%' }) }}
+                >
+                  <div className="absolute bottom-2 left-3 text-[9px] font-bold text-white">Titre de la bannière</div>
+                  <div className="absolute bottom-2 left-3 mt-1 h-2 w-8 translate-y-3 rounded-full bg-white/80" />
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-start gap-4">
+            <div>
+              <p className="mb-1 text-xs text-muted-foreground">Jaquette de film</p>
+              <div className="rounded-md bg-gradient-to-br from-sky-800 to-slate-900 ring-1 ring-white/20" style={{ width: 80, aspectRatio: ratioCss(cards.ratio) }} />
+            </div>
+            <div>
+              <p className="mb-1 text-xs text-muted-foreground">Carte de modèle</p>
+              <div className="rounded-md bg-gradient-to-br from-rose-800 to-slate-900 ring-1 ring-white/20" style={{ width: 80, aspectRatio: ratioCss(cards.modelRatio) }} />
+            </div>
+          </div>
+        </div>
+        <Button size="sm" variant="ghost" onClick={() => { reset('cards'); reset('hero') }}>
+          <RotateCcw className="size-4" /> Formats par défaut
+        </Button>
       </Section>
     </div>
   )

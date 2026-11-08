@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
-import { Info, Play } from 'lucide-react'
+import { Play } from 'lucide-react'
 import { openPlayer } from '@/lib/player-overlay'
 import { usePlayList } from '@/components/catalog/PlayList'
 import { startQueue, stopQueue } from '@/lib/queue'
@@ -12,7 +12,11 @@ import { isModelCover, stripModelMark } from '@/lib/cover'
 import { ModelName } from '@/components/catalog/ModelName'
 import { HoverPreview } from '@/components/catalog/HoverPreview'
 import { PlaylistMenu } from '@/components/catalog/PlaylistMenu'
-import { formatMinutes, useCoverPos, useTitleLength } from '@/lib/model-names'
+import { formatMinutes, useCoverPos, useModelInfo, useTitleLength } from '@/lib/model-names'
+import { ratioCss, useSiteSettings } from '@/lib/site-settings'
+import { firstEmoji } from '@/lib/emoji'
+
+const ICON = 'flex size-7 items-center justify-center rounded-full bg-black/75 text-base leading-none ring-1 ring-white/25 backdrop-blur-sm transition hover:scale-110 hover:bg-black/90 focus-visible:ring-2 focus-visible:ring-white focus-visible:outline-none'
 
 type MovieCardProps = {
   title: CatalogTitle
@@ -41,6 +45,12 @@ export function MovieCard({ title, variant = 'poster', progress, watch, favorite
   const isMovie = title.type === 'movie'
   const length = useTitleLength(title.id, title.runtime_minutes)
   const coverPos = useCoverPos(title.id)
+  const { cards } = useSiteSettings()
+  const modelInfo = useModelInfo(title.id)
+  // emoji du bouton « page du modèle » : celui du modèle, sinon celui de son nom, sinon l'emoji par défaut (Apparence)
+  const modelEmoji = modelInfo?.emoji || (cards.emojiFromName ? firstEmoji(modelInfo?.name) : null) || cards.modelEmoji
+  // emoji du bouton « page de la vidéo » : celui du titre s'il en contient un, sinon celui choisi dans Apparence
+  const videoEmoji = (cards.emojiFromName ? firstEmoji(title.title) : null) || cards.videoEmoji
   const src = isBackdrop ? (title.backdrop_url ?? title.poster_url) : (title.poster_url ?? title.backdrop_url)
 
   const content = (
@@ -165,23 +175,31 @@ export function MovieCard({ title, variant = 'poster', progress, watch, favorite
         isMovie ? 'transition-shadow duration-300' : 'transition-all duration-300 ease-out will-change-transform',
         isMovie ? 'hover:z-10 hover:ring-2 hover:ring-white/80' : 'hover:z-10 hover:scale-105 hover:shadow-2xl hover:ring-2 hover:shadow-black/70 hover:ring-white/80',
         isMovie ? 'focus-within:z-10 focus-within:ring-2 focus-within:ring-white' : 'focus-within:z-10 focus-within:scale-105 focus-within:ring-2 focus-within:ring-white',
-        isBackdrop ? 'aspect-video' : 'aspect-[2/3]',
+        isBackdrop && 'aspect-video',
         className,
       )}
+      style={isBackdrop ? undefined : { aspectRatio: ratioCss(cards.ratio) }}
     >
       {link}
       {favorite && (
         <>
-          {isMovie && (
-            <button
-              type="button"
-              aria-label={`Détails de ${title.title}`}
-              title="Détails"
-              onClick={() => void navigate({ to: '/title/$slug', params: { slug: title.slug } })}
-              className="absolute top-2 left-2 z-[5] flex size-8 items-center justify-center rounded-full border-2 border-neutral-300 bg-black/60 text-white opacity-0 backdrop-blur-sm transition-all group-focus-within/card:opacity-100 group-hover/card:opacity-100 hover:scale-110 hover:border-white max-md:opacity-100"
-            >
-              <Info className="size-4" strokeWidth={2.5} />
-            </button>
+          {cards.icons && (
+            <div className="absolute bottom-1.5 left-1.5 z-[5] flex gap-1.5">
+              {modelInfo && (
+                <button
+                  type="button"
+                  aria-label={`Page du modèle ${modelInfo.name}`}
+                  title={`Page du modèle : ${modelInfo.name}`}
+                  onClick={() => void navigate({ to: '/models/$id', params: { id: modelInfo.id } })}
+                  className={ICON}
+                >
+                  {modelEmoji}
+                </button>
+              )}
+              <button type="button" aria-label={`Page de la vidéo ${title.title}`} title="Page de la vidéo" onClick={() => void navigate({ to: '/title/$slug', params: { slug: title.slug } })} className={ICON}>
+                {videoEmoji}
+              </button>
+            </div>
           )}
         <div className="absolute top-2 right-2 z-[5] flex gap-1.5">
           {isMovie && <PlaylistMenu titleId={title.id} />}

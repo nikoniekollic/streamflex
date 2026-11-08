@@ -4,6 +4,7 @@ import type { Session } from '@supabase/supabase-js'
 import type { TypedSupabaseClient } from '@/lib/supabase'
 import { Toaster } from '@/components/ui/sonner'
 import { getIpStatus, type IpStatus } from '@/lib/security'
+import { GlobalEmoji } from '@/components/emoji/GlobalEmoji'
 
 export interface RouterContext {
   supabase: TypedSupabaseClient
@@ -26,6 +27,7 @@ export const Route = createRootRouteWithContext<RouterContext>()({
     <div className="min-h-dvh">
       <Outlet />
       <Toaster position="bottom-right" closeButton />
+      <GlobalEmoji />
       {import.meta.env.DEV && <TanStackRouterDevtools position="bottom-right" />}
     </div>
   ),

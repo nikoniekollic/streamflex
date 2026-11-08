@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -14,6 +15,7 @@ export function pageWindow(page: number, pages: number): (number | '…')[] {
 }
 
 export function PaginationBar({ page, pages, onPage, className }: { page: number; pages: number; onPage: (p: number) => void; className?: string }) {
+  const [goto, setGoto] = useState('')
   if (pages <= 1) return null
   const btn = 'flex h-9 min-w-9 items-center justify-center rounded-md border border-neutral-700 px-2 text-sm transition-colors hover:bg-neutral-800 disabled:pointer-events-none disabled:opacity-40'
   return (
@@ -47,6 +49,35 @@ export function PaginationBar({ page, pages, onPage, className }: { page: number
       <button type="button" className={btn} disabled={page >= pages} onClick={() => onPage(pages)} aria-label="Dernière page">
         <ChevronsRight className="size-4" />
       </button>
+      {/* aller directement à une page */}
+      <form
+        className="ml-2 flex items-center gap-1.5"
+        onSubmit={(e) => {
+          e.preventDefault()
+          const n = Math.min(pages, Math.max(1, Math.floor(Number(goto))))
+          if (Number.isFinite(n) && n !== page) onPage(n)
+          setGoto('')
+        }}
+      >
+        <label htmlFor="goto-page" className="sr-only">
+          Aller à la page
+        </label>
+        <input
+          id="goto-page"
+          type="number"
+          inputMode="numeric"
+          min={1}
+          max={pages}
+          value={goto}
+          onChange={(e) => setGoto(e.target.value)}
+          placeholder={`1–${pages}`}
+          data-no-emoji
+          className="h-9 w-20 rounded-md border border-neutral-700 bg-transparent px-2 text-sm tabular-nums"
+        />
+        <button type="submit" className={btn} disabled={!goto}>
+          Aller
+        </button>
+      </form>
     </nav>
   )
 }

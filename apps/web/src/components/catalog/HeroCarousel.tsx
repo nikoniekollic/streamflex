@@ -8,7 +8,7 @@ import { FavoriteButton } from '@/components/catalog/FavoriteButton'
 import { useActiveProfile } from '@/components/profile/ActiveProfileContext'
 import { supabase } from '@/lib/supabase'
 import { getPreviewUrl, peekPreviewUrl, type Wanted } from '@/lib/preview'
-import { CSS_POS, useSiteSettings } from '@/lib/site-settings'
+import { CSS_POS, ratioCss, useSiteSettings } from '@/lib/site-settings'
 import { CSS_FIT, hoverFit } from '@/components/catalog/HoverPreview'
 import { coverStyle } from '@/lib/cover'
 import { stripModelMark, isModelCover } from '@/lib/cover'
@@ -101,6 +101,7 @@ function SlideVideo({ titleId, active, paused }: { titleId: string; active: bool
 
 /** Bloc des nouveautés : slides en fondu, défilement automatique, points de progression, pause / lecture. */
 export function HeroCarousel({ titles }: { titles: CatalogTitle[] }) {
+  const { hero } = useSiteSettings()
   const [index, setIndex] = useState(0)
   const [userPaused, setUserPaused] = useState(false)
   const [hovered, setHovered] = useState(false)
@@ -126,7 +127,8 @@ export function HeroCarousel({ titles }: { titles: CatalogTitle[] }) {
     <section
       aria-roledescription="carrousel"
       aria-label="Nouveautés"
-      className="group/hero relative mx-4 mt-4 h-[62vw] max-h-[580px] min-h-[400px] overflow-hidden rounded-2xl bg-neutral-900 shadow-2xl shadow-black/60 md:mx-10"
+      className="group/hero relative mx-4 mt-4 min-h-[260px] overflow-hidden bg-neutral-900 shadow-2xl shadow-black/60 md:mx-10"
+      style={{ borderRadius: hero.radius, ...(hero.ratio === 'auto' ? { height: `${hero.height}vh`, maxHeight: 760 } : { aspectRatio: ratioCss(hero.ratio), maxHeight: '92vh' }) }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       onFocus={() => setHovered(true)}

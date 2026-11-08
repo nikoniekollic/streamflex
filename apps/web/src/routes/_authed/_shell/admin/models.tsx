@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { createFileRoute, useRouter } from '@tanstack/react-router'
 import { toast } from 'sonner'
 import { ImagePlus, Link2, Loader2, Plus, Search, Trash2, Upload, UserRound } from 'lucide-react'
@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { CoverSymbol } from '@/components/catalog/GeneratedCover'
 import { CoverThumb } from '@/components/catalog/CoverThumb'
+import { EmojiPickerButton } from '@/components/emoji/EmojiPickerButton'
 import {
   attachByQuery,
   attachTitles,
@@ -40,6 +41,7 @@ function ModelsAdmin() {
   const [selectedId, setSelectedId] = useState<string | null>(models[0]?.id ?? null)
   const selected = models.find((m) => m.id === selectedId) ?? null
   const refresh = () => router.invalidate()
+  const detailRef = useRef<HTMLDivElement>(null)
 
   // ───── recapture des images (sélection ou tous les modèles)
   const [checked, setChecked] = useState<ReadonlySet<string>>(new Set())
@@ -95,8 +97,8 @@ function ModelsAdmin() {
   }
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
-      <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-6">
+      <div className="grid gap-4 lg:grid-cols-[360px_1fr]">
         <form onSubmit={create} className="flex flex-col gap-3 rounded-lg border p-4" noValidate>
           <h2 className="flex items-center gap-2 font-semibold">
             <Plus className="size-4" /> Nouveau modèle
@@ -122,80 +124,95 @@ function ModelsAdmin() {
           </Button>
         </form>
 
-        <div className="flex flex-wrap items-center gap-2 rounded-lg border p-3 text-sm">
-          <p className="w-full text-xs text-muted-foreground">Image de chaque modèle = image capturée d’une de ses vidéos. « Recapturer » tire une autre vidéo et un autre moment au hasard.</p>
-          <Button size="sm" variant="outline" onClick={() => setChecked(checked.size === models.length ? new Set() : new Set(models.map((m) => m.id)))}>
-            {checked.size === models.length && models.length > 0 ? 'Tout désélectionner' : 'Tout sélectionner'}
-          </Button>
-          <Button size="sm" disabled={capturing || checked.size === 0} onClick={() => void recapture([...checked])}>
-            {capturing ? <Loader2 className="size-4 animate-spin" /> : null} Recapturer la sélection ({checked.size})
-          </Button>
-          <Button
-            size="sm"
-            variant="secondary"
-            disabled={capturing || models.length === 0}
-            onClick={() => window.confirm(`Recapturer l’image des ${models.length} modèles ?`) && void recapture(null)}
-          >
-            Recapturer tous
-          </Button>
-        </div>
-
-        <ul className="flex flex-col gap-1">
-          {models.length === 0 && <li className="text-sm text-muted-foreground">Aucun modèle pour l’instant.</li>}
-          {models.map((m, i) => (
-            <li key={m.id} className="flex items-center gap-2">
-              <input type="checkbox" aria-label={`Sélectionner ${m.name}`} checked={checked.has(m.id)} onChange={() => toggleChecked(m.id)} className="shrink-0" />
-              <button
-                type="button"
-                onClick={() => setSelectedId(m.id)}
-                className={cn('flex min-w-0 flex-1 items-center gap-3 rounded-md border p-2 text-left transition-colors hover:bg-accent', m.id === selectedId && 'border-primary bg-accent')}
+        <div className="flex flex-col gap-3 rounded-lg border p-4 text-sm">
+          <p className="text-xs text-muted-foreground">
+            Image de chaque modèle = image capturée d’une de ses vidéos (par défaut sur tous les modèles). « Recapturer » tire une autre vidéo et un autre moment au hasard. Coche des modèles pour ne recapturer que ceux-là.
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button size="sm" variant="outline" onClick={() => setChecked(checked.size === models.length ? new Set() : new Set(models.map((m) => m.id)))}>
+              {checked.size === models.length && models.length > 0 ? 'Tout désélectionner' : 'Tout sélectionner'}
+            </Button>
+            <Button size="sm" disabled={capturing || checked.size === 0} onClick={() => void recapture([...checked])}>
+              {capturing ? <Loader2 className="size-4 animate-spin" /> : null} Recapturer la sélection ({checked.size})
+            </Button>
+            <Button size="sm" variant="secondary" disabled={capturing || models.length === 0} onClick={() => window.confirm(`Recapturer l’image des ${models.length} modèles ?`) && void recapture(null)}>
+              Recapturer tous
+            </Button>
+            {models.some((m) => m.titles_count === 0) && (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={busy}
+                onClick={async () => {
+                  setBusy(true)
+                  try {
+                    const n = await deleteEmptyModels(supabase)
+                    toast.success(`${n} modèle${n > 1 ? 's' : ''} vide${n > 1 ? 's' : ''} supprimé${n > 1 ? 's' : ''}`)
+                    setSelectedId(null)
+                    await refresh()
+                  } catch (err) {
+                    toast.error(msg(err))
+                  } finally {
+                    setBusy(false)
+                  }
+                }}
               >
-                {m.cover_title_id ? <CoverThumb titleId={m.cover_title_id} coverPos={m.cover_pos} order={i} className="size-10 shrink-0 rounded-md" fallback={<Avatar url={m.image_url} />} /> : <Avatar url={m.image_url} />}
-                <span className="min-w-0 flex-1 truncate font-medium">{m.name}</span>
-                <span className="text-xs text-muted-foreground tabular-nums">{m.titles_count}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-        {models.some((m) => m.titles_count === 0) && (
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={busy}
-            onClick={async () => {
-              setBusy(true)
-              try {
-                const n = await deleteEmptyModels(supabase)
-                toast.success(`${n} modèle${n > 1 ? 's' : ''} vide${n > 1 ? 's' : ''} supprimé${n > 1 ? 's' : ''}`)
-                setSelectedId(null)
-                await refresh()
-              } catch (err) {
-                toast.error(msg(err))
-              } finally {
-                setBusy(false)
-              }
-            }}
-          >
-            <Trash2 className="size-4" /> Supprimer les modèles vides ({models.filter((m) => m.titles_count === 0).length})
-          </Button>
-        )}
+                <Trash2 className="size-4" /> Supprimer les modèles vides ({models.filter((m) => m.titles_count === 0).length})
+              </Button>
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground">{models.length} modèle{models.length > 1 ? 's' : ''}</p>
+        </div>
       </div>
 
       {selected ? (
-        <ModelDetail key={selected.id} model={selected} others={models.filter((m) => m.id !== selected.id)} onMerged={(id) => (setSelectedId(id), refresh())} onChanged={refresh} onDeleted={() => (setSelectedId(null), refresh())} />
+        <div ref={detailRef} className="scroll-mt-20">
+          <ModelDetail key={selected.id} model={selected} others={models.filter((m) => m.id !== selected.id)} onMerged={(id) => (setSelectedId(id), refresh())} onChanged={refresh} onDeleted={() => (setSelectedId(null), refresh())} />
+        </div>
       ) : (
-        <p className="rounded-lg border border-dashed p-10 text-center text-muted-foreground">Crée ou sélectionne un modèle.</p>
+        <p className="rounded-lg border border-dashed p-6 text-center text-muted-foreground">Crée un modèle ou clique sur l’un d’eux ci-dessous pour le modifier.</p>
       )}
+
+      {/* Grille : 6 modèles par ligne, avec l'image capturée de leur vidéo */}
+      <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+        {models.length === 0 && <li className="col-span-full text-sm text-muted-foreground">Aucun modèle pour l’instant.</li>}
+        {models.map((m, i) => (
+          <li key={m.id} className="relative">
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedId(m.id)
+                requestAnimationFrame(() => detailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+              }}
+              aria-label={`Modifier ${m.name}`}
+              className={cn('group/model relative block aspect-[2/3] w-full overflow-hidden rounded-lg border bg-neutral-900 text-left transition hover:border-white/60', m.id === selectedId && 'border-primary ring-2 ring-primary')}
+            >
+              {m.cover_title_id ? <CoverThumb titleId={m.cover_title_id} coverPos={m.cover_pos} order={i} className="absolute inset-0" fallback={<Avatar url={m.image_url} fill />} /> : <Avatar url={m.image_url} fill />}
+              <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 to-transparent px-2 pt-8 pb-2">
+                <span className="block truncate text-sm font-semibold">{m.name}</span>
+                <span className="text-xs text-neutral-300 tabular-nums">{m.titles_count} vidéo{m.titles_count > 1 ? 's' : ''}</span>
+              </span>
+            </button>
+            <input
+              type="checkbox"
+              aria-label={`Sélectionner ${m.name} pour la recapture`}
+              checked={checked.has(m.id)}
+              onChange={() => toggleChecked(m.id)}
+              className="absolute top-2 left-2 z-10 size-4 cursor-pointer"
+            />
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }
 
-function Avatar({ url }: { url: string | null }) {
+function Avatar({ url, fill }: { url: string | null; fill?: boolean }) {
   return url ? (
-    <img src={url} alt="" className="size-10 shrink-0 rounded-md object-cover" loading="lazy" />
+    <img src={url} alt="" className={fill ? 'absolute inset-0 size-full object-cover' : 'size-10 shrink-0 rounded-md object-cover'} loading="lazy" />
   ) : (
-    <span className="flex size-10 shrink-0 items-center justify-center rounded-md bg-muted">
-      <UserRound className="size-5 text-muted-foreground" />
+    <span className={fill ? 'absolute inset-0 flex items-center justify-center bg-muted' : 'flex size-10 shrink-0 items-center justify-center rounded-md bg-muted'}>
+      <UserRound className={fill ? 'size-8 text-muted-foreground' : 'size-5 text-muted-foreground'} />
     </span>
   )
 }
@@ -211,6 +228,17 @@ function ModelDetail({ model, others, onMerged, onChanged, onDeleted }: { model:
   const [picked, setPicked] = useState<ReadonlySet<string>>(new Set())
   const [override, setOverride] = useState(false)
   const [mergeInto, setMergeInto] = useState('')
+  // emoji du bouton rond « page du modèle » (colonne ajoutée après la génération des types : requêtes directes)
+  const [emoji, setEmoji] = useState<string | null>(null)
+  useEffect(() => {
+    void (supabase as unknown as { from: (t: string) => any }).from('models').select('emoji').eq('id', model.id).maybeSingle().then(({ data }: { data: { emoji: string | null } | null }) => setEmoji(data?.emoji ?? null)) // eslint-disable-line @typescript-eslint/no-explicit-any
+  }, [supabase, model.id])
+  const saveEmoji = async (v: string | null) => {
+    const { error } = await (supabase as unknown as { from: (t: string) => any }).from('models').update({ emoji: v }).eq('id', model.id) // eslint-disable-line @typescript-eslint/no-explicit-any
+    if (error) return toast.error(msg(error))
+    setEmoji(v)
+    toast.success(v ? `Emoji du modèle : ${v}` : 'Emoji du modèle retiré')
+  }
 
   const run = async (fn: () => Promise<unknown>, ok: string) => {
     setBusy(true)
@@ -289,7 +317,20 @@ function ModelDetail({ model, others, onMerged, onChanged, onDeleted }: { model:
     <div className="flex flex-col gap-5">
       <section className="flex flex-col gap-3 rounded-lg border p-4">
         <div className="flex items-start gap-4">
-          {model.image_url ? <img src={model.image_url} alt="" className="h-32 w-24 shrink-0 rounded-md object-cover" /> : <div className="flex h-32 w-24 shrink-0 items-center justify-center rounded-md bg-muted"><ImagePlus className="size-6 text-muted-foreground" /></div>}
+          {model.cover_title_id ? (
+            <CoverThumb
+              titleId={model.cover_title_id}
+              coverPos={model.cover_pos}
+              className="h-48 w-32 shrink-0 rounded-md"
+              fallback={model.image_url ? <img src={model.image_url} alt="" className="absolute inset-0 size-full object-cover" /> : <div className="absolute inset-0 flex items-center justify-center bg-muted"><ImagePlus className="size-6 text-muted-foreground" /></div>}
+            />
+          ) : model.image_url ? (
+            <img src={model.image_url} alt="" className="h-48 w-32 shrink-0 rounded-md object-cover" />
+          ) : (
+            <div className="flex h-48 w-32 shrink-0 items-center justify-center rounded-md bg-muted">
+              <ImagePlus className="size-6 text-muted-foreground" />
+            </div>
+          )}
           <div className="grid flex-1 gap-3">
             <div className="grid gap-1.5">
               <Label htmlFor="d-name">Nom</Label>
@@ -298,6 +339,18 @@ function ModelDetail({ model, others, onMerged, onChanged, onDeleted }: { model:
             <div className="grid gap-1.5">
               <Label htmlFor="d-url">URL de l’image</Label>
               <Input id="d-url" value={url} onChange={(e) => setUrl(e.target.value)} disabled={busy} placeholder="https://…" inputMode="url" />
+            </div>
+            <div className="grid gap-1.5">
+              <Label>Emoji du bouton rond « page du modèle » sur les jaquettes</Label>
+              <div className="flex flex-wrap items-center gap-3">
+                <EmojiPickerButton value={emoji} onChange={(v) => void saveEmoji(v)} label="Choisir l’emoji du modèle" />
+                {emoji && (
+                  <Button type="button" variant="ghost" size="sm" onClick={() => void saveEmoji(null)}>
+                    Retirer
+                  </Button>
+                )}
+                <span className="text-xs text-muted-foreground">Sans emoji : celui du nom du modèle s’il en contient un, sinon l’emoji par défaut (Apparence).</span>
+              </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <Button onClick={saveInfo} disabled={busy}>

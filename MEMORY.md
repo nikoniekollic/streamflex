@@ -772,6 +772,13 @@ Pixeldrain et Alldebrid ont été **abandonnés** (étapes 6, 7, 11 : ne plus s'
 ## Piège PostgREST (2026-11-10)
 - `models.cover_title_id → titles` a créé une **2e relation** entre `titles` et `models` : tout embed `models(...)` depuis `titles` devient ambigu (PGRST201, page admin « Something went wrong »). Toujours nommer la clé : `models!titles_model_id_fkey(name)`. Ajouter une clé étrangère entre deux tables déjà liées = vérifier les embeds du code
 
+## Étape 43 — Emojis, grille admin des modèles, icônes de jaquette, formats (2026-11-11) ⏳ migration `20261111100000_model_emoji.sql` + site À DÉPLOYER (migration d'abord : le site lit `models.emoji`)
+- Emojis : `public/emoji-fr.json` (3 781 emojis avec teints, noms/mots-clés FR, issus d'emojibase 16.0.3 ; chargé à la demande) ; `EmojiPanel` (récents, catégories, recherche) ; `GlobalEmoji` (monté dans `__root`) : bouton 🙂 sur TOUT champ de texte libre (hors mot de passe/e-mail/nombre) ; limite : dans une boîte de dialogue modale le bouton flottant n'est pas cliquable
+- Jaquettes : deux icônes rondes dans la bande du bas — emoji du modèle (`models.emoji` > emoji du nom > défaut Apparence) → `/models/$id`, emoji de la vidéo (emoji du titre > défaut) → `/title/$slug` ; remplace le bouton « i »
+- Apparence : position libre du nom (x, y en %, grille 3×3 + curseurs), formats (1:1 … 21:9, « 4:16 », libre) pour jaquettes / modèles / lecteur / bannière, hauteur de la bannière hero avec aperçu en direct, emojis par défaut
+- Admin → Modèles : grille de 6 par ligne, image capturée par défaut (liste et case de la fiche), emoji par modèle
+- Pagination : champ « aller à la page »
+
 ## ~~Problème ouvert — lecture~~ (résolu ci-dessus)
 - Fichiers importés : `resolve-stream` renvoie 200 + URL, mais le lecteur reste sur la roue sans démarrer ; avancer dans la vidéo donne « Sources indisponibles »
 - Correctifs déployés : suppression de `probeStream` (double téléchargement), `refresh` → lien neuf (`force`)

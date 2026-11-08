@@ -258,7 +258,7 @@ export function HoverPreview({ title, active, coverPos }: { title: CatalogTitle;
           }}
           aria-label={paused ? "Reprendre l'aperçu" : "Mettre l'aperçu en pause"}
           aria-pressed={paused}
-          className="absolute top-2 left-12 z-[6] flex size-8 items-center justify-center rounded-full border-2 border-neutral-300 bg-black/60 text-white backdrop-blur-sm hover:scale-110 hover:border-white"
+          className="absolute top-2 left-2 z-[6] flex size-8 items-center justify-center rounded-full border-2 border-neutral-300 bg-black/60 text-white backdrop-blur-sm hover:scale-110 hover:border-white"
         >
           {paused ? <Play className="size-4 fill-current" /> : <Pause className="size-4 fill-current" />}
         </button>
