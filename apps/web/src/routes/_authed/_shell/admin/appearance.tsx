@@ -12,6 +12,7 @@ import {
   DEFAULT_SETTINGS,
   pin,
   RATIOS,
+  durationCss,
   ratioCss,
   NAME_PALETTES,
   SITE_FONTS,
@@ -605,9 +606,48 @@ function AppearanceAdmin() {
                 <span className="z-[5] flex size-7 items-center justify-center rounded-full bg-black/75 text-base ring-1 ring-white/25" style={pin(cards.videoPos)}>{cards.videoEmoji}</span>
               </>
             )}
-            <span className="rounded bg-black/75 px-1.5 py-0.5 text-[11px] font-semibold whitespace-nowrap text-white" style={pin(cards.durationPos)}>≈ 25 min</span>
+            {cards.duration.show && (
+              <span className="z-[5]" style={{ ...durationCss(cards.duration), ...pin(cards.durationPos) }}>
+                {cards.duration.format === 'clock' ? '1:23:45' : '1 h 23 min 45 s'}
+              </span>
+            )}
           </div>
           <p className="text-xs text-muted-foreground">Simulation (les icônes restent toujours dans le cadre, à 8 px des bords)</p>
+        </div>
+      </Section>
+
+      <Section title="Durée de la vidéo sur les jaquettes" hint="Durée réelle du fichier, lue dans la vidéo (à la seconde). Aucune estimation n’est affichée : tant que la durée n’est pas connue, rien ne s’affiche. La position se règle plus haut.">
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={cards.duration.show} onChange={(e) => edit('cards', { duration: { ...cards.duration, show: e.target.checked } })} /> Afficher la durée
+        </label>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <Field label="Format">
+            <select className={selectCls} value={cards.duration.format} onChange={(e) => edit('cards', { duration: { ...cards.duration, format: e.target.value as 'clock' | 'text' } })}>
+              <option value="clock">1:23:45</option>
+              <option value="text">1 h 23 min 45 s</option>
+            </select>
+          </Field>
+          <Field label="Taille du texte">
+            <Range value={cards.duration.size} min={8} max={28} step={1} onChange={(v) => edit('cards', { duration: { ...cards.duration, size: v } })} format={(v) => `${v} px`} />
+          </Field>
+          <Field label="Marge latérale">
+            <Range value={cards.duration.padX} min={2} max={16} step={1} onChange={(v) => edit('cards', { duration: { ...cards.duration, padX: v } })} format={(v) => `${v} px`} />
+          </Field>
+          <Field label="Opacité du fond">
+            <Range value={cards.duration.bgOpacity} min={0} max={100} step={5} onChange={(v) => edit('cards', { duration: { ...cards.duration, bgOpacity: v } })} format={(v) => `${v} %`} />
+          </Field>
+          <Field label="Arrondi du fond">
+            <Range value={cards.duration.radius} min={0} max={16} step={1} onChange={(v) => edit('cards', { duration: { ...cards.duration, radius: v } })} format={(v) => `${v} px`} />
+          </Field>
+          <Field label="Couleurs (texte / fond)">
+            <div className="flex items-center gap-3">
+              <input type="color" value={cards.duration.color} onChange={(e) => edit('cards', { duration: { ...cards.duration, color: e.target.value } })} aria-label="Couleur du texte" className="h-9 w-12 rounded border bg-background" />
+              <input type="color" value={cards.duration.bg} onChange={(e) => edit('cards', { duration: { ...cards.duration, bg: e.target.value } })} aria-label="Couleur du fond" className="h-9 w-12 rounded border bg-background" />
+              <label className="flex items-center gap-1.5 text-sm">
+                <input type="checkbox" checked={cards.duration.bold} onChange={(e) => edit('cards', { duration: { ...cards.duration, bold: e.target.checked } })} /> Gras
+              </label>
+            </div>
+          </Field>
         </div>
       </Section>
 

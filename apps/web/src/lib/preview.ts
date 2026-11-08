@@ -2,6 +2,7 @@ import type { TypedSupabaseClient } from '@/lib/supabase'
 import { StreamError } from '@/lib/stream'
 import { DebridClientError, unlockInBrowser, type ClientDebrid } from '@/lib/alldebrid'
 import { shareLink } from '@/lib/shared-links'
+import { hasExactLength, setExactLength } from '@/lib/model-names'
 
 // Aperçus : les liens (Alldebrid, débridés dans le navigateur) sont préparés PAR VAGUES DE 6 jaquettes, de la première ligne
 // à la dernière (ordre de la page) :
@@ -39,8 +40,10 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 const reported = new Set<string>()
 /** Durée réelle lue par le navigateur → base (une fois par titre et par session) : alimente l'affichage et le tri par durée. */
 export function reportDuration(s: TypedSupabaseClient, titleId: string, seconds: number) {
-  if (!UUID.test(titleId) || reported.has(titleId) || !Number.isFinite(seconds) || seconds < 60 || seconds > 86_400) return
+  if (!UUID.test(titleId) || reported.has(titleId) || !Number.isFinite(seconds) || seconds < 5 || seconds > 86_400) return
   reported.add(titleId)
+  if (hasExactLength(titleId)) return // la base la connaît déjà à la seconde
+  setExactLength(titleId, seconds) // affichée tout de suite sur les jaquettes
   void (s as unknown as { rpc: (n: string, a: object) => PromiseLike<unknown> }).rpc('report_title_duration', { p_title: titleId, p_seconds: Math.round(seconds) })
 }
 

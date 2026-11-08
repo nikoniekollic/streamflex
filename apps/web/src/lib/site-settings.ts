@@ -22,6 +22,26 @@ const okRatio = (v: unknown, d: string) => (typeof v === 'string' && RATIO_RE.te
 /** « 16:9 » → « 16 / 9 » (propriété CSS aspect-ratio) */
 export const ratioCss = (r: string) => r.replace(':', ' / ')
 
+/** Aspect de la durée affichée sur les jaquettes (la position est dans cards.durationPos) */
+export type DurationStyle = { show: boolean; format: 'clock' | 'text'; size: number; color: string; bg: string; bgOpacity: number; radius: number; bold: boolean; padX: number }
+const DEFAULT_DURATION: DurationStyle = { show: true, format: 'clock', size: 11, color: '#ffffff', bg: '#000000', bgOpacity: 75, radius: 4, bold: true, padX: 6 }
+
+/** Style CSS de la pastille de durée (jaquettes et simulation de l'admin) */
+export const durationCss = (d: DurationStyle): CSSProperties => {
+  const n = parseInt(d.bg.slice(1), 16)
+  return {
+    fontSize: d.size,
+    color: d.color,
+    background: `rgba(${n >> 16}, ${(n >> 8) & 255}, ${n & 255}, ${d.bgOpacity / 100})`,
+    borderRadius: d.radius,
+    fontWeight: d.bold ? 700 : 400,
+    padding: `2px ${d.padX}px`,
+    lineHeight: 1.25,
+    whiteSpace: 'nowrap',
+    fontVariantNumeric: 'tabular-nums',
+  }
+}
+
 export type SiteSettings = {
   theme: { preset: string; primary: string | null; background: string | null; font: string; radius: number }
   names: { show: boolean; font: string; colorMode: 'auto' | 'palette' | 'fixed'; palette: string; color: string; stroke: string; glow: boolean; size: number; upper: 'auto' | 'on' | 'off'; x: number; y: number }
@@ -46,7 +66,7 @@ export type SiteSettings = {
   /** lecteur en premier plan : fenêtre centrée sur un fond flou transparent, ou plein écran */
   player: { mode: 'window' | 'full'; size: number; backdrop: number; blur: number; radius: number; fit: 'contain' | 'cover' | 'stretch'; ratio: string }
   /** formats des jaquettes de films et de modèles, icônes rondes en bas des jaquettes */
-  cards: { ratio: string; modelRatio: string; icons: boolean; modelEmoji: string; videoEmoji: string; emojiFromName: boolean; modelPos: Point; videoPos: Point; durationPos: Point }
+  cards: { ratio: string; modelRatio: string; icons: boolean; modelEmoji: string; videoEmoji: string; emojiFromName: boolean; modelPos: Point; videoPos: Point; durationPos: Point; duration: DurationStyle }
   /** bannière d'accueil : hauteur (en % de la hauteur de l'écran) ou format fixe */
   hero: { ratio: string; height: number; radius: number }
   /** jaquettes de modèles : photo, image capturée d'une de leurs vidéos, ou photo puis capture si absente */
@@ -72,7 +92,7 @@ export const DEFAULT_SETTINGS: SiteSettings = {
     bannerClip: 30,
   },
   player: { mode: 'window', size: 72, backdrop: 55, blur: 14, radius: 16, fit: 'contain', ratio: '16:9' },
-  cards: { ratio: '2:3', modelRatio: '2:3', icons: true, modelEmoji: '😀', videoEmoji: '▶️', emojiFromName: true, modelPos: { x: 8, y: 93 }, videoPos: { x: 92, y: 93 }, durationPos: { x: 50, y: 93 } },
+  cards: { ratio: '2:3', modelRatio: '2:3', icons: true, modelEmoji: '😀', videoEmoji: '▶️', emojiFromName: true, modelPos: { x: 8, y: 93 }, videoPos: { x: 92, y: 93 }, durationPos: { x: 50, y: 93 }, duration: DEFAULT_DURATION },
   hero: { ratio: 'auto', height: 62, radius: 16 },
   models: { image: 'auto' },
 }
@@ -191,6 +211,17 @@ export function normalizeSettings(input: unknown): SiteSettings {
       modelPos: point(cd.modelPos, d.cards.modelPos),
       videoPos: point(cd.videoPos, d.cards.videoPos),
       durationPos: point(cd.durationPos, d.cards.durationPos),
+      duration: ((du: Record<string, unknown>): DurationStyle => ({
+        show: du.show !== false,
+        format: oneOf(du.format, ['clock', 'text'] as const, 'clock'),
+        size: Math.round(clamp(du.size, 8, 28, DEFAULT_DURATION.size)),
+        color: hex(du.color, DEFAULT_DURATION.color)!,
+        bg: hex(du.bg, DEFAULT_DURATION.bg)!,
+        bgOpacity: Math.round(clamp(du.bgOpacity, 0, 100, DEFAULT_DURATION.bgOpacity)),
+        radius: Math.round(clamp(du.radius, 0, 16, DEFAULT_DURATION.radius)),
+        bold: du.bold !== false,
+        padX: Math.round(clamp(du.padX, 2, 16, DEFAULT_DURATION.padX)),
+      }))((cd.duration && typeof cd.duration === 'object' ? cd.duration : {}) as Record<string, unknown>),
     },
     hero: {
       ratio: hr.ratio === 'auto' ? 'auto' : okRatio(hr.ratio, 'auto'),

@@ -12,8 +12,8 @@ import { isModelCover, stripModelMark } from '@/lib/cover'
 import { ModelName } from '@/components/catalog/ModelName'
 import { HoverPreview } from '@/components/catalog/HoverPreview'
 import { PlaylistMenu } from '@/components/catalog/PlaylistMenu'
-import { formatMinutes, useCoverPos, useModelInfo, useTitleLength } from '@/lib/model-names'
-import { pin, ratioCss, useSiteSettings } from '@/lib/site-settings'
+import { formatDuration, useCoverPos, useModelInfo, useTitleLength } from '@/lib/model-names'
+import { durationCss, pin, ratioCss, useSiteSettings } from '@/lib/site-settings'
 import { firstEmoji } from '@/lib/emoji'
 
 const ICON = 'flex size-7 items-center justify-center rounded-full bg-black/75 text-base leading-none ring-1 ring-white/25 backdrop-blur-sm transition hover:scale-110 hover:bg-black/90 focus-visible:ring-2 focus-visible:ring-white focus-visible:outline-none'
@@ -89,14 +89,9 @@ export function MovieCard({ title, variant = 'poster', progress, watch, favorite
         </div>
       </div>
 
-      {isMovie && length && (
-        <span
-          className="pointer-events-none z-[4] rounded bg-black/75 px-1.5 py-0.5 text-[11px] font-semibold whitespace-nowrap text-white tabular-nums"
-          style={pin(cards.durationPos)}
-          title={length.estimated ? 'Durée estimée d’après la taille du fichier' : 'Durée'}
-        >
-          {length.estimated ? '≈ ' : ''}
-          {formatMinutes(length.minutes)}
+      {isMovie && length && cards.duration.show && (
+        <span className="pointer-events-none z-[4]" style={{ ...durationCss(cards.duration), ...pin(cards.durationPos) }} title="Durée du fichier">
+          {formatDuration(length.seconds, cards.duration.format)}
         </span>
       )}
 
