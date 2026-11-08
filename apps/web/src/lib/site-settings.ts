@@ -1,4 +1,4 @@
-import { useEffect, useSyncExternalStore } from 'react'
+import { useEffect, useSyncExternalStore, type CSSProperties } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { TypedSupabaseClient } from '@/lib/supabase'
 import { supabase } from '@/lib/supabase'
@@ -9,6 +9,8 @@ const raw = (s: TypedSupabaseClient) => s as unknown as SupabaseClient
 
 export type Fit = 'auto' | 'cover' | 'stretch'
 export type CardFit = 'cover' | 'contain' | 'stretch'
+/** point de la jaquette en % (0/0 = coin haut gauche, 100/100 = coin bas droit) */
+export type Point = { x: number; y: number }
 /** cadrage de la vidéo dans son cadre : centré, calé en haut ou en bas */
 export type Pos = 'center' | 'top' | 'bottom'
 export const CSS_POS: Record<Pos, string> = { center: 'center', top: 'center top', bottom: 'center bottom' }
@@ -44,7 +46,7 @@ export type SiteSettings = {
   /** lecteur en premier plan : fenêtre centrée sur un fond flou transparent, ou plein écran */
   player: { mode: 'window' | 'full'; size: number; backdrop: number; blur: number; radius: number; fit: 'contain' | 'cover' | 'stretch'; ratio: string }
   /** formats des jaquettes de films et de modèles, icônes rondes en bas des jaquettes */
-  cards: { ratio: string; modelRatio: string; icons: boolean; modelEmoji: string; videoEmoji: string; emojiFromName: boolean }
+  cards: { ratio: string; modelRatio: string; icons: boolean; modelEmoji: string; videoEmoji: string; emojiFromName: boolean; modelPos: Point; videoPos: Point; durationPos: Point }
   /** bannière d'accueil : hauteur (en % de la hauteur de l'écran) ou format fixe */
   hero: { ratio: string; height: number; radius: number }
   /** jaquettes de modèles : photo, image capturée d'une de leurs vidéos, ou photo puis capture si absente */
@@ -70,7 +72,7 @@ export const DEFAULT_SETTINGS: SiteSettings = {
     bannerClip: 30,
   },
   player: { mode: 'window', size: 72, backdrop: 55, blur: 14, radius: 16, fit: 'contain', ratio: '16:9' },
-  cards: { ratio: '2:3', modelRatio: '2:3', icons: true, modelEmoji: '😀', videoEmoji: '▶️', emojiFromName: true },
+  cards: { ratio: '2:3', modelRatio: '2:3', icons: true, modelEmoji: '😀', videoEmoji: '▶️', emojiFromName: true, modelPos: { x: 8, y: 93 }, videoPos: { x: 92, y: 93 }, durationPos: { x: 50, y: 93 } },
   hero: { ratio: 'auto', height: 62, radius: 16 },
   models: { image: 'auto' },
 }
@@ -101,6 +103,18 @@ export const SITE_FONTS = [
   { key: 'serif', label: 'Serif', family: "Georgia, 'Times New Roman', serif" },
   { key: 'mono', label: 'Monospace', family: "'Cascadia Code', 'Courier New', monospace" },
 ] as const
+
+const point = (v: unknown, d: Point): Point => {
+  const o = (v && typeof v === 'object' ? v : {}) as Record<string, unknown>
+  return { x: clamp(o.x, 0, 100, d.x), y: clamp(o.y, 0, 100, d.y) }
+}
+/** Style de placement : l'élément est posé au point (x %, y %) de la jaquette, sans jamais sortir du cadre (marge de 8 px aux bords). */
+export const pin = (p: Point): CSSProperties => ({
+  position: 'absolute',
+  left: `calc(${p.x}% + ${(50 - p.x) * 0.16}px)`,
+  top: `calc(${p.y}% + ${(50 - p.y) * 0.16}px)`,
+  transform: `translate(-${p.x}%, -${p.y}%)`,
+})
 
 const clamp = (n: unknown, min: number, max: number, d: number) => (typeof n === 'number' && Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : d)
 const HEX = /^#[0-9a-f]{6}$/i
@@ -174,6 +188,9 @@ export function normalizeSettings(input: unknown): SiteSettings {
       modelEmoji: typeof cd.modelEmoji === 'string' && cd.modelEmoji ? cd.modelEmoji.slice(0, 16) : d.cards.modelEmoji,
       videoEmoji: typeof cd.videoEmoji === 'string' && cd.videoEmoji ? cd.videoEmoji.slice(0, 16) : d.cards.videoEmoji,
       emojiFromName: cd.emojiFromName !== false,
+      modelPos: point(cd.modelPos, d.cards.modelPos),
+      videoPos: point(cd.videoPos, d.cards.videoPos),
+      durationPos: point(cd.durationPos, d.cards.durationPos),
     },
     hero: {
       ratio: hr.ratio === 'auto' ? 'auto' : okRatio(hr.ratio, 'auto'),

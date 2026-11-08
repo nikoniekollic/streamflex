@@ -779,6 +779,11 @@ Pixeldrain et Alldebrid ont été **abandonnés** (étapes 6, 7, 11 : ne plus s'
 - Admin → Modèles : grille de 6 par ligne, image capturée par défaut (liste et case de la fiche), emoji par modèle
 - Pagination : champ « aller à la page »
 
+## Étape 44 — Emojis complets (Unicode 18) + icônes de jaquette placables (2026-11-11)
+- `public/emoji-fr.json` régénéré depuis emojibase-data **18.0.0** : 3 963 emojis = exactement la liste `emoji-test.txt` d'Unicode 18 (« fully-qualified ») ; avant (16.0.3) : 3 781, il en manquait 182. Les emojis **animés / personnalisés de Telegram Premium** ne sont pas des emojis Unicode : indisponibles. `?v=18` sur l'URL du JSON pour contourner le cache d'un jour
+- Le sélecteur écarte les emojis que l'appareil ne sait pas dessiner (test canvas vs « carré vide ») et l'indique (`supportedEmojis`)
+- Jaquettes : icône du modèle (gauche, 8 %/93 %), icône de la vidéo (droite, 92 %/93 %) et durée (centre) ont chacune une position réglable (Apparence : 9 positions + curseurs) ; `pin()` les garde dans le cadre (marge 8 px)
+
 ## ~~Problème ouvert — lecture~~ (résolu ci-dessus)
 - Fichiers importés : `resolve-stream` renvoie 200 + URL, mais le lecteur reste sur la roue sans démarrer ; avancer dans la vidéo donne « Sources indisponibles »
 - Correctifs déployés : suppression de `probeStream` (double téléchargement), `refresh` → lien neuf (`force`)

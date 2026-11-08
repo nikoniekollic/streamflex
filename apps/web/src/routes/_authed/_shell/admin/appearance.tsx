@@ -10,6 +10,7 @@ import { EmojiPickerButton } from '@/components/emoji/EmojiPickerButton'
 import {
   CSS_POS,
   DEFAULT_SETTINGS,
+  pin,
   RATIOS,
   ratioCss,
   NAME_PALETTES,
@@ -98,6 +99,35 @@ function RatioField({ value, onChange, allowAuto }: { value: string; onChange: (
           <input type="number" min={1} max={99} value={h} onChange={(e) => onChange(`${w || 1}:${Math.min(99, Math.max(1, Number(e.target.value) || 1))}`)} className="h-9 w-14 rounded-md border bg-background px-2" aria-label="Hauteur du format" />
         </span>
       )}
+    </div>
+  )
+}
+
+/** Position d'un élément sur la jaquette : 9 positions prédéfinies + deux curseurs (même principe que le nom du modèle). */
+function PositionPicker({ label, value, onChange }: { label: string; value: { x: number; y: number }; onChange: (p: { x: number; y: number }) => void }) {
+  return (
+    <div className="grid gap-2 rounded-md border p-3">
+      <p className="text-sm font-medium">{label}</p>
+      <div className="grid grid-cols-[auto_1fr] items-center gap-3">
+        <div className="grid w-fit grid-cols-3 gap-1" role="group" aria-label={`Positions prédéfinies : ${label}`}>
+          {[8, 50, 93].flatMap((y) =>
+            [8, 50, 92].map((x) => (
+              <button
+                key={`${x}-${y}`}
+                type="button"
+                aria-label={`${label} à ${x} % / ${y} %`}
+                aria-pressed={value.x === x && value.y === y}
+                onClick={() => onChange({ x, y })}
+                className={cn('size-7 rounded-md border hover:bg-accent', value.x === x && value.y === y && 'border-primary bg-primary/30')}
+              />
+            )),
+          )}
+        </div>
+        <div className="grid gap-1.5">
+          <Range value={value.x} min={0} max={100} step={1} onChange={(x) => onChange({ ...value, x })} format={(v) => `← ${v} % →`} />
+          <Range value={value.y} min={0} max={100} step={1} onChange={(y) => onChange({ ...value, y })} format={(v) => `↑ ${v} % ↓`} />
+        </div>
+      </div>
     </div>
   )
 }
@@ -562,18 +592,22 @@ function AppearanceAdmin() {
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={cards.emojiFromName} onChange={(e) => edit('cards', { emojiFromName: e.target.checked })} /> Reprendre l’emoji présent dans le nom du modèle ou dans le titre de la vidéo, s’il y en a un
         </label>
-        <div className="flex items-end gap-2">
-          <div className="relative aspect-[2/3] w-28 overflow-hidden rounded-md bg-gradient-to-br from-fuchsia-900 to-slate-900 ring-1 ring-white/20">
-            <div className="absolute inset-x-0 bottom-0 flex gap-1.5 bg-black px-1.5 py-1.5">
-              {cards.icons && (
-                <>
-                  <span className="flex size-7 items-center justify-center rounded-full bg-white/15 text-base">{cards.modelEmoji}</span>
-                  <span className="flex size-7 items-center justify-center rounded-full bg-white/15 text-base">{cards.videoEmoji}</span>
-                </>
-              )}
-            </div>
+        <div className="grid gap-3 lg:grid-cols-3">
+          <PositionPicker label="Icône « page du modèle »" value={cards.modelPos} onChange={(p) => edit('cards', { modelPos: p })} />
+          <PositionPicker label="Icône « page de la vidéo »" value={cards.videoPos} onChange={(p) => edit('cards', { videoPos: p })} />
+          <PositionPicker label="Durée de la vidéo" value={cards.durationPos} onChange={(p) => edit('cards', { durationPos: p })} />
+        </div>
+        <div className="flex items-end gap-3">
+          <div className="relative w-36 overflow-hidden rounded-md bg-gradient-to-br from-fuchsia-900 to-slate-900 ring-1 ring-white/20" style={{ aspectRatio: ratioCss(cards.ratio) }}>
+            {cards.icons && (
+              <>
+                <span className="z-[5] flex size-7 items-center justify-center rounded-full bg-black/75 text-base ring-1 ring-white/25" style={pin(cards.modelPos)}>{cards.modelEmoji}</span>
+                <span className="z-[5] flex size-7 items-center justify-center rounded-full bg-black/75 text-base ring-1 ring-white/25" style={pin(cards.videoPos)}>{cards.videoEmoji}</span>
+              </>
+            )}
+            <span className="rounded bg-black/75 px-1.5 py-0.5 text-[11px] font-semibold whitespace-nowrap text-white" style={pin(cards.durationPos)}>≈ 25 min</span>
           </div>
-          <p className="text-xs text-muted-foreground">Simulation</p>
+          <p className="text-xs text-muted-foreground">Simulation (les icônes restent toujours dans le cadre, à 8 px des bords)</p>
         </div>
       </Section>
 

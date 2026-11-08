@@ -13,7 +13,7 @@ import { ModelName } from '@/components/catalog/ModelName'
 import { HoverPreview } from '@/components/catalog/HoverPreview'
 import { PlaylistMenu } from '@/components/catalog/PlaylistMenu'
 import { formatMinutes, useCoverPos, useModelInfo, useTitleLength } from '@/lib/model-names'
-import { ratioCss, useSiteSettings } from '@/lib/site-settings'
+import { pin, ratioCss, useSiteSettings } from '@/lib/site-settings'
 import { firstEmoji } from '@/lib/emoji'
 
 const ICON = 'flex size-7 items-center justify-center rounded-full bg-black/75 text-base leading-none ring-1 ring-white/25 backdrop-blur-sm transition hover:scale-110 hover:bg-black/90 focus-visible:ring-2 focus-visible:ring-white focus-visible:outline-none'
@@ -91,7 +91,8 @@ export function MovieCard({ title, variant = 'poster', progress, watch, favorite
 
       {isMovie && length && (
         <span
-          className="pointer-events-none absolute right-1.5 bottom-1.5 z-[4] rounded bg-black/75 px-1.5 py-0.5 text-[11px] font-semibold text-white tabular-nums"
+          className="pointer-events-none z-[4] rounded bg-black/75 px-1.5 py-0.5 text-[11px] font-semibold whitespace-nowrap text-white tabular-nums"
+          style={pin(cards.durationPos)}
           title={length.estimated ? 'Durée estimée d’après la taille du fichier' : 'Durée'}
         >
           {length.estimated ? '≈ ' : ''}
@@ -183,23 +184,30 @@ export function MovieCard({ title, variant = 'poster', progress, watch, favorite
       {link}
       {favorite && (
         <>
+          {/* deux icônes rondes, chacune à sa place (réglable dans Apparence) : page du modèle / page de la vidéo */}
+          {cards.icons && modelInfo && (
+            <button
+              type="button"
+              aria-label={`Page du modèle ${modelInfo.name}`}
+              title={`Page du modèle : ${modelInfo.name}`}
+              onClick={() => void navigate({ to: '/models/$id', params: { id: modelInfo.id } })}
+              className={`${ICON} z-[5]`}
+              style={pin(cards.modelPos)}
+            >
+              {modelEmoji}
+            </button>
+          )}
           {cards.icons && (
-            <div className="absolute bottom-1.5 left-1.5 z-[5] flex gap-1.5">
-              {modelInfo && (
-                <button
-                  type="button"
-                  aria-label={`Page du modèle ${modelInfo.name}`}
-                  title={`Page du modèle : ${modelInfo.name}`}
-                  onClick={() => void navigate({ to: '/models/$id', params: { id: modelInfo.id } })}
-                  className={ICON}
-                >
-                  {modelEmoji}
-                </button>
-              )}
-              <button type="button" aria-label={`Page de la vidéo ${title.title}`} title="Page de la vidéo" onClick={() => void navigate({ to: '/title/$slug', params: { slug: title.slug } })} className={ICON}>
-                {videoEmoji}
-              </button>
-            </div>
+            <button
+              type="button"
+              aria-label={`Page de la vidéo ${title.title}`}
+              title="Page de la vidéo"
+              onClick={() => void navigate({ to: '/title/$slug', params: { slug: title.slug } })}
+              className={`${ICON} z-[5]`}
+              style={pin(cards.videoPos)}
+            >
+              {videoEmoji}
+            </button>
           )}
         <div className="absolute top-2 right-2 z-[5] flex gap-1.5">
           {isMovie && <PlaylistMenu titleId={title.id} />}

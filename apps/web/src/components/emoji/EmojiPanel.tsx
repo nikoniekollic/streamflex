@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Clock, Loader2, Search } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { loadEmojis, recentEmojis, rememberEmoji, searchEmojis, type EmojiData } from '@/lib/emoji'
+import { loadEmojis, recentEmojis, rememberEmoji, searchEmojis, supportedEmojis, type EmojiData } from '@/lib/emoji'
 
 // Un emoji représentatif par catégorie pour les onglets
 const TAB_ICONS = ['😀', '🧑', '🐶', '🍔', '✈️', '⚽', '💡', '❤️', '🏁']
@@ -17,8 +17,18 @@ export function EmojiPanel({ onPick, className }: { onPick: (emoji: string) => v
   const scroller = useRef<HTMLDivElement>(null)
   const recents = useMemo(() => recentEmojis(), [])
 
+  const [hidden, setHidden] = useState(0)
   useEffect(() => {
-    void loadEmojis().then(setData, () => setFailed(true))
+    void loadEmojis().then(
+      (d) =>
+        // on écarte les emojis que cet appareil ne sait pas dessiner (carrés vides)
+        setTimeout(() => {
+          const ok = supportedEmojis(d.items)
+          setHidden(d.items.length - ok.size)
+          setData({ ...d, items: d.items.filter((i) => ok.has(i.e)) })
+        }, 0),
+      () => setFailed(true),
+    )
   }, [])
 
   useEffect(() => {
@@ -29,7 +39,7 @@ export function EmojiPanel({ onPick, className }: { onPick: (emoji: string) => v
   const list = useMemo(() => {
     if (!data) return []
     if (q.trim()) return searchEmojis(data, q).map((i) => ({ e: i.e, label: i.label }))
-    if (tab === -1) return recents.map((e) => ({ e, label: '' }))
+    if (tab === -1) return recents.filter((e) => data.items.some((i) => i.e === e)).map((e) => ({ e, label: '' }))
     return data.items.filter((i) => i.group === tab).map((i) => ({ e: i.e, label: i.label }))
   }, [data, q, tab, recents])
 
@@ -78,6 +88,7 @@ export function EmojiPanel({ onPick, className }: { onPick: (emoji: string) => v
           </div>
         )}
         {failed && <p className="p-4 text-center text-sm text-neutral-400">Liste d’emojis indisponible. Réessaie dans un instant.</p>}
+        {data && hidden > 0 && !q.trim() && tab === 0 && <p className="px-1 pb-1 text-[10px] text-neutral-500">{hidden} emoji(s) trop récent(s) pour cet appareil sont masqués.</p>}
         {data && list.length === 0 && <p className="p-4 text-center text-sm text-neutral-400">{q.trim() ? 'Aucun emoji trouvé.' : 'Aucun emoji récent.'}</p>}
         <div className="grid grid-cols-8 gap-0.5">
           {list.slice(0, shown).map((it, i) => (
