@@ -13,10 +13,16 @@ import { acquireSlot, attachSlot, detachSlot } from '@/lib/video-pool'
 export function CoverThumb({ titleId, coverPos, fallback, className, order = 0 }: { titleId: string; coverPos: number | null; fallback?: ReactNode; className?: string; order?: number }) {
   const { activeProfile } = useActiveProfile()
   const profileId = activeProfile?.id
-  const [url, setUrl] = useState<string | null>(() => peekPreviewUrl(titleId))
+  // le lien appartient à UN film : quand la vignette change de film (recapture d'un modèle), l'ancien lien ne doit pas servir
+  const [got, setGot] = useState<{ id: string; url: string | null }>(() => ({ id: titleId, url: peekPreviewUrl(titleId) }))
+  const url = got.id === titleId ? got.url : peekPreviewUrl(titleId)
+  const setUrl = (u: string | null) => setGot({ id: titleId, url: u })
   const [ready, setReady] = useState(false)
   const host = useRef<HTMLDivElement>(null)
   const retried = useRef(false)
+  useEffect(() => {
+    retried.current = false
+  }, [titleId])
   // seules les vignettes proches de l'écran sont préparées (48 cartes de modèles = 48 liens à débrider sinon)
   const [near, setNear] = useState(() => typeof IntersectionObserver === 'undefined')
   const [rank, setRank] = useState(order) // rang dans la page (ligne puis colonne) : la première ligne est préparée en premier
