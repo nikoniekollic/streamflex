@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { NAME_FONTS, modelNameStyle } from '@/lib/cover'
 import { nameBox } from '@/components/catalog/ModelName'
 import { EmojiPickerButton } from '@/components/emoji/EmojiPickerButton'
+import { EmojiView } from '@/lib/emoji-media'
 import {
   CSS_POS,
   DEFAULT_SETTINGS,
@@ -602,8 +603,8 @@ function AppearanceAdmin() {
           <div className="relative w-36 overflow-hidden rounded-md bg-gradient-to-br from-fuchsia-900 to-slate-900 ring-1 ring-white/20" style={{ aspectRatio: ratioCss(cards.ratio) }}>
             {cards.icons && (
               <>
-                <span className="z-[5] flex size-7 items-center justify-center rounded-full bg-black/75 text-base ring-1 ring-white/25" style={pin(cards.modelPos)}>{cards.modelEmoji}</span>
-                <span className="z-[5] flex size-7 items-center justify-center rounded-full bg-black/75 text-base ring-1 ring-white/25" style={pin(cards.videoPos)}>{cards.videoEmoji}</span>
+                <span className="z-[5] flex size-7 items-center justify-center rounded-full bg-black/75 text-base ring-1 ring-white/25" style={pin(cards.modelPos)}><EmojiView value={cards.modelEmoji} /></span>
+                <span className="z-[5] flex size-7 items-center justify-center rounded-full bg-black/75 text-base ring-1 ring-white/25" style={pin(cards.videoPos)}><EmojiView value={cards.videoEmoji} /></span>
               </>
             )}
             {cards.duration.show && (

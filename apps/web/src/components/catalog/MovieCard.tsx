@@ -13,6 +13,7 @@ import { ModelName } from '@/components/catalog/ModelName'
 import { HoverPreview } from '@/components/catalog/HoverPreview'
 import { PlaylistMenu } from '@/components/catalog/PlaylistMenu'
 import { formatDuration, useCoverPos, useModelInfo, useTitleLength } from '@/lib/model-names'
+import { EmojiView } from '@/lib/emoji-media'
 import { durationCss, pin, ratioCss, useSiteSettings } from '@/lib/site-settings'
 import { firstEmoji } from '@/lib/emoji'
 
@@ -189,7 +190,7 @@ export function MovieCard({ title, variant = 'poster', progress, watch, favorite
               className={`${ICON} z-[5]`}
               style={pin(cards.modelPos)}
             >
-              {modelEmoji}
+              <EmojiView value={modelEmoji} />
             </button>
           )}
           {cards.icons && (
@@ -201,7 +202,7 @@ export function MovieCard({ title, variant = 'poster', progress, watch, favorite
               className={`${ICON} z-[5]`}
               style={pin(cards.videoPos)}
             >
-              {videoEmoji}
+              <EmojiView value={videoEmoji} />
             </button>
           )}
         <div className="absolute top-2 right-2 z-[5] flex gap-1.5">
