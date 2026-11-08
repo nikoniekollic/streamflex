@@ -48,6 +48,7 @@ export function EmojiPanel({ onPick, className }: { onPick: (emoji: string) => v
           placeholder="Rechercher un emoji (ex. cœur, feu, rire)…"
           aria-label="Rechercher un emoji"
           data-no-emoji
+          autoFocus
           className="h-9 w-full rounded-md bg-neutral-900 pr-3 pl-8 text-sm outline-none placeholder:text-neutral-500 focus:ring-1 focus:ring-white/30"
         />
       </div>

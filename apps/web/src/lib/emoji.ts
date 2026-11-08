@@ -30,15 +30,15 @@ export function searchEmojis(data: EmojiData, query: string, limit = 400): Emoji
   const q = norm(query.trim())
   if (!q) return []
   const words = q.split(/\s+/)
-  const out: EmojiItem[] = []
+  const starts: EmojiItem[] = [] // un mot du nom commence par la recherche (« feu » → 🔥) : en premier
+  const inside: EmojiItem[] = [] // la recherche est au milieu d'un mot (« golfeur ») : ensuite
   for (const it of data.items) {
     const hay = norm(`${it.label} ${it.tags}`)
-    if (words.every((w) => hay.includes(w))) {
-      out.push(it)
-      if (out.length >= limit) break
-    }
+    if (!words.every((w) => hay.includes(w))) continue
+    const tokens = hay.split(/[^a-z0-9]+/)
+    ;(words.every((w) => tokens.some((t) => t.startsWith(w))) ? starts : inside).push(it)
   }
-  return out
+  return [...starts, ...inside].slice(0, limit)
 }
 
 // ───────── Récents (appareil)
