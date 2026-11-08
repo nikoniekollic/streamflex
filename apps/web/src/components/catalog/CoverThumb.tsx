@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 import { supabase } from '@/lib/supabase'
 import { useActiveProfile } from '@/components/profile/ActiveProfileContext'
-import { cancelWarm, invalidatePreview, peekPreviewUrl, warmPreview } from '@/lib/preview'
+import { cancelWarm, directPreview, invalidatePreview, peekPreviewUrl, warmPreview } from '@/lib/preview'
 import { acquireSlot, attachSlot, detachSlot } from '@/lib/video-pool'
 
 /**
@@ -10,7 +10,7 @@ import { acquireSlot, attachSlot, detachSlot } from '@/lib/video-pool'
  * tous ses films. Utilisé dans l'admin (liste du catalogue) et sur les cartes de modèles. `fallback` s'affiche en attendant
  * (ou si la vidéo est indisponible).
  */
-export function CoverThumb({ titleId, coverPos, fallback, className, order = 0 }: { titleId: string; coverPos: number | null; fallback?: ReactNode; className?: string; order?: number }) {
+export function CoverThumb({ titleId, coverPos, fallback, className, order = 0, direct = false }: { titleId: string; coverPos: number | null; fallback?: ReactNode; className?: string; order?: number; direct?: boolean }) {
   const { activeProfile } = useActiveProfile()
   const profileId = activeProfile?.id
   // le lien appartient à UN film : quand la vignette change de film (recapture d'un modèle), l'ancien lien ne doit pas servir
@@ -45,12 +45,16 @@ export function CoverThumb({ titleId, coverPos, fallback, className, order = 0 }
   useEffect(() => {
     if (url || !profileId || !near) return
     let alive = true
-    void warmPreview(supabase, profileId, titleId, rank).then((u) => alive && u && setUrl(u))
+    const wanted = { cancelled: false }
+    void warmPreview(supabase, profileId, titleId, rank)
+      .then((u) => (u || !direct || !alive ? u : directPreview(supabase, profileId, titleId, wanted))) // Alldebrid indisponible : lien direct 1fichier (jaquettes de modèles)
+      .then((u) => alive && u && setUrl(u))
     return () => {
       alive = false
+      wanted.cancelled = true
       cancelWarm(titleId)
     }
-  }, [url, profileId, titleId, rank, near])
+  }, [url, profileId, titleId, rank, near, direct])
 
   useEffect(() => {
     const h = host.current

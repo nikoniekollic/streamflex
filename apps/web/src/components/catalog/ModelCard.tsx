@@ -30,7 +30,7 @@ export function ModelCard({ model }: { model: PublicModel }) {
       style={{ aspectRatio: ratioCss(models.ratio) }}
       className="group/card relative block overflow-hidden rounded-md bg-neutral-900 transition-shadow duration-300 outline-none hover:ring-2 hover:ring-white/80 focus-visible:ring-2 focus-visible:ring-white"
     >
-      {capture ? <CoverThumb titleId={model.cover_title_id!} coverPos={model.cover_pos} fallback={photo} className="absolute inset-0" /> : photo}
+      {capture ? <CoverThumb titleId={model.cover_title_id!} coverPos={model.cover_pos} fallback={photo} className="absolute inset-0" direct /> : photo}
       <ModelPreview modelId={model.id} active={hovered} />
       <ModelLabel name={model.name} />
       <div className="absolute inset-x-0 bottom-0 z-[3] bg-gradient-to-t from-black/90 to-transparent px-2 pt-8 pb-2 text-center text-xs font-medium text-neutral-200">

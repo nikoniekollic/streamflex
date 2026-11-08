@@ -1,5 +1,5 @@
 import type { TypedSupabaseClient } from '@/lib/supabase'
-import { StreamError } from '@/lib/stream'
+import { StreamError, resolveStream } from '@/lib/stream'
 import { DebridClientError, unlockInBrowser, type ClientDebrid } from '@/lib/alldebrid'
 import { shareLink } from '@/lib/shared-links'
 import { hasExactLength, setExactLength } from '@/lib/model-names'
@@ -269,6 +269,40 @@ export function warmPreview(s: TypedSupabaseClient, profileId: string, titleId: 
     scheduleFlush()
   })
 }
+
+// ───────── Repli 1fichier direct (Alldebrid en panne / limite atteinte) : réservé aux jaquettes de MODÈLES (≈ 70 images)
+// Un seul appel à la fois, le serveur espace lui-même les appels 1fichier (≥ 8 s, 120 / h) ; liens partagés ensuite entre abonnés.
+const DIRECT_MAX = 90 // titres par session
+let directTasks = 0
+let directChain: Promise<unknown> = Promise.resolve()
+export function directPreview(s: TypedSupabaseClient, profileId: string, titleId: string, wanted: Wanted): Promise<string | null> {
+  if (!UUID.test(titleId)) return Promise.resolve(null)
+  const known = cache.get(titleId)
+  if (known?.url && known.until > Date.now()) return Promise.resolve(known.url)
+  const running = directInflight.get(titleId)
+  if (running) return running
+  if (directTasks >= DIRECT_MAX) return Promise.resolve(null)
+  directTasks++
+  const p = (directChain = directChain.then(async () => {
+    if (wanted.cancelled) {
+      directTasks--
+      return null // la jaquette a quitté l'écran : on n'utilise pas le budget 1fichier pour elle
+    }
+    try {
+      const info = await resolveStream(s, { profileId, titleId, episodeId: null, preview: true, direct: true, quality: '480p' })
+      if (!info.url) return null
+      remember(titleId, info.url, { quality: info.quality, qualities: info.qualities })
+      return info.url
+    } catch {
+      return null
+    } finally {
+      directInflight.delete(titleId)
+    }
+  }))
+  directInflight.set(titleId, p as Promise<string | null>)
+  return p as Promise<string | null>
+}
+const directInflight = new Map<string, Promise<string | null>>()
 
 /** La jaquette a quitté l'écran avant l'envoi du lot : on n'en demande pas le lien. */
 export function cancelWarm(titleId: string) {

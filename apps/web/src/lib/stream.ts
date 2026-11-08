@@ -126,9 +126,10 @@ export const directNoticeStore = {
 
 export async function resolveStream(supabase: TypedSupabaseClient, params: ResolveParams): Promise<StreamInfo> {
   const paused = Date.now() < alldebridPausedUntil
-  if (paused && params.preview) throw new StreamError('host_busy') // les aperçus ne sollicitent pas le budget 1fichier
+  if (paused && params.preview && !params.direct) throw new StreamError('host_busy') // les aperçus ne sollicitent pas le budget 1fichier (sauf demande explicite : jaquettes de modèles)
   const direct = params.direct === true || paused
-  if (direct) setDirectNotice(true)
+  const notice = direct && !params.preview
+  if (notice) setDirectNotice(true)
   try {
     return await resolveStreamOnce(supabase, { ...params, direct })
   } catch (e) {
@@ -143,7 +144,7 @@ export async function resolveStream(supabase: TypedSupabaseClient, params: Resol
     }
     throw e
   } finally {
-    if (direct) setDirectNotice(false)
+    if (notice) setDirectNotice(false)
   }
 }
 
