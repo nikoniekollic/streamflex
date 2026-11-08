@@ -61,6 +61,7 @@ export function DurationScanPanel({ supabase }: { supabase: TypedSupabaseClient 
     let empty = 0
     let note = ''
     let exhausted = false
+    let lastWhy = ''
     let cursor = ''
     // le curseur est partagé : un seul lot à la fois est demandé à la base, chaque lot est ensuite traité par son propre travailleur
     let chain: Promise<unknown> = Promise.resolve()
@@ -85,7 +86,7 @@ export function DurationScanPanel({ supabase }: { supabase: TypedSupabaseClient 
         const nxt = take() // le lot suivant se résout pendant qu'on lit celui-ci
         const urls = await cur.urls
         // le serveur lit l'en-tête de chaque fichier et enregistre les durées (admin_set_durations)
-        const { data, error } = await supabase.functions.invoke<{ results: { id: string; s: number | null }[] }>('probe-durations', {
+        const { data, error } = await supabase.functions.invoke<{ results: { id: string; s: number | null; why?: string | null }[] }>('probe-durations', {
           body: { items: cur.ids.map((id, i) => ({ id, url: urls[i] ?? '' })).filter((x) => x.url) },
         })
         if (error) {
@@ -94,6 +95,7 @@ export function DurationScanPanel({ supabase }: { supabase: TypedSupabaseClient 
           break
         }
         const got = data?.results ?? []
+        lastWhy = got.find((r) => r.why)?.why ?? lastWhy
         const ok = got.filter((r): r is { id: string; s: number } => r.s != null)
         ok.forEach((r) => setExactLength(r.id, r.s))
         const res = cur.ids // lot entier (liens absents = illisibles)
@@ -101,7 +103,7 @@ export function DurationScanPanel({ supabase }: { supabase: TypedSupabaseClient 
         failed += res.length - ok.length
         empty = ok.length === 0 ? empty + 1 : 0
         if (empty >= MAX_EMPTY_BATCHES) {
-          note = 'Arrêt : aucune durée lisible sur les derniers lots (liens refusés ou Alldebrid en pause). Réessaie dans quelques minutes.'
+          note = `Arrêt : aucune durée lisible sur les derniers lots${lastWhy ? ` (${lastWhy})` : ''}. Réessaie dans quelques minutes.`
           alive.current = false
           break
         }

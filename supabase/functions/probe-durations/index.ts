@@ -17,11 +17,11 @@ async function range(url: string, start: number, len: number): Promise<Uint8Arra
   const r = await fetch(url, { headers: { Range: `bytes=${start}-${start + len - 1}` }, signal: AbortSignal.timeout(TIMEOUT_MS) })
   if (r.status !== 206 && r.status !== 200) {
     await r.body?.cancel()
-    return null
+    throw new Error(`HTTP ${r.status}`)
   }
   if (r.status === 200 && start > 0) {
     await r.body?.cancel() // Range ignoré : on ne parcourt pas le fichier
-    return null
+    throw new Error('Range ignoré par l’hébergeur')
   }
   const reader = r.body!.getReader()
   const chunks: Uint8Array[] = []
@@ -144,9 +144,10 @@ Deno.serve(async (req) => {
 
   const results = await mapLimit(items, PARALLEL, async (it) => {
     try {
-      return { id: it.id, s: await mp4Seconds(it.url) }
-    } catch {
-      return { id: it.id, s: null }
+      const s = await mp4Seconds(it.url)
+      return { id: it.id, s, why: s == null ? 'en-tête MP4 illisible' : null }
+    } catch (e) {
+      return { id: it.id, s: null, why: (e as Error).name === 'TimeoutError' ? 'délai dépassé' : (e as Error).message.slice(0, 80) }
     }
   })
   const ok = results.filter((r): r is { id: string; s: number } => r.s != null)
