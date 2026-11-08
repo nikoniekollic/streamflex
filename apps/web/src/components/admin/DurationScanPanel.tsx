@@ -8,7 +8,8 @@ import { setExactLength } from '@/lib/model-names'
 import type { TypedSupabaseClient } from '@/lib/supabase'
 
 const BATCH = 24 // liens résolus en un seul appel serveur
-const PARALLEL = 14 // vidéos lues en même temps
+const PARALLEL = 14 // vidéos lues en même temps, par travailleur
+const WORKERS = 3 // lots traités en même temps (≈ 40 vidéos : mesuré, certaines mettent 6 s à répondre, d'où le parallélisme)
 const PROBE_TIMEOUT_MS = 20_000
 const MAX_EMPTY_BATCHES = 5 // lots entiers sans aucune durée d'affilée : on s'arrête (liens refusés, Alldebrid en pause…)
 
@@ -98,10 +99,29 @@ export function DurationScanPanel({ supabase }: { supabase: TypedSupabaseClient 
     let failed = 0
     let empty = 0
     let note = ''
-    try {
-      let cur = await nextBatch('')
-      while (alive.current && cur.ids.length > 0) {
-        const next = nextBatch(cur.ids[cur.ids.length - 1]) // préparé pendant qu'on lit celui-ci
+    let exhausted = false
+    let cursor = ''
+    // le curseur est partagé : un seul lot à la fois est demandé à la base, chaque lot est ensuite traité par son propre travailleur
+    let chain: Promise<unknown> = Promise.resolve()
+    const take = () => {
+      const p = chain.then(async () => {
+        if (exhausted || !alive.current) return null
+        const b = await nextBatch(cursor)
+        if (b.ids.length === 0) {
+          exhausted = true
+          return null
+        }
+        cursor = b.ids[b.ids.length - 1]
+        return b
+      })
+      chain = p.catch(() => null)
+      return p
+    }
+    const refresh = setInterval(() => void loadStats(), 8000)
+    const worker = async () => {
+      let cur = await take()
+      while (cur && alive.current) {
+        const nxt = take() // le lot suivant se résout pendant qu'on lit celui-ci
         const urls = await cur.urls
         const res = await mapLimit(cur.ids.map((id, i) => ({ id, url: urls[i] ?? null })), PARALLEL, async (x) => ({ id: x.id, s: await probe(x.url) }))
         const ok = res.filter((r): r is { id: string; s: number } => r.s != null)
@@ -109,6 +129,7 @@ export function DurationScanPanel({ supabase }: { supabase: TypedSupabaseClient 
           const { error } = await db.rpc('admin_set_durations', { p_items: ok.map((r) => ({ id: r.id, s: Math.round(r.s) })) })
           if (error) {
             note = `Enregistrement impossible : ${error.message}`
+            alive.current = false
             break
           }
           ok.forEach((r) => setExactLength(r.id, r.s))
@@ -118,16 +139,20 @@ export function DurationScanPanel({ supabase }: { supabase: TypedSupabaseClient 
         empty = ok.length === 0 ? empty + 1 : 0
         if (empty >= MAX_EMPTY_BATCHES) {
           note = 'Arrêt : aucune durée lisible sur les derniers lots (liens refusés ou Alldebrid en pause). Réessaie dans quelques minutes.'
+          alive.current = false
           break
         }
         setProgress({ read, failed, note })
-        if (read % 240 < BATCH) void loadStats()
-        cur = await next
+        cur = await nxt
       }
+    }
+    try {
+      await Promise.all(Array.from({ length: WORKERS }, worker))
       if (!note && alive.current) note = 'Terminé : toutes les vidéos lisibles ont maintenant leur durée.'
     } catch (e) {
       note = `Erreur : ${(e as Error).message}`
     } finally {
+      clearInterval(refresh)
       alive.current = false
       setRunning(false)
       setProgress({ read, failed, note })
