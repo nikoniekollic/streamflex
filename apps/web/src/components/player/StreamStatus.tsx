@@ -1,8 +1,9 @@
+import { useSyncExternalStore } from 'react'
 import { Link } from '@tanstack/react-router'
 import { AlertTriangle, ArrowLeft, Loader2, RotateCcw, Unplug, WifiOff } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
-import { RETRYABLE_STREAM_ERRORS, STREAM_ERROR_MESSAGES, STREAM_ERROR_TITLES, type StreamErrorCode } from '@/lib/stream'
+import { directNoticeStore, RETRYABLE_STREAM_ERRORS, STREAM_ERROR_MESSAGES, STREAM_ERROR_TITLES, type StreamErrorCode } from '@/lib/stream'
 
 type Props = {
   title: string
@@ -35,10 +36,13 @@ export function StreamStatus(props: Props) {
 }
 
 function Resolving() {
-  // Aucun texte : une petite roue n'apparaît qu'au bout d'une seconde si la résolution traîne
+  // Aucun texte en temps normal : une petite roue n'apparaît qu'au bout d'une seconde si la résolution traîne.
+  // Quand Alldebrid a atteint ses limites, on l'indique : le lien est obtenu directement chez 1fichier (un peu plus long).
+  const direct = useSyncExternalStore(directNoticeStore.subscribe, directNoticeStore.get)
   return (
-    <div className="flex justify-center" aria-live="polite" aria-busy="true">
+    <div className="flex flex-col items-center gap-3" aria-live="polite" aria-busy="true">
       <Loader2 className="size-9 animate-spin text-white/60 animate-in fade-in" style={{ animationDelay: '1000ms', animationFillMode: 'both' }} />
+      {direct && <p className="text-center text-sm text-white/70 animate-in fade-in">Alldebrid indisponible : connexion directe via 1fichier…</p>}
     </div>
   )
 }

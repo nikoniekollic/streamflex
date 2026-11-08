@@ -6,7 +6,7 @@ import { denyIfBanned, denyIfNoSubscription } from '../_shared/guard.ts'
 import { background } from '../_shared/background.ts'
 import { ResolveError, resolveSource, type FailureKind, type MediaSource } from '../_shared/providers.ts'
 
-type Body = { profileId?: string; titleId?: string; titleIds?: unknown; refreshIds?: unknown; episodeId?: string | null; quality?: string; audio?: string; refresh?: boolean; exclude?: string[]; preview?: boolean }
+type Body = { profileId?: string; titleId?: string; titleIds?: unknown; refreshIds?: unknown; episodeId?: string | null; quality?: string; audio?: string; refresh?: boolean; exclude?: string[]; preview?: boolean; direct?: boolean }
 type CachedStream = { url: string; expiresAt: number }
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
@@ -110,6 +110,7 @@ async function handle(req: Request): Promise<Response> {
   if (!parsed) return json({ error: 'invalid_body' }, 400)
   const body: Body = parsed
   const { profileId, titleId, episodeId = null, quality, audio, refresh = false, exclude = [], preview = false } = body
+  const direct = body.direct === true
   if (audio !== undefined && !/^[a-z]{2,3}(-[A-Za-z0-9]{2,8})?$/.test(audio)) return json({ error: 'invalid_audio' }, 400)
   if (!profileId || !UUID.test(profileId)) return json({ error: 'profile_required' }, 400)
   if (Array.isArray(body.titleIds)) return await handleBatch(userClient, profileId, body.titleIds, body.refreshIds)
@@ -195,7 +196,7 @@ async function handle(req: Request): Promise<Response> {
       await cache.del(key)
     }
     try {
-      const r = await resolveSource(src, { refresh })
+      const r = await resolveSource(src, { refresh, direct })
       if (r.clientDebrid) {
         // Débridage côté navigateur : rien à mettre en cache (la clé ne doit pas traîner dans Redis)
         if (!preview) await background(admin.rpc('mark_source_streamed', { p_source_id: src.id }))

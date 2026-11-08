@@ -65,6 +65,8 @@ export class StreamError extends Error {
     readonly code: StreamErrorCode,
     /** code brut d'Alldebrid, pour comprendre un échec */
     readonly detail?: string,
+    /** échec côté Alldebrid (hors fichier supprimé) : le lien direct 1fichier peut prendre le relais */
+    readonly fallbackDirect = false,
   ) {
     super(code)
   }
@@ -98,9 +100,54 @@ export type ResolveParams = {
   exclude?: string[]
   /** aperçu / capture : ne compte pas comme une lecture (monitoring des fichiers) */
   preview?: boolean
+  /** ignore Alldebrid : lien direct de l'API 1fichier du compte (repli quand Alldebrid a atteint ses limites) */
+  direct?: boolean
+}
+
+// Alldebrid en panne / limite atteinte (MAX_DAILY_DOWNLOAD…) : on passe par le lien direct 1fichier (API du compte, côté serveur)
+// et on ne réessaie pas Alldebrid pendant ALLDEBRID_PAUSE_MS (les limites journalières ne se lèvent pas en quelques secondes).
+const ALLDEBRID_PAUSE_MS = 10 * 60_000
+let alldebridPausedUntil = 0
+let directNotice = false
+const noticeListeners = new Set<() => void>()
+function setDirectNotice(v: boolean) {
+  if (directNotice === v) return
+  directNotice = v
+  noticeListeners.forEach((l) => l())
+}
+/** true tant qu'un lien est obtenu directement chez 1fichier (affiché sur l'écran de chargement) */
+export const directNoticeStore = {
+  subscribe: (l: () => void) => {
+    noticeListeners.add(l)
+    return () => void noticeListeners.delete(l)
+  },
+  get: () => directNotice,
 }
 
 export async function resolveStream(supabase: TypedSupabaseClient, params: ResolveParams): Promise<StreamInfo> {
+  const paused = Date.now() < alldebridPausedUntil
+  if (paused && params.preview) throw new StreamError('host_busy') // les aperçus ne sollicitent pas le budget 1fichier
+  const direct = params.direct === true || paused
+  if (direct) setDirectNotice(true)
+  try {
+    return await resolveStreamOnce(supabase, { ...params, direct })
+  } catch (e) {
+    if (e instanceof StreamError && e.fallbackDirect && !direct && !params.preview) {
+      alldebridPausedUntil = Date.now() + ALLDEBRID_PAUSE_MS
+      setDirectNotice(true)
+      try {
+        return await resolveStreamOnce(supabase, { ...params, direct: true })
+      } finally {
+        setDirectNotice(false)
+      }
+    }
+    throw e
+  } finally {
+    if (direct) setDirectNotice(false)
+  }
+}
+
+async function resolveStreamOnce(supabase: TypedSupabaseClient, params: ResolveParams): Promise<StreamInfo> {
   const { data, error } = await supabase.functions.invoke<StreamInfo & { clientDebrid?: ClientDebrid }>('resolve-stream', { body: params })
   if (error) {
     if (error instanceof FunctionsHttpError) {
@@ -118,7 +165,7 @@ export async function resolveStream(supabase: TypedSupabaseClient, params: Resol
     } catch (e) {
       const f = e instanceof DebridClientError ? e.failure : 'unavailable'
       console.error('[StreamFlex] Alldebrid (navigateur) :', e instanceof DebridClientError ? e.code : e)
-      throw new StreamError(f === 'offline' ? 'source_offline' : f === 'host_busy' ? 'host_busy' : 'source_unavailable', e instanceof DebridClientError ? e.code : undefined)
+      throw new StreamError(f === 'offline' ? 'source_offline' : f === 'host_busy' ? 'host_busy' : 'source_unavailable', e instanceof DebridClientError ? e.code : undefined, f !== 'offline')
     }
   }
   if (!data?.url) throw new StreamError('unknown')
