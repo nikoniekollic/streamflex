@@ -21,6 +21,3 @@ verify_jwt = true    # admin uniquement (is_admin) : métadonnées / télécharg
 
 [functions.onefichier-import]
 verify_jwt = true    # admin uniquement (is_admin) : explorateur et import du compte 1fichier
-
-[functions.probe-durations]
-verify_jwt = true    # lecture des durées (admin vérifié dans la fonction)

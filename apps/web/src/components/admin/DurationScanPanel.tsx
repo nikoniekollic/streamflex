@@ -7,9 +7,50 @@ import { resolveMany } from '@/lib/preview'
 import { setExactLength } from '@/lib/model-names'
 import type { TypedSupabaseClient } from '@/lib/supabase'
 
-const BATCH = 24 // liens résolus en un seul appel serveur, puis lus par le serveur
-const WORKERS = 4 // lots traités en même temps (le débridage Alldebrid, ≈ 6 liens/s, est le vrai plafond)
+const BATCH = 24 // liens résolus en un seul appel serveur
+// Mesuré : un fichier jamais ouvert met ≈ 6 s à répondre (l'hébergeur le rouvre) et l'hébergeur ne sert qu'une dizaine de lectures à la fois :
+// au-delà, rien ne va plus vite, chaque lecture attend plus longtemps (16 s avec 40 en parallèle) et finit par expirer.
+const PARALLEL = 12 // vidéos lues en même temps
+const WORKERS = 1
+const PROBE_TIMEOUT_MS = 30_000
 const MAX_EMPTY_BATCHES = 5 // lots entiers sans aucune durée d'affilée : on s'arrête (liens refusés, Alldebrid en pause…)
+
+/** Lit la durée d'une vidéo (métadonnées seulement, quelques Ko). null si illisible. */
+function probe(url: string | null): Promise<number | null> {
+  if (!url) return Promise.resolve(null)
+  return new Promise((resolve) => {
+    const v = document.createElement('video')
+    v.preload = 'metadata'
+    v.muted = true
+    let timer: ReturnType<typeof setTimeout>
+    const end = (s: number | null) => {
+      clearTimeout(timer)
+      v.onloadedmetadata = null
+      v.onerror = null
+      v.removeAttribute('src')
+      v.load()
+      resolve(s)
+    }
+    timer = setTimeout(() => end(null), PROBE_TIMEOUT_MS)
+    v.onloadedmetadata = () => end(Number.isFinite(v.duration) && v.duration > 0 ? v.duration : null)
+    v.onerror = () => end(null)
+    v.src = url
+  })
+}
+
+async function mapLimit<T, R>(items: T[], limit: number, fn: (x: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = new Array(items.length)
+  let i = 0
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, async () => {
+      while (i < items.length) {
+        const k = i++
+        out[k] = await fn(items[k])
+      }
+    }),
+  )
+  return out
+}
 
 type Stats = { total: number; missing: number }
 type Progress = { read: number; failed: number; note: string }
@@ -61,7 +102,6 @@ export function DurationScanPanel({ supabase }: { supabase: TypedSupabaseClient 
     let empty = 0
     let note = ''
     let exhausted = false
-    let lastWhy = ''
     let cursor = ''
     // le curseur est partagé : un seul lot à la fois est demandé à la base, chaque lot est ensuite traité par son propre travailleur
     let chain: Promise<unknown> = Promise.resolve()
@@ -85,25 +125,22 @@ export function DurationScanPanel({ supabase }: { supabase: TypedSupabaseClient 
       while (cur && alive.current) {
         const nxt = take() // le lot suivant se résout pendant qu'on lit celui-ci
         const urls = await cur.urls
-        // le serveur lit l'en-tête de chaque fichier et enregistre les durées (admin_set_durations)
-        const { data, error } = await supabase.functions.invoke<{ results: { id: string; s: number | null; why?: string | null }[] }>('probe-durations', {
-          body: { items: cur.ids.map((id, i) => ({ id, url: urls[i] ?? '' })).filter((x) => x.url) },
-        })
-        if (error) {
-          note = `Lecture impossible : ${error.message}`
-          alive.current = false
-          break
+        const res = await mapLimit(cur.ids.map((id, i) => ({ id, url: urls[i] ?? null })), PARALLEL, async (x) => ({ id: x.id, s: await probe(x.url) }))
+        const ok = res.filter((r): r is { id: string; s: number } => r.s != null)
+        if (ok.length) {
+          const { error } = await db.rpc('admin_set_durations', { p_items: ok.map((r) => ({ id: r.id, s: Math.round(r.s) })) })
+          if (error) {
+            note = `Enregistrement impossible : ${error.message}`
+            alive.current = false
+            break
+          }
+          ok.forEach((r) => setExactLength(r.id, r.s))
         }
-        const got = data?.results ?? []
-        lastWhy = got.find((r) => r.why)?.why ?? lastWhy
-        const ok = got.filter((r): r is { id: string; s: number } => r.s != null)
-        ok.forEach((r) => setExactLength(r.id, r.s))
-        const res = cur.ids // lot entier (liens absents = illisibles)
         read += ok.length
         failed += res.length - ok.length
         empty = ok.length === 0 ? empty + 1 : 0
         if (empty >= MAX_EMPTY_BATCHES) {
-          note = `Arrêt : aucune durée lisible sur les derniers lots${lastWhy ? ` (${lastWhy})` : ''}. Réessaie dans quelques minutes.`
+          note = 'Arrêt : aucune durée lisible sur les derniers lots (liens refusés ou Alldebrid en pause). Réessaie dans quelques minutes.'
           alive.current = false
           break
         }
