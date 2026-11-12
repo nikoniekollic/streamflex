@@ -1,10 +1,9 @@
-import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { useCallback, useContext, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import {
   ArrowLeft,
   X,
   BookmarkPlus,
   Bookmark as BookmarkIcon,
-  Loader2,
   Maximize,
   Minimize,
   Pause,
@@ -29,6 +28,9 @@ import { pickInitialTrack, setSubtitlePref, type SubtitleTrack } from '@/lib/sub
 import { AudioMenu, SettingsMenu, SubtitlesMenu, type FitMode, type NativeAudio } from '@/components/player/PlayerMenus'
 import { BookmarkDialog, BookmarkPanel } from '@/components/player/Bookmarks'
 import { formatTimestamp, type NewBookmark, type VideoBookmark } from '@/lib/bookmarks'
+import { SITE_FONTS, useSiteSettings } from '@/lib/site-settings'
+import { buttonClass, controlsBar, PlayerButtonCls, playerVars, PlayerSpinner, subsCss } from '@/lib/player-ui'
+
 
 /** File de lecture (playlist / lecture aléatoire) : commandes façon VK */
 export type PlayerQueue = {
@@ -82,7 +84,6 @@ export type VideoPlayerProps = {
   onDeleteBookmark?: (id: string) => Promise<void>
 }
 
-const HIDE_DELAY_MS = 3000
 const VOLUME_KEY = 'sf:volume'
 
 function readVolume(): { volume: number; muted: boolean } {
@@ -125,6 +126,11 @@ export function VideoPlayer({
   onCreateBookmark,
   onDeleteBookmark,
 }: VideoPlayerProps) {
+  const { playerUi: ui } = useSiteSettings()
+  const fontFamily = ui.font === 'site' ? null : (SITE_FONTS.find((f) => f.key === ui.font)?.family ?? null)
+  const step = ui.seekStep
+  const hideDelay = useRef(ui.hideDelay * 1000)
+  hideDelay.current = ui.hideDelay * 1000
   const containerRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const seekRef = useRef<HTMLDivElement>(null)
@@ -174,7 +180,7 @@ export function VideoPlayer({
     window.clearTimeout(hideTimer.current)
     hideTimer.current = window.setTimeout(() => {
       if (!videoRef.current?.paused && !menuOpenRef.current && !overlayRef.current) setControlsVisible(false)
-    }, HIDE_DELAY_MS)
+    }, hideDelay.current)
   }, [])
 
   useEffect(() => () => window.clearTimeout(hideTimer.current), [])
@@ -359,12 +365,12 @@ export function VideoPlayer({
         case 'ArrowLeft':
         case 'j':
           e.preventDefault()
-          skip(-10)
+          skip(-step)
           break
         case 'ArrowRight':
         case 'l':
           e.preventDefault()
-          skip(10)
+          skip(step)
           break
         case 'ArrowUp':
           e.preventDefault()
@@ -403,7 +409,18 @@ export function VideoPlayer({
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [togglePlay, skip, toggleMute, toggleFullscreen, showControls, onBack, subtitles.length, selectSub, markAt, markMoment, panelOpen, onCreateBookmark, bookmarks.length])
+  }, [togglePlay, skip, step, toggleMute, toggleFullscreen, showControls, onBack, subtitles.length, selectSub, markAt, markMoment, panelOpen, onCreateBookmark, bookmarks.length])
+
+  // Double clic : plein écran, ou (réglage admin) reculer / avancer selon le côté cliqué, plein écran au centre
+  const onVideoDoubleClick = (e: ReactMouseEvent<HTMLVideoElement>) => {
+    if (ui.doubleClick === 'seek') {
+      const r = e.currentTarget.getBoundingClientRect()
+      const x = (e.clientX - r.left) / r.width
+      if (x < 0.35) return skip(-step)
+      if (x > 0.65) return skip(step)
+    }
+    void toggleFullscreen()
+  }
 
   // ── Barre de progression (pointer events)
   const timeFromPointer = (clientX: number) => {
@@ -453,14 +470,22 @@ export function VideoPlayer({
   const VolumeIcon = muted || volume === 0 ? VolumeX : volume < 0.5 ? Volume1 : Volume2
   const visible = controlsVisible || !playing || menuOpen || panelOpen || markAt !== null
   const hasBookmarks = !!onCreateBookmark || bookmarks.length > 0
+  const B = ui.buttons
+  const top = controlsBar(ui, 'top')
+  const bottom = controlsBar(ui, 'bottom')
+  const barRadius = ui.barRound ? 9999 : 0
+  const timeLabel = ui.time === 'remaining' ? `-${formatTime(remaining)}` : ui.time === 'elapsed' ? formatTime(current) : `${formatTime(current)} / ${formatTime(duration)}`
 
   return (
+    <PlayerButtonCls.Provider value={buttonClass(ui)}>
     <div
       ref={containerRef}
-      className={cn(embedded ? 'absolute inset-0' : 'fixed inset-0 z-50', 'bg-black text-white select-none', !visible && 'cursor-none')}
+      className={cn(embedded ? 'absolute inset-0' : 'fixed inset-0 z-50', 'sf-player bg-black select-none', !visible && 'cursor-none')}
+      style={playerVars(ui, fontFamily)}
       onPointerMove={showControls}
       onPointerDown={showControls}
     >
+      <style>{subsCss(ui, '.sf-player')}</style>
       <div className="absolute inset-y-0 left-0" style={{ right: sideShown ? 'min(20rem, 38vw)' : 0 }}>
       <video
         ref={videoRef}
@@ -473,7 +498,7 @@ export function VideoPlayer({
         className="absolute inset-0 size-full bg-black"
         style={{ objectFit: fitMode === 'stretch' ? 'fill' : fitMode }}
         onClick={togglePlay}
-        onDoubleClick={() => void toggleFullscreen()}
+        onDoubleClick={onVideoDoubleClick}
         onLoadedMetadata={onLoadedMetadata}
         onDurationChange={() => setDuration(videoRef.current?.duration ?? 0)}
         onTimeUpdate={onTimeUpdateInternal}
@@ -536,10 +561,20 @@ export function VideoPlayer({
       {/* Spinner / flash */}
       {waiting && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-          <Loader2 className="size-16 animate-spin text-primary" />
+          <PlayerSpinner kind={ui.spinner} />
         </div>
       )}
-      {flash && !waiting && (
+      {ui.bigPlay && !playing && !waiting && markAt === null && (
+        <button
+          type="button"
+          onClick={togglePlay}
+          aria-label="Lecture"
+          className="absolute top-1/2 left-1/2 z-10 flex size-20 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-[var(--pl-accent)] text-white shadow-2xl transition hover:scale-110 md:size-24"
+        >
+          <Play className="ml-1 size-10 fill-current md:size-12" />
+        </button>
+      )}
+      {ui.flash && flash && !waiting && !(ui.bigPlay && flash === 'pause') && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <span className="animate-in fade-in zoom-in-75 rounded-full bg-black/50 p-5 duration-200">
             {flash === 'play' ? <Play className="size-12 fill-current" /> : <Pause className="size-12 fill-current" />}
@@ -549,24 +584,26 @@ export function VideoPlayer({
 
       {/* Haut */}
       <div
-        className={cn(
-          'absolute inset-x-0 top-0 flex items-center gap-4 bg-gradient-to-b from-black/80 to-transparent px-4 pt-4 pb-12 transition-opacity duration-300 md:px-8',
-          visible ? 'opacity-100' : 'pointer-events-none opacity-0',
-        )}
+        className={cn('absolute inset-x-0 top-0 flex items-center gap-4 px-4 transition-opacity duration-300 md:px-8', top.className, visible ? 'opacity-100' : 'pointer-events-none opacity-0')}
+        style={top.style}
       >
         {onBack && (
-          <button type="button" onClick={onBack} aria-label={closeIcon ? 'Fermer le lecteur' : 'Retour'} title={closeIcon ? 'Fermer (Échap)' : 'Retour'} className="rounded-full p-2 hover:bg-white/10">
-            {closeIcon ? <X className="size-7" /> : <ArrowLeft className="size-7" />}
-          </button>
+          <IconButton label={closeIcon ? 'Fermer (Échap)' : 'Retour'} onClick={onBack}>
+            {closeIcon ? <X /> : <ArrowLeft />}
+          </IconButton>
         )}
-        <div className="min-w-0">
-          <p className="truncate text-lg font-semibold md:text-xl">{title}</p>
-          {subtitle && <p className="truncate text-sm text-neutral-300">{subtitle}</p>}
-        </div>
+        {ui.showTitle && (
+          <div className="min-w-0">
+            <p className="truncate font-semibold" style={{ fontSize: ui.titleSize }}>
+              {title}
+            </p>
+            {subtitle && <p className="truncate text-sm opacity-75">{subtitle}</p>}
+          </div>
+        )}
       </div>
 
       {/* Flèches de part et d'autre : vidéo précédente / suivante de la liste */}
-      {queue?.onPrevious && (
+      {B.arrows && queue?.onPrevious && (
         <button
           type="button"
           onClick={queue.onPrevious}
@@ -577,7 +614,7 @@ export function VideoPlayer({
           <ChevronLeft className="size-7 md:size-9" />
         </button>
       )}
-      {onNext && (
+      {B.arrows && onNext && (
         <button
           type="button"
           onClick={onNext}
@@ -602,10 +639,8 @@ export function VideoPlayer({
 
       {/* Bas */}
       <div
-        className={cn(
-          'absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent px-4 pt-16 pb-4 transition-opacity duration-300 md:px-8',
-          visible ? 'opacity-100' : 'pointer-events-none opacity-0',
-        )}
+        className={cn('absolute inset-x-0 bottom-0 px-4 transition-opacity duration-300 md:px-8', bottom.className, visible ? 'opacity-100' : 'pointer-events-none opacity-0')}
+        style={bottom.style}
       >
         {/* Progression */}
         <div className="flex items-center gap-4">
@@ -624,9 +659,12 @@ export function VideoPlayer({
             onPointerUp={onSeekUp}
             onPointerLeave={() => setHover(null)}
           >
-            <div className="relative h-1 w-full rounded-full bg-white/25 transition-[height] group-hover/seek:h-1.5">
-              <div className="absolute inset-y-0 left-0 rounded-full bg-white/40" style={{ width: pct(buffered) }} />
-              <div className="absolute inset-y-0 left-0 rounded-full bg-primary" style={{ width: pct(current) }} />
+            <div
+              className="relative w-full transition-transform group-hover/seek:scale-y-125"
+              style={{ height: ui.barHeight, borderRadius: barRadius, background: `rgba(255,255,255,${ui.trackOpacity / 100})` }}
+            >
+              <div className="absolute inset-y-0 left-0" style={{ width: pct(buffered), borderRadius: barRadius, background: `rgba(255,255,255,${ui.bufferedOpacity / 100})` }} />
+              <div className="absolute inset-y-0 left-0 bg-[var(--pl-accent)]" style={{ width: pct(current), borderRadius: barRadius }} />
               {duration > 0 &&
                 bookmarks.map((b) => (
                   <span
@@ -641,13 +679,15 @@ export function VideoPlayer({
                   />
                 ))}
             </div>
-            <div
-              className={cn(
-                'absolute top-1/2 size-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary transition-transform',
-                scrubbing ? 'scale-125' : 'scale-0 group-hover/seek:scale-100',
-              )}
-              style={{ left: pct(current) }}
-            />
+            {ui.thumb !== 'hidden' && (
+              <div
+                className={cn(
+                  'absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[var(--pl-accent)] shadow transition-transform',
+                  scrubbing ? 'scale-125' : ui.thumb === 'always' ? 'scale-100 group-hover/seek:scale-110' : 'scale-0 group-hover/seek:scale-100',
+                )}
+                style={{ left: pct(current), width: ui.thumbSize, height: ui.thumbSize }}
+              />
+            )}
             {hover && (
               <div
                 className="pointer-events-none absolute bottom-6 -translate-x-1/2 rounded bg-black/90 px-2 py-0.5 text-xs tabular-nums"
@@ -657,7 +697,7 @@ export function VideoPlayer({
               </div>
             )}
           </div>
-          <span className="w-16 text-right text-sm tabular-nums text-neutral-200">-{formatTime(remaining)}</span>
+          <span className={cn('text-right text-sm tabular-nums opacity-90', ui.time === 'both' ? 'w-28' : 'w-16')}>{timeLabel}</span>
         </div>
 
         {/* Boutons */}
@@ -665,14 +705,18 @@ export function VideoPlayer({
           <IconButton label={playing ? 'Pause' : 'Lecture'} onClick={togglePlay}>
             {playing ? <Pause className="fill-current" /> : <Play className="fill-current" />}
           </IconButton>
-          <IconButton label="Reculer de 10 s" onClick={() => skip(-10)}>
-            <RotateCcw />
-          </IconButton>
-          <IconButton label="Avancer de 10 s" onClick={() => skip(10)}>
-            <RotateCw />
-          </IconButton>
+          {B.skip && (
+            <>
+              <IconButton label={`Reculer de ${step} s`} onClick={() => skip(-step)}>
+                <RotateCcw />
+              </IconButton>
+              <IconButton label={`Avancer de ${step} s`} onClick={() => skip(step)}>
+                <RotateCw />
+              </IconButton>
+            </>
+          )}
 
-          <div className="group/vol flex items-center">
+          {B.volume && <div className="group/vol flex items-center">
             <IconButton label={muted ? 'Activer le son' : 'Couper le son'} onClick={toggleMute}>
               <VolumeIcon />
             </IconButton>
@@ -684,16 +728,18 @@ export function VideoPlayer({
               value={muted ? 0 : volume}
               aria-label="Volume"
               onChange={(e) => setVol({ volume: Number(e.target.value), muted: Number(e.target.value) === 0 })}
-              className="h-1 w-0 cursor-pointer accent-white opacity-0 transition-all duration-200 group-hover/vol:w-24 group-hover/vol:opacity-100 focus:w-24 focus:opacity-100"
+              className="h-1 w-0 cursor-pointer accent-[var(--pl-accent)] opacity-0 transition-all duration-200 group-hover/vol:w-24 group-hover/vol:opacity-100 focus:w-24 focus:opacity-100"
             />
-          </div>
+          </div>}
 
-          <span className="ml-2 hidden text-sm tabular-nums text-neutral-300 sm:inline">
-            {formatTime(current)} / {formatTime(duration)}
-          </span>
+          {B.time && (
+            <span className="ml-2 hidden text-sm tabular-nums opacity-80 sm:inline">
+              {formatTime(current)} / {formatTime(duration)}
+            </span>
+          )}
 
           <div className="ml-auto flex items-center gap-1 md:gap-3">
-            <SettingsMenu
+            {B.settings && <SettingsMenu
               qualities={qualities}
               quality={quality}
               onQuality={onQualityChange ? (q) => onQualityChange(q, videoRef.current?.currentTime ?? 0) : undefined}
@@ -703,13 +749,13 @@ export function VideoPlayer({
               onFit={setFitMode}
               container={containerRef.current}
               onOpenChange={onMenuOpenChange}
-            />
-            {onCreateBookmark && (
+            />}
+            {B.bookmarks && onCreateBookmark && (
               <IconButton label="Marquer ce moment (B)" onClick={markMoment}>
                 <BookmarkPlus />
               </IconButton>
             )}
-            {hasBookmarks && (
+            {B.bookmarks && hasBookmarks && (
               <IconButton label={`Marque-pages (${bookmarks.length})`} onClick={() => setPanelOpen((o) => !o)} active={panelOpen}>
                 <span className="relative">
                   <BookmarkIcon className={cn(panelOpen && 'fill-current')} />
@@ -727,18 +773,18 @@ export function VideoPlayer({
                   {queue.label} · {queue.position}
                 </span>
                 <IconButton label={queue.shuffle ? 'Lecture aléatoire : activée' : 'Lecture aléatoire : désactivée'} onClick={queue.onShuffle} active={queue.shuffle}>
-                  <Shuffle className={cn(queue.shuffle && 'text-primary')} />
+                  <Shuffle className={cn(queue.shuffle && 'text-[var(--pl-accent)]')} />
                 </IconButton>
                 <IconButton
                   label={queue.repeat === 'off' ? 'Répétition : désactivée' : queue.repeat === 'all' ? 'Répéter la liste' : 'Répéter cette vidéo'}
                   onClick={queue.onRepeat}
                   active={queue.repeat !== 'off'}
                 >
-                  {queue.repeat === 'one' ? <Repeat1 className="text-primary" /> : <Repeat className={cn(queue.repeat === 'all' && 'text-primary')} />}
+                  {queue.repeat === 'one' ? <Repeat1 className="text-[var(--pl-accent)]" /> : <Repeat className={cn(queue.repeat === 'all' && 'text-[var(--pl-accent)]')} />}
                 </IconButton>
                 {queue.panel && (
                   <IconButton label={sideOpen ? 'Masquer la liste de lecture' : 'Afficher la liste de lecture'} onClick={() => setSideOpen((o) => !o)} active={sideOpen}>
-                    <ListVideo className={cn(sideOpen && 'text-primary')} />
+                    <ListVideo className={cn(sideOpen && 'text-[var(--pl-accent)]')} />
                   </IconButton>
                 )}
                 {queue.onPrevious && (
@@ -753,27 +799,33 @@ export function VideoPlayer({
                 <SkipForward />
               </IconButton>
             )}
-            <SubtitlesMenu
-              tracks={subtitles}
-              active={activeSub}
-              loadingId={subLoading}
-              failed={subFailed}
-              onSelect={selectSub}
-              container={containerRef.current}
-              onOpenChange={onMenuOpenChange}
-            />
-            <AudioMenu
-              native={nativeAudio}
-              onNative={selectNativeAudio}
-              languages={audios}
-              current={audio}
-              onLanguage={onAudioChange ? (l) => onAudioChange(l, videoRef.current?.currentTime ?? 0) : undefined}
-              container={containerRef.current}
-              onOpenChange={onMenuOpenChange}
-            />
-            <IconButton label={fullscreen ? 'Quitter le plein écran' : 'Plein écran'} onClick={() => void toggleFullscreen()}>
-              {fullscreen ? <Minimize /> : <Maximize />}
-            </IconButton>
+            {B.subtitles && (
+              <SubtitlesMenu
+                tracks={subtitles}
+                active={activeSub}
+                loadingId={subLoading}
+                failed={subFailed}
+                onSelect={selectSub}
+                container={containerRef.current}
+                onOpenChange={onMenuOpenChange}
+              />
+            )}
+            {B.audio && (
+              <AudioMenu
+                native={nativeAudio}
+                onNative={selectNativeAudio}
+                languages={audios}
+                current={audio}
+                onLanguage={onAudioChange ? (l) => onAudioChange(l, videoRef.current?.currentTime ?? 0) : undefined}
+                container={containerRef.current}
+                onOpenChange={onMenuOpenChange}
+              />
+            )}
+            {B.fullscreen && (
+              <IconButton label={fullscreen ? 'Quitter le plein écran' : 'Plein écran'} onClick={() => void toggleFullscreen()}>
+                {fullscreen ? <Minimize /> : <Maximize />}
+              </IconButton>
+            )}
           </div>
         </div>
       </div>
@@ -796,19 +848,14 @@ export function VideoPlayer({
         </aside>
       )}
     </div>
+    </PlayerButtonCls.Provider>
   )
 }
 
 function IconButton({ label, onClick, children, active }: { label: string; onClick: () => void; children: ReactNode; active?: boolean }) {
+  const cls = useContext(PlayerButtonCls)
   return (
-    <button
-      type="button"
-      aria-label={label}
-      aria-pressed={active}
-      title={label}
-      onClick={onClick}
-      className="rounded-full p-2 transition hover:scale-110 hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-white focus-visible:outline-none [&_svg]:size-6 md:[&_svg]:size-7"
-    >
+    <button type="button" aria-label={label} aria-pressed={active} title={label} onClick={onClick} className={cls}>
       {children}
     </button>
   )

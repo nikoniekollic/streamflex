@@ -8,6 +8,7 @@ import { NAME_FONTS, modelNameStyle } from '@/lib/cover'
 import { nameBox } from '@/components/catalog/ModelName'
 import { EmojiPickerButton } from '@/components/emoji/EmojiPickerButton'
 import { EmojiView } from '@/lib/emoji-media'
+import { PlayerDesignPanel } from '@/components/admin/PlayerDesignPanel'
 import {
   CSS_POS,
   DEFAULT_SETTINGS,
@@ -559,6 +560,10 @@ function AppearanceAdmin() {
             </Button>
           </div>
         </div>
+      </Section>
+
+      <Section title="Design du lecteur" hint="Couleurs, boutons, barre de progression, sous-titres et comportement du lecteur vidéo. Choisis un style prêt à l’emploi puis ajuste chaque détail ; la simulation suit en direct.">
+        <PlayerDesignPanel value={draft.playerUi} onChange={(patch) => edit('playerUi', patch)} />
       </Section>
 
       <Section title="Jaquettes de modèles" hint="L’image des cartes de la page Modèles et de la rangée « Modèles » de l’accueil.">

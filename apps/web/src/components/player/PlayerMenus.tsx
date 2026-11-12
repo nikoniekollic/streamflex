@@ -1,4 +1,5 @@
-import type { ReactNode } from 'react'
+import { useContext, type ReactNode } from 'react'
+import { PlayerButtonCls } from '@/lib/player-ui'
 import { AudioLines, Captions, CaptionsOff, Loader2, Settings } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
@@ -19,6 +20,7 @@ const ITEM = 'focus:bg-white/10 focus:text-white'
 type Common = { container: HTMLElement | null; onOpenChange: (open: boolean) => void }
 
 function Trigger({ label, active, children }: { label: string; active?: boolean; children: ReactNode }) {
+  const cls = useContext(PlayerButtonCls) // style des boutons choisi dans l'admin (Design du lecteur)
   return (
     <DropdownMenuTrigger asChild>
       <button
@@ -26,8 +28,9 @@ function Trigger({ label, active, children }: { label: string; active?: boolean;
         aria-label={label}
         title={label}
         className={cn(
-          'rounded-full p-2 transition hover:scale-110 hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-white focus-visible:outline-none data-[state=open]:bg-white/15 [&_svg]:size-6 md:[&_svg]:size-7',
-          active && 'text-primary',
+          cls || 'rounded-full p-2 transition hover:scale-110 hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-white focus-visible:outline-none [&_svg]:size-6 md:[&_svg]:size-7',
+          'data-[state=open]:bg-white/15',
+          active && 'text-[var(--pl-accent,var(--primary))]',
         )}
       >
         {children}

@@ -2,6 +2,7 @@ import { useEffect, useSyncExternalStore, type CSSProperties } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { TypedSupabaseClient } from '@/lib/supabase'
 import { supabase } from '@/lib/supabase'
+import { DEFAULT_PLAYER_UI, normalizePlayerUi, type PlayerUi } from '@/lib/player-ui'
 
 // Réglages d'apparence modifiables par l'admin (table site_settings, ligne unique) : thème, nom des modèles, aperçus.
 // Table ajoutée après la génération de database.ts → client non typé.
@@ -71,6 +72,8 @@ export type SiteSettings = {
   hero: { ratio: string; height: number; radius: number }
   /** jaquettes de modèles : photo, image capturée d'une de leurs vidéos, ou photo puis capture si absente */
   models: { image: 'auto' | 'photo' | 'capture' }
+  /** design du lecteur : couleurs, barre de progression, boutons, sous-titres, comportement */
+  playerUi: PlayerUi
 }
 
 export const DEFAULT_SETTINGS: SiteSettings = {
@@ -95,6 +98,7 @@ export const DEFAULT_SETTINGS: SiteSettings = {
   cards: { ratio: '2:3', modelRatio: '2:3', icons: true, modelEmoji: '😀', videoEmoji: '▶️', emojiFromName: true, modelPos: { x: 8, y: 93 }, videoPos: { x: 92, y: 93 }, durationPos: { x: 50, y: 93 }, duration: DEFAULT_DURATION },
   hero: { ratio: 'auto', height: 62, radius: 16 },
   models: { image: 'auto' },
+  playerUi: DEFAULT_PLAYER_UI,
 }
 
 export const THEME_PRESETS = [
@@ -228,6 +232,7 @@ export function normalizeSettings(input: unknown): SiteSettings {
       height: clamp(hr.height, 25, 95, d.hero.height),
       radius: clamp(hr.radius, 0, 40, d.hero.radius),
     },
+    playerUi: normalizePlayerUi(o.playerUi),
   }
 }
 
