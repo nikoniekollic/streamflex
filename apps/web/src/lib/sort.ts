@@ -16,10 +16,17 @@ export const SORT_OPTIONS: { value: SortKey; label: string }[] = [
 
 export const validSort = (v: unknown): SortKey | undefined => (SORT_OPTIONS.some((o) => o.value === v) ? (v as SortKey) : undefined)
 
-type Order = { column: 'published_at' | 'len_key' | 'title'; ascending: boolean; nullsFirst?: boolean }
+type Order = { column: 'published_at' | 'len_key' | 'title' | 'id'; ascending: boolean; nullsFirst?: boolean }
 
-/** Ordre SQL (Supabase) : les valeurs absentes (durée inconnue…) passent toujours en dernier. */
+/**
+ * Ordre SQL (Supabase) : les valeurs absentes (durée inconnue…) passent toujours en dernier. L'identifiant départage les
+ * égalités (vidéos importées au même instant) : sans lui, une même vidéo pouvait apparaître sur deux pages et une autre sur aucune.
+ */
 export function orderSpec(sort: SortKey | undefined): Order[] {
+  return [...baseOrder(sort), { column: 'id', ascending: true }]
+}
+
+function baseOrder(sort: SortKey | undefined): Order[] {
   switch (sort) {
     case 'old':
       return [{ column: 'published_at', ascending: true, nullsFirst: false }]

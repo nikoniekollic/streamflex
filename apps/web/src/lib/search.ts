@@ -4,7 +4,7 @@ import { MOCK_GENRES, MOCK_TITLES } from '@/lib/mock-catalog'
 import { invokeCatalog } from '@/lib/catalog-api'
 import { env } from '@/lib/env'
 import type { Database } from '@/types/database'
-import { fetchLengths, isDurationSort, orderSpec, sortTitles, validSort, type SortKey } from '@/lib/sort'
+import { orderSpec, validSort, type SortKey } from '@/lib/sort'
 
 type SearchRow = Database['public']['Functions']['search_titles']['Returns'][number]
 
@@ -95,11 +95,8 @@ export async function searchTitles(supabase: TypedSupabaseClient, p: SearchParam
       /* repli : recherche classique + tri local */
     }
   }
-  const out = await searchRanked(supabase, p, kids, limit)
-  // Avec un mot-clé : on garde la pertinence pour choisir les résultats, puis on les ordonne
-  if (!p.sort) return out
-  const lens = isDurationSort(p.sort) ? await fetchLengths(supabase, out.results.map((t) => t.id)).catch(() => undefined) : undefined
-  return { ...out, results: sortTitles(out.results, p.sort, lens) }
+  // Avec un mot-clé : la base trie TOUS les résultats (pas seulement la page chargée), « Afficher plus » suit donc le tri
+  return searchRanked(supabase, p, kids, limit)
 }
 
 async function searchRanked(supabase: TypedSupabaseClient, p: SearchParams, kids: boolean, limit: number): Promise<SearchResult> {
@@ -107,7 +104,8 @@ async function searchRanked(supabase: TypedSupabaseClient, p: SearchParams, kids
   // 1) Redis via Edge `catalog` (clé = q normalisée + filtres + page, TTL 1 h)
   let rows: SearchRow[]
   let genres: { slug: string; name: string }[]
-  const cached = await invokeCatalog<{ rows: SearchRow[]; genres: { slug: string; name: string }[] }>(supabase, {
+  // un tri choisi passe directement par la base (le cache du catalogue ne connaît que l'ordre de pertinence)
+  const cached = p.sort ? null : await invokeCatalog<{ rows: SearchRow[]; genres: { slug: string; name: string }[] }>(supabase, {
     op: 'search',
     q: p.q,
     type: p.type,
@@ -121,7 +119,7 @@ async function searchRanked(supabase: TypedSupabaseClient, p: SearchParams, kids
   } else {
     // 2) repli direct Supabase
     const [rpc, g] = await Promise.all([
-      supabase.rpc('search_titles', { p_q: p.q ?? null, p_type: p.type ?? null, p_genre: p.genre ?? null, p_limit: limit, p_offset: 0, p_kids: kids }),
+      supabase.rpc('search_titles', { p_q: p.q ?? null, p_type: p.type ?? null, p_genre: p.genre ?? null, p_limit: limit, p_offset: 0, p_kids: kids, ...(p.sort ? { p_sort: p.sort } : {}) } as never),
       loadGenres(supabase),
     ])
     if (rpc.error) throw rpc.error
