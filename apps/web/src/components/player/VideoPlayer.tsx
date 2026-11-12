@@ -158,8 +158,8 @@ export function VideoPlayer({
   useEffect(() => {
     if (videoRef.current) videoRef.current.playbackRate = speed
   }, [speed, src])
-  // liste de lecture à droite : ouverte d'emblée sur grand écran
-  const [sideOpen, setSideOpen] = useState(() => typeof window !== 'undefined' && window.innerWidth >= 900)
+  // liste de lecture à droite : fermée par défaut (le lecteur seul, avec les flèches précédent / suivant) ; ouverte via le bouton de la barre
+  const [sideOpen, setSideOpen] = useState(false)
   const sideShown = !!queue?.panel && sideOpen
   // marque-pages
   const [markAt, setMarkAt] = useState<number | null>(null)
