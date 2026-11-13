@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useHoverIntent } from '@/lib/hover-intent'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { Play } from 'lucide-react'
 import { openPlayer } from '@/lib/player-overlay'
@@ -34,7 +34,8 @@ type MovieCardProps = {
 
 export function MovieCard({ title, variant = 'poster', progress, watch, favorite = true, caption, className }: MovieCardProps) {
   const isBackdrop = variant === 'backdrop'
-  const [hovered, setHovered] = useState(false)
+  const intent = useHoverIntent()
+  const hovered = intent.active
   const navigate = useNavigate()
   const list = usePlayList()
   /** lance la vidéo cliquée ET la suite de la liste affichée (rangée, page) : suivant / précédent et lecture enchaînée */
@@ -164,8 +165,8 @@ export function MovieCard({ title, variant = 'poster', progress, watch, favorite
 
   return (
     <div
-      onPointerEnter={(e) => e.pointerType === 'mouse' && setHovered(true)}
-      onPointerLeave={() => setHovered(false)}
+      onPointerEnter={intent.onPointerEnter}
+      onPointerLeave={intent.onPointerLeave}
       className={cn(
         'group/card relative overflow-hidden rounded-md bg-neutral-900',
         // Films : aucun transform sur la carte (le panneau d'aperçu en position fixe doit pouvoir sortir du carrousel)

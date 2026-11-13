@@ -364,7 +364,29 @@ export function markAmbientFailed(id: string) {
   bump()
 }
 
-export const isAmbientSlot = (id: string, max: number) => !overlayOpen && max > 0 && visibleOrder.filter((x) => !failed.has(x)).slice(0, max).includes(id)
+// Défilement en cours : les aperçus d'ambiance se mettent en pause (le décodage de plusieurs vidéos saccade le défilement),
+// et reprennent 200 ms après l'arrêt.
+let scrolling = false
+let scrollIdle: ReturnType<typeof setTimeout> | undefined
+if (typeof window !== 'undefined') {
+  window.addEventListener(
+    'scroll',
+    () => {
+      clearTimeout(scrollIdle)
+      scrollIdle = setTimeout(() => {
+        scrolling = false
+        bump()
+      }, 200)
+      if (!scrolling) {
+        scrolling = true
+        bump()
+      }
+    },
+    { passive: true, capture: true }, // capture : suit aussi le défilement horizontal des rangées
+  )
+}
+
+export const isAmbientSlot = (id: string, max: number) => !overlayOpen && !scrolling && max > 0 && visibleOrder.filter((x) => !failed.has(x)).slice(0, max).includes(id)
 export const isStillSlot = (id: string) => stillOrder.slice(0, STILL_MAX).includes(id)
 export const isOverlayOpen = () => overlayOpen
 export const getAmbientVersion = () => ambientVersion

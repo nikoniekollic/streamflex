@@ -7,9 +7,14 @@ import { reportDuration } from '@/lib/preview'
 //
 // Chargement : au plus 12 vidéos en cours de chargement à la fois (6 connexions par hôte en HTTP/1.1, ~3 hôtes), servies
 // dans l'ordre de la page (première ligne d'abord) — au-delà, tout reste en attente et les jaquettes restent noires.
-const POOL_MAX = 48
-const MAX_LOADING = 12 // mesuré : les liens Alldebrid se répartissent sur ~3 hôtes (6 connexions chacun)
+// Limites adaptées à l'appareil : plus de mémoire = plus de jaquettes gardées prêtes ; connexion lente / économie de données =
+// moins de chargements simultanés (chacun finit plus vite au lieu de tous traîner).
+const nav = (typeof navigator !== 'undefined' ? navigator : {}) as Navigator & { deviceMemory?: number; connection?: { saveData?: boolean; effectiveType?: string } }
+const slowNet = !!nav.connection?.saveData || /(^|-)2g|3g/.test(nav.connection?.effectiveType ?? '')
+const POOL_MAX = (nav.deviceMemory ?? 4) >= 8 ? 96 : (nav.deviceMemory ?? 4) <= 2 ? 24 : 48
+const MAX_LOADING = slowNet ? 4 : 12 // mesuré : les liens Alldebrid se répartissent sur ~3 hôtes (6 connexions chacun)
 const LOAD_TIMEOUT_MS = 12_000
+const FRAME_WAIT_MS = 300 // attente max de l'image décodée après un saut (évite un flash noir)
 
 export type PoolSlot = {
   titleId: string
@@ -55,6 +60,8 @@ function startLoad(slot: PoolSlot) {
 }
 
 function pump() {
+  // onglet en arrière-plan : on ne lance aucun nouveau chargement (reprise au retour)
+  if (typeof document !== 'undefined' && document.hidden) return
   while (loadingCount < MAX_LOADING && waiting.length) {
     waiting.sort((a, b) => a.order - b.order)
     startLoad(waiting.shift()!)
@@ -112,13 +119,21 @@ export function acquireSlot(titleId: string, url: string, clip: number, order = 
   Object.assign(el.style, { position: 'absolute', inset: '0', width: '100%', height: '100%', pointerEvents: 'none', background: '#000' })
 
   const slot: PoolSlot = { titleId, url, el, ready: false, failed: false, anchor: 0, clip, attached: false, order, loading: false, subs: new Set() }
+  const markReady = () => {
+    if (slot.ready || slot.failed) return
+    slot.ready = true
+    notify(slot)
+  }
   const done = () => {
     clearTimeout(slot.fallback)
-    if (!slot.ready) {
-      slot.ready = true
-      notify(slot)
-    }
     releaseLoad(slot)
+    if (slot.ready) return
+    // on attend que l'image du nouvel instant soit réellement décodée : sinon la jaquette apparaît noire un instant
+    const v = el as HTMLVideoElement & { requestVideoFrameCallback?: (cb: () => void) => number }
+    if (v.requestVideoFrameCallback && el.isConnected) {
+      v.requestVideoFrameCallback(markReady)
+      setTimeout(markReady, FRAME_WAIT_MS)
+    } else markReady()
   }
 
   el.addEventListener('loadedmetadata', () => {
@@ -168,6 +183,9 @@ export function attachSlot(slot: PoolSlot, host: HTMLElement) {
 }
 
 export function detachSlot(slot: PoolSlot) {
+  // pas encore prête : on libère tout de suite sa place de chargement (sinon une jaquette déjà sortie de l'écran retarde
+  // jusqu'à 12 s celles qui sont visibles) ; le lien reste en cache, la recréer au retour ne coûte rien
+  if (!slot.ready) return destroy(slot)
   slot.el.pause()
   slot.attached = false // l'élément reste en mémoire, hors de la page
   slot.el.remove()
@@ -177,3 +195,6 @@ export function detachSlot(slot: PoolSlot) {
 export function dropSlot(slot: PoolSlot) {
   destroy(slot)
 }
+
+// retour sur l'onglet : les chargements mis en attente repartent
+if (typeof document !== 'undefined') document.addEventListener('visibilitychange', () => !document.hidden && pump())
