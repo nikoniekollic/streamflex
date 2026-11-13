@@ -266,7 +266,7 @@ function retrySeconds(message: string): number {
  * jour s'il n'avait pas été modifié à la main), fichiers déplacés (modèle suivi), fichiers revenus (republiés). `complete` = la
  * liste est entière (non plafonnée) : les fichiers de ce dossier qui n'y figurent plus sont marqués « manquants ».
  */
-async function syncFolder(folderId: number, videos: RemoteFile[], modelName: string | null, publish: boolean, reassign = false, complete = true) {
+async function syncFolder(folderId: number, videos: RemoteFile[], modelName: string | null, publish: boolean, reassign = false, complete = true, detach = false) {
   const db = adminClient()
   let imported = 0
   let ignored = 0
@@ -290,6 +290,8 @@ async function syncFolder(folderId: number, videos: RemoteFile[], modelName: str
       p_model_id: model?.id ?? null,
       p_poster: model?.image_url ? `${model.image_url}#model` : null,
       p_reassign: reassign,
+      // dossier sans modèle (racine, dossier générique) : un fichier arrivé d'un dossier de modèle n'y est plus rattaché
+      p_detach: detach && !model,
     })
     if (error) {
       console.error('[onefichier-import] sync', folderId, error.message)
@@ -475,6 +477,7 @@ type WatchRow = {
   win_cursor: string | null
   win_span_days: number
   recent_at: string | null
+  reassign_pending: boolean
 }
 type WatchStats = { scanned: number; full: number; imported: number; fresh: number; updated: number; missing: number; suspect: boolean; stopped: string | null }
 
@@ -504,7 +507,12 @@ async function scanWatched(f: WatchRow, cfg: { model_per_folder: boolean; publis
     const hasChildren = listing.folders.length > 0
     if (full) {
       const videos = listing.files.filter((x) => x.video)
-      const r = await syncFolder(f.folder_id, videos, cfg.model_per_folder ? f.model_name : null, cfg.publish === true, false, !listing.capped)
+      // dossier qui a changé de modèle : toutes ses vidéos sont reclassées ; sinon seuls les fichiers arrivés d'un autre dossier
+      const reassign = cfg.model_per_folder && f.reassign_pending
+      const r = await syncFolder(f.folder_id, videos, cfg.model_per_folder ? f.model_name : null, cfg.publish === true, reassign, !listing.capped, cfg.model_per_folder)
+      // des fichiers ont quitté ce dossier (déplacés vers un autre modèle ?) : le parent est relu tout de suite pour repérer
+      // le dossier qui les a reçus (sa signature change) et le relire en entier, au lieu d'attendre jusqu'à 10 min
+      if (r.missing > 0 && f.parent_id != null) await db.from('watch_folders').update({ next_scan_at: new Date().toISOString() }).eq('folder_id', f.parent_id)
       // signature relevée : celle annoncée par le parent (la racine n'a que la sienne)
       const { data: cur } = await db.from('watch_folders').select('parent_files, parent_size').eq('folder_id', f.folder_id).single()
       const sig = isRoot ? { files: listing.ownFiles, size: listing.ownSize } : { files: cur?.parent_files ?? null, size: cur?.parent_size ?? null }
@@ -516,6 +524,7 @@ async function scanWatched(f: WatchRow, cfg: { model_per_folder: boolean; publis
           ...(isRoot ? { parent_files: sig.files, parent_size: sig.size } : {}),
           full_at: new Date().toISOString(),
           force_full: false,
+          ...(r.failed === 0 ? { reassign_pending: false } : {}),
           has_children: hasChildren,
           capped: listing.capped,
           files_seen: listing.files.length,
@@ -595,7 +604,7 @@ async function scanWindow(f: WatchRow, cfg: { model_per_folder: boolean; publish
       await db.from('watch_folders').update({ win_span_days: Math.max(1, Math.floor(span / 2)), next_scan_at: iso((FOLDER_GAP_S + 5) * 1000) }).eq('folder_id', f.folder_id)
       return
     }
-    const r = await syncFolder(f.folder_id, w.files.filter((x) => x.video), cfg.model_per_folder ? f.model_name : null, cfg.publish === true, false, false)
+    const r = await syncFolder(f.folder_id, w.files.filter((x) => x.video), cfg.model_per_folder ? f.model_name : null, cfg.publish === true, false, false, cfg.model_per_folder)
     st.imported += r.imported
     st.updated += r.renamed + r.fixed + r.restored
     const more = !recent || !backfillDone // rattrapage en cours : on enchaîne les tranches
@@ -638,7 +647,7 @@ async function watchTick(): Promise<string> {
 
   const { data: due } = await db
     .from('watch_folders')
-    .select('folder_id, parent_id, name, model_name, has_children, force_full, full_at, files_count, size_bytes, parent_files, parent_size, imported_total, capped, win_turn, win_unsupported, win_cursor, win_span_days, recent_at')
+    .select('folder_id, parent_id, name, model_name, has_children, force_full, full_at, files_count, size_bytes, parent_files, parent_size, imported_total, capped, win_turn, win_unsupported, win_cursor, win_span_days, recent_at, reassign_pending')
     .eq('active', true)
     .is('missing_since', null)
     .lte('next_scan_at', new Date().toISOString())
