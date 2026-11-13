@@ -37,6 +37,33 @@ export type PoolSlot = {
   subs: Set<() => void>
 }
 
+// ───────── Vidéos « lentes à sauter » : instant de repli mémorisé
+// Certains fichiers mettent 15 à 20 s à répondre à un saut (l'hébergeur rouvre le fichier à ce décalage). On montre alors une image
+// du début déjà chargé. Cet instant est mémorisé dans le navigateur : aux visites suivantes la jaquette va directement à cette
+// image (déjà dans les premiers Mo lus), sans attendre 4 s ni redemander un autre morceau du fichier.
+const QUICK_KEY = 'sf:quick-frames:v1'
+const QUICK_MAX = 3000
+const quick = new Map<string, number>()
+try {
+  for (const [id, t] of Object.entries(JSON.parse(localStorage.getItem(QUICK_KEY) ?? '{}') as Record<string, number>)) if (typeof t === 'number') quick.set(id, t)
+} catch {
+  /* stockage indisponible */
+}
+let quickTimer: ReturnType<typeof setTimeout> | undefined
+function rememberQuick(titleId: string, at: number) {
+  quick.delete(titleId)
+  quick.set(titleId, Math.round(at * 10) / 10)
+  while (quick.size > QUICK_MAX) quick.delete(quick.keys().next().value as string)
+  clearTimeout(quickTimer)
+  quickTimer = setTimeout(() => {
+    try {
+      localStorage.setItem(QUICK_KEY, JSON.stringify(Object.fromEntries(quick)))
+    } catch {
+      /* quota plein */
+    }
+  }, 2000)
+}
+
 const pool = new Map<string, PoolSlot[]>() // l'ordre d'insertion sert de LRU
 const waiting: PoolSlot[] = []
 let loadingCount = 0
@@ -139,6 +166,12 @@ export function acquireSlot(titleId: string, url: string, clip: number, order = 
   el.addEventListener('loadedmetadata', () => {
     const d = el.duration
     reportDuration(supabase, titleId, d)
+    // vidéo déjà connue comme lente à sauter : directement l'image mémorisée (dans le début déjà chargé)
+    const known = quick.get(titleId)
+    if (known != null && Number.isFinite(d) && known < d) {
+      el.currentTime = known
+      return
+    }
     // instant aléatoire, assez tôt pour qu'il reste de quoi remplir l'extrait
     if (Number.isFinite(d) && d > slot.clip * 2) {
       // moment enregistré par l'admin (jaquette stable) ; à défaut, un instant au hasard
@@ -148,6 +181,7 @@ export function acquireSlot(titleId: string, url: string, clip: number, order = 
       slot.fallback = setTimeout(() => {
         if (slot.ready || !el.buffered.length) return
         slot.anchor = Math.max(0, el.buffered.end(0) - 0.3)
+        rememberQuick(titleId, slot.anchor)
         el.currentTime = slot.anchor
       }, 4000)
     } else done()

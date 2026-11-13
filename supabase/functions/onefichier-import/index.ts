@@ -8,10 +8,10 @@ import { denyIfBanned } from '../_shared/guard.ts'
 import { background } from '../_shared/background.ts'
 import { LANE_ADMIN, LANE_WATCH, OnefichierError, onefichierCall, type Lane } from '../_shared/onefichier.ts'
 
-const VIDEO_EXT = new Set(['mp4', 'mkv', 'avi', 'mov', 'm4v', 'webm', 'wmv', 'flv', 'mpg', 'mpeg', 'ts', 'm2ts'])
+const VIDEO_EXT = new Set(['mp4', 'mkv', 'avi', 'mov', 'm4v', 'webm', 'wmv', 'flv', 'mpg', 'mpeg', 'ts', 'm2ts', 'mts', '3gp', '3g2', 'vob', 'ogv', 'ogm', 'divx', 'xvid', 'f4v', 'asf', 'rm', 'rmvb', 'm2v', 'mpe', 'mxf', 'qt', 'hevc', 'h264', 'h265', '264', '265'])
 const MAX_IMPORT = 100
 
-type RemoteFile = { id: string; name: string; size: number | null; date: string | null; ctype?: string | null }
+type RemoteFile = { id: string; name: string; size: number | null; date: string | null; ctype?: string | null; checksum?: string | null }
 type Result = { id: string; name: string; status: 'success' | 'ignored' | 'failed'; reason?: string }
 
 function fileIdOf(url: unknown): string | null {
@@ -20,7 +20,7 @@ function fileIdOf(url: unknown): string | null {
   return m ? (m[1] ?? m[2]) : null
 }
 
-const ext = (name: string) => (name.includes('.') ? (name.split('.').pop()?.toLowerCase() ?? '') : '')
+const ext = (name: string) => (name.includes('.') ? (name.trim().split('.').pop()?.trim().toLowerCase() ?? '') : '')
 const isVideo = (f: { name: string; ctype?: string | null }) => VIDEO_EXT.has(ext(f.name)) || /^video\//i.test(f.ctype ?? '')
 
 function cleanTitle(filename: string): string {
@@ -99,14 +99,7 @@ async function listFolder(folderId: number, opts: { annotate?: boolean; lane?: L
     throw new OnefichierError('unavailable', `Réponse 1fichier inattendue (champs : ${Object.keys(body).join(', ') || 'aucun'})`, 502)
   }
   const capped = rawItems.length >= CAP
-  const files: RemoteFile[] = []
-  for (const it of rawItems) {
-    const link = it.url ?? it.link ?? it.download_url ?? Object.values(it).find((v) => typeof v === 'string' && /1fichier\.com/.test(v))
-    const id = fileIdOf(link)
-    if (!id) continue
-    const ct = it['content-type'] ?? it.content_type ?? it.contentType
-    files.push({ id, name: String(it.filename ?? it.name ?? id), size: Number(it.size) > 0 ? Number(it.size) : null, date: typeof it.date === 'string' ? it.date : null, ctype: typeof ct === 'string' ? ct : null })
-  }
+  const files = parseItems(rawItems)
   const folders: Child[] = rawFolders
     .map((f) => ({ id: Number(f.id), name: String(f.name ?? f.id), date: typeof f.create_date === 'string' ? f.create_date : null, files: num(f.files), size: num(f.size) }))
     .filter((f) => Number.isInteger(f.id))
@@ -121,6 +114,49 @@ async function listFolder(folderId: number, opts: { annotate?: boolean; lane?: L
     ownSize: num(body.size),
     debug: { keys: Object.keys(body), items: rawItems.length, withId: files.length, sampleKeys: rawItems[0] ? Object.keys(rawItems[0]) : [], sampleUrl: rawItems[0] ? String(rawItems[0].url ?? '').slice(0, 60) : null, foldersRaw: rawFolders.length, hadItems: 'items' in body },
   }
+}
+
+/** Fichiers d'une réponse 1fichier, avec leurs métadonnées (taille, date d'envoi, type, empreinte). */
+function parseItems(rawItems: Record<string, unknown>[]): RemoteFile[] {
+  const files: RemoteFile[] = []
+  for (const it of rawItems) {
+    const link = it.url ?? it.link ?? it.download_url ?? Object.values(it).find((v) => typeof v === 'string' && /1fichier\.com/.test(v))
+    const id = fileIdOf(link)
+    if (!id) continue
+    const ct = it['content-type'] ?? it.content_type ?? it.contentType
+    const sum = it.checksum ?? it.hash ?? it.whirlpool ?? it.sha256 ?? it.md5
+    files.push({
+      id,
+      name: String(it.filename ?? it.name ?? id),
+      size: Number(it.size) > 0 ? Number(it.size) : null,
+      date: typeof it.date === 'string' ? it.date : null,
+      ctype: typeof ct === 'string' ? ct : null,
+      checksum: typeof sum === 'string' && /^[A-Za-z0-9+/=:_-]{16,200}$/.test(sum) ? sum : null,
+    })
+  }
+  return files
+}
+
+/**
+ * Dossiers de plus de 5 000 fichiers : 1fichier tronque la liste. On relit alors le dossier par tranches de dates d'envoi
+ * (file/ls.cgi, date_start / date_end). Si 1fichier ignore le filtre (dates hors tranche dans la réponse), on le note et on
+ * n'insiste pas : renvoie null.
+ */
+async function listWindow(folderId: number, start: Date, end: Date) {
+  const fmt = (d: Date) => d.toISOString().replace('T', ' ').slice(0, 19)
+  const a = fmt(start)
+  const b = fmt(end)
+  await guardFolder(folderId)
+  const body = await onefichierCall('file/ls.cgi', { folder_id: folderId, date_start: a, date_end: b }, LANE_WATCH)
+  const raw: Record<string, unknown>[] = Array.isArray(body.items) ? body.items : Array.isArray(body.files) ? body.files : []
+  const files = parseItems(raw)
+  // marge d'un jour : 1fichier donne ses dates à l'heure de Paris, nos bornes sont en UTC
+  const lo = fmt(new Date(start.getTime() - 86_400_000))
+  const hi = fmt(new Date(end.getTime() + 86_400_000))
+  const outside = files.some((f) => f.date && (f.date.slice(0, 19) < lo || f.date.slice(0, 19) > hi))
+  console.log('[onefichier-import] tranche', folderId, a, b, JSON.stringify({ items: raw.length, outside }))
+  if (outside) return null
+  return { files: files.map((f) => ({ ...f, video: isVideo(f) })), capped: raw.length >= CAP }
 }
 
 type Model = { id: string; image_url: string | null }
@@ -230,7 +266,7 @@ function retrySeconds(message: string): number {
  * jour s'il n'avait pas été modifié à la main), fichiers déplacés (modèle suivi), fichiers revenus (republiés). `complete` = la
  * liste est entière (non plafonnée) : les fichiers de ce dossier qui n'y figurent plus sont marqués « manquants ».
  */
-async function syncFolder(folderId: number, videos: { id: string; name: string; size: number | null }[], modelName: string | null, publish: boolean, reassign = false, complete = true) {
+async function syncFolder(folderId: number, videos: RemoteFile[], modelName: string | null, publish: boolean, reassign = false, complete = true) {
   const db = adminClient()
   let imported = 0
   let ignored = 0
@@ -240,11 +276,12 @@ async function syncFolder(folderId: number, videos: { id: string; name: string; 
   let restored = 0
   let missing = 0
   let suspect = false
+  let duplicates = 0
   const model = modelName && videos.length > 0 && modelName !== 'Racine' ? await ensureModel(modelName) : null
   for (let i = 0; i < videos.length; i += BATCH_ROWS) {
     const rows = videos.slice(i, i + BATCH_ROWS).map((f) => {
       const title = cleanTitle(f.name)
-      return { id: f.id, slug: slugFor(title, f.id), title, name: f.name, quality: guessQuality(f.name), size: f.size, container: ext(f.name) }
+      return { id: f.id, slug: slugFor(title, f.id), title, name: f.name, quality: guessQuality(f.name), size: f.size, container: ext(f.name), checksum: f.checksum ?? null, ctype: f.ctype ?? null, date: f.date }
     })
     const { data, error } = await db.rpc('sync_onefichier_folder', {
       p_folder: folderId,
@@ -259,6 +296,7 @@ async function syncFolder(folderId: number, videos: { id: string; name: string; 
       failed += rows.length
     } else {
       imported += Number(data?.imported ?? 0)
+      duplicates += Number(data?.duplicates ?? 0)
       ignored += Number(data?.ignored ?? 0)
       fixed += Number(data?.moved ?? 0)
       renamed += Number(data?.renamed ?? 0)
@@ -272,7 +310,7 @@ async function syncFolder(folderId: number, videos: { id: string; name: string; 
       suspect = data?.suspect === true
     }
   }
-  return { imported, ignored, failed, fixed, renamed, restored, missing, suspect }
+  return { imported, ignored, failed, fixed, renamed, restored, missing, suspect, duplicates }
 }
 
 const JOB_PARALLEL = 4 // dossiers listés en même temps (le régulateur espace les appels : 1,4 requête/s au plus)
@@ -413,7 +451,7 @@ async function resumeStalled() {
 //  • un dossier sans sous-dossier n'est relu en entier que s'il a changé, ou une fois par jour (filet de sécurité : renommages) ;
 //  • chaque relevé complet synchronise la base : nouveaux, renommés, déplacés ; les fichiers absents sont retirés après un délai de grâce.
 const STRUCTURE_MIN = 10
-const FULL_MAX_H = 24
+const FULL_MAX_H = 6 // filet de sécurité : chaque dossier est relu en entier au moins toutes les 6 h (avant : 24 h)
 const GRACE_MIN = 90
 const WATCH_BUDGET_MS = 100_000
 const WATCH_PARALLEL = 3
@@ -431,6 +469,12 @@ type WatchRow = {
   parent_files: number | null
   parent_size: number | null
   imported_total: number
+  capped: boolean | null
+  win_turn: boolean
+  win_unsupported: boolean
+  win_cursor: string | null
+  win_span_days: number
+  recent_at: string | null
 }
 type WatchStats = { scanned: number; full: number; imported: number; fresh: number; updated: number; missing: number; suspect: boolean; stopped: string | null }
 
@@ -444,6 +488,7 @@ async function scanWatched(f: WatchRow, cfg: { model_per_folder: boolean; publis
   const db = adminClient()
   const iso = (ms: number) => new Date(Date.now() + ms).toISOString()
   if (!(await folderReady(f.folder_id))) return
+  if (f.win_turn && f.capped && !f.win_unsupported) return scanWindow(f, cfg, st)
   const sigChanged = (f.parent_files ?? -1) !== (f.files_count ?? -1) || (f.parent_size ?? -1) !== (f.size_bytes ?? -1)
   const stale = !f.full_at || Date.now() - new Date(f.full_at).getTime() > FULL_MAX_H * 3_600_000
   const full = f.force_full || stale || sigChanged || !f.has_children
@@ -478,7 +523,9 @@ async function scanWatched(f: WatchRow, cfg: { model_per_folder: boolean; publis
           last_scanned_at: new Date().toISOString(),
           ...(r.imported > 0 ? { last_new_at: new Date().toISOString() } : {}),
           interval_min: hasChildren ? STRUCTURE_MIN : FULL_MAX_H * 60,
-          next_scan_at: iso((hasChildren ? STRUCTURE_MIN : FULL_MAX_H * 60) * 60_000),
+          // dossier tronqué : une tranche de dates suit 35 s plus tard (règle 1fichier : un listage par dossier toutes les 30 s)
+          next_scan_at: listing.capped && !f.win_unsupported ? iso((FOLDER_GAP_S + 5) * 1000) : iso((hasChildren ? STRUCTURE_MIN : FULL_MAX_H * 60) * 60_000),
+          win_turn: listing.capped && !f.win_unsupported,
         })
         .eq('folder_id', f.folder_id)
       st.full++
@@ -498,8 +545,9 @@ async function scanWatched(f: WatchRow, cfg: { model_per_folder: boolean; publis
         .update({
           has_children: hasChildren,
           last_scanned_at: new Date().toISOString(),
-          next_scan_at: force ? iso((FOLDER_GAP_S + 8) * 1000) : iso(STRUCTURE_MIN * 60_000),
+          next_scan_at: force || (f.capped && !f.win_unsupported) ? iso((FOLDER_GAP_S + 8) * 1000) : iso(STRUCTURE_MIN * 60_000),
           ...(force ? { force_full: true } : {}),
+          ...(f.capped && !f.win_unsupported && !force ? { win_turn: true } : {}),
         })
         .eq('folder_id', f.folder_id)
     }
@@ -519,6 +567,64 @@ async function scanWatched(f: WatchRow, cfg: { model_per_folder: boolean; publis
   }
 }
 
+/**
+ * Dossier tronqué (> 5 000 fichiers) : une tranche de dates par passage. D'abord les fichiers récents (depuis la dernière tranche
+ * récente, 1 jour de recouvrement), puis on remonte le temps tranche par tranche (rattrapage des fichiers jamais vus).
+ */
+async function scanWindow(f: WatchRow, cfg: { model_per_folder: boolean; publish: boolean }, st: WatchStats) {
+  const db = adminClient()
+  const iso = (ms: number) => new Date(Date.now() + ms).toISOString()
+  const DAY = 86_400_000
+  const now = Date.now()
+  const recentDue = !f.recent_at || now - new Date(f.recent_at).getTime() > STRUCTURE_MIN * 60_000
+  const cursor = f.win_cursor ? new Date(f.win_cursor).getTime() : now - 30 * DAY
+  const backfillDone = cursor < Date.UTC(2008, 0, 1)
+  const span = Math.max(1, f.win_span_days || 60)
+  const recent = recentDue || backfillDone
+  const start = recent ? new Date((f.recent_at ? new Date(f.recent_at).getTime() : now - 30 * DAY) - DAY) : new Date(cursor - span * DAY)
+  const end = recent ? new Date(now + DAY) : new Date(cursor)
+  try {
+    const w = await listWindow(f.folder_id, start, end)
+    if (!w) {
+      await db.from('watch_folders').update({ win_unsupported: true, win_turn: false, next_scan_at: iso(STRUCTURE_MIN * 60_000) }).eq('folder_id', f.folder_id)
+      return
+    }
+    st.scanned++
+    // tranche encore tronquée : on la coupe en deux (le rattrapage reprend avec une tranche plus courte)
+    if (w.capped && !recent && span > 1) {
+      await db.from('watch_folders').update({ win_span_days: Math.max(1, Math.floor(span / 2)), next_scan_at: iso((FOLDER_GAP_S + 5) * 1000) }).eq('folder_id', f.folder_id)
+      return
+    }
+    const r = await syncFolder(f.folder_id, w.files.filter((x) => x.video), cfg.model_per_folder ? f.model_name : null, cfg.publish === true, false, false)
+    st.imported += r.imported
+    st.updated += r.renamed + r.fixed + r.restored
+    const more = !recent || !backfillDone // rattrapage en cours : on enchaîne les tranches
+    await db
+      .from('watch_folders')
+      .update({
+        ...(recent ? { recent_at: new Date(now).toISOString() } : { win_cursor: start.toISOString(), win_span_days: w.files.length < CAP / 4 ? Math.min(span * 2, 365) : span }),
+        win_turn: more,
+        imported_total: Number(f.imported_total) + r.imported,
+        last_scanned_at: new Date().toISOString(),
+        ...(r.imported > 0 ? { last_new_at: new Date().toISOString() } : {}),
+        next_scan_at: more ? iso((FOLDER_GAP_S + 5) * 1000) : iso(STRUCTURE_MIN * 60_000),
+      })
+      .eq('folder_id', f.folder_id)
+  } catch (e) {
+    const msg = (e as Error).message
+    if (e instanceof OnefichierError && e.failure === 'auth') {
+      st.stopped = msg
+      return
+    }
+    // paramètre refusé par 1fichier (réponse KO) : le filtre par dates n'est pas disponible, on n'insiste pas
+    const refused = e instanceof OnefichierError && e.failure === 'unavailable' && /param|date|invalid/i.test(msg)
+    await db
+      .from('watch_folders')
+      .update({ ...(refused ? { win_unsupported: true, win_turn: false } : {}), next_scan_at: iso(10 * 60_000) })
+      .eq('folder_id', f.folder_id)
+  }
+}
+
 async function watchTick(): Promise<string> {
   const db = adminClient()
   const note = async (message: string) => {
@@ -532,7 +638,7 @@ async function watchTick(): Promise<string> {
 
   const { data: due } = await db
     .from('watch_folders')
-    .select('folder_id, parent_id, name, model_name, has_children, force_full, full_at, files_count, size_bytes, parent_files, parent_size, imported_total')
+    .select('folder_id, parent_id, name, model_name, has_children, force_full, full_at, files_count, size_bytes, parent_files, parent_size, imported_total, capped, win_turn, win_unsupported, win_cursor, win_span_days, recent_at')
     .eq('active', true)
     .is('missing_since', null)
     .lte('next_scan_at', new Date().toISOString())
