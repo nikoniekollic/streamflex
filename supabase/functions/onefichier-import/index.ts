@@ -116,6 +116,12 @@ async function listFolder(folderId: number, opts: { annotate?: boolean; lane?: L
   }
 }
 
+/** Texte sûr pour la base : sans caractères de contrôle ni demi-caractères Unicode isolés (qui rendent la requête illisible). */
+function safeText(v: string): string {
+  // deno-lint-ignore no-control-regex
+  return v.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g, '').trim() || 'Sans titre'
+}
+
 /** Fichiers d'une réponse 1fichier, avec leurs métadonnées (taille, date d'envoi, type, empreinte). */
 function parseItems(rawItems: Record<string, unknown>[]): RemoteFile[] {
   const files: RemoteFile[] = []
@@ -278,11 +284,10 @@ async function syncFolder(folderId: number, videos: RemoteFile[], modelName: str
   let suspect = false
   let duplicates = 0
   const model = modelName && videos.length > 0 && modelName !== 'Racine' ? await ensureModel(modelName) : null
-  for (let i = 0; i < videos.length; i += BATCH_ROWS) {
-    const rows = videos.slice(i, i + BATCH_ROWS).map((f) => {
-      const title = cleanTitle(f.name)
-      return { id: f.id, slug: slugFor(title, f.id), title, name: f.name, quality: guessQuality(f.name), size: f.size, container: ext(f.name), checksum: f.checksum ?? null, ctype: f.ctype ?? null, date: f.date }
-    })
+  type SyncResult = Record<string, number | undefined>
+  // Un lot refusé (requête vide ou illisible côté base, coupure réseau) n'est plus perdu : nouvel essai, puis le lot est coupé en
+  // deux jusqu'à isoler l'éventuel fichier en cause (seul celui-ci est alors compté en échec).
+  const syncRows = async (rows: Record<string, unknown>[], attempt = 0): Promise<SyncResult[]> => {
     const { data, error } = await db.rpc('sync_onefichier_folder', {
       p_folder: folderId,
       p_files: rows,
@@ -293,16 +298,32 @@ async function syncFolder(folderId: number, videos: RemoteFile[], modelName: str
       // dossier sans modèle (racine, dossier générique) : un fichier arrivé d'un dossier de modèle n'y est plus rattaché
       p_detach: detach && !model,
     })
-    if (error) {
-      console.error('[onefichier-import] sync', folderId, error.message)
-      failed += rows.length
-    } else {
-      imported += Number(data?.imported ?? 0)
-      duplicates += Number(data?.duplicates ?? 0)
-      ignored += Number(data?.ignored ?? 0)
-      fixed += Number(data?.moved ?? 0)
-      renamed += Number(data?.renamed ?? 0)
-      restored += Number(data?.restored ?? 0)
+    if (!error) return [(data ?? {}) as SyncResult]
+    if (attempt === 0) {
+      await new Promise((r) => setTimeout(r, 1500))
+      return syncRows(rows, 1)
+    }
+    if (rows.length > 1) {
+      const half = Math.ceil(rows.length / 2)
+      return [...(await syncRows(rows.slice(0, half), 1)), ...(await syncRows(rows.slice(half), 1))]
+    }
+    console.error('[onefichier-import] sync', folderId, rows[0]?.id, error.message)
+    failed += rows.length
+    return []
+  }
+  for (let i = 0; i < videos.length; i += BATCH_ROWS) {
+    const rows = videos.slice(i, i + BATCH_ROWS).map((f) => {
+      const name = safeText(f.name)
+      const title = safeText(cleanTitle(name))
+      return { id: f.id, slug: slugFor(title, f.id), title, name, quality: guessQuality(f.name), size: f.size, container: ext(f.name), checksum: f.checksum ?? null, ctype: f.ctype ?? null, date: f.date }
+    })
+    for (const data of await syncRows(rows)) {
+      imported += Number(data.imported ?? 0)
+      duplicates += Number(data.duplicates ?? 0)
+      ignored += Number(data.ignored ?? 0)
+      fixed += Number(data.moved ?? 0)
+      renamed += Number(data.renamed ?? 0)
+      restored += Number(data.restored ?? 0)
     }
   }
   if (complete && failed === 0) {
