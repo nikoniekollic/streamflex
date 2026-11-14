@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { useActiveProfile } from '@/components/profile/ActiveProfileContext'
 import { resolveMany } from '@/lib/preview'
 import { setExactLength } from '@/lib/model-names'
-import { mapLimit, probeDuration } from '@/lib/duration-probe'
+import { mapLimit, probeDurationYielding, waitDurationsFree } from '@/lib/duration-probe'
 import type { TypedSupabaseClient } from '@/lib/supabase'
 
 const BATCH = 24 // liens résolus en un seul appel serveur
@@ -88,8 +88,9 @@ export function DurationScanPanel({ supabase }: { supabase: TypedSupabaseClient 
       let cur = await take()
       while (cur && alive.current) {
         const nxt = take() // le lot suivant se résout pendant qu'on lit celui-ci
+        await waitDurationsFree() // une vidéo est regardée : la lecture des durées attend sa fermeture
         const urls = await cur.urls
-        const res = await mapLimit(cur.ids.map((id, i) => ({ id, url: urls[i] ?? null })), PARALLEL, async (x) => ({ id: x.id, s: await probeDuration(x.url, PROBE_TIMEOUT_MS) }))
+        const res = await mapLimit(cur.ids.map((id, i) => ({ id, url: urls[i] ?? null })), PARALLEL, async (x) => ({ id: x.id, s: await probeDurationYielding(x.url, PROBE_TIMEOUT_MS) }))
         const ok = res.filter((r): r is { id: string; s: number } => r.s != null)
         if (ok.length) {
           const { error } = await db.rpc('admin_set_durations', { p_items: ok.map((r) => ({ id: r.id, s: Math.round(r.s) })) })

@@ -17,7 +17,7 @@ const SESSION_MAX = 6000 // vidéos lues au plus par visite
 const REPORT_EVERY_MS = 2000
 
 /** Lit la durée d'une vidéo (métadonnées seulement). null si illisible. */
-export function probeDuration(url: string | null, timeoutMs = PROBE_TIMEOUT_MS): Promise<number | null> {
+export function probeDuration(url: string | null, timeoutMs = PROBE_TIMEOUT_MS, onAbort?: (abort: () => void) => void): Promise<number | null> {
   if (!url) return Promise.resolve(null)
   return new Promise((resolve) => {
     const v = document.createElement('video')
@@ -33,6 +33,7 @@ export function probeDuration(url: string | null, timeoutMs = PROBE_TIMEOUT_MS):
       resolve(s)
     }
     timer = setTimeout(() => end(null), timeoutMs)
+    onAbort?.(() => end(null)) // coupe la connexion tout de suite (le lecteur récupère la bande passante)
     v.onloadedmetadata = () => end(Number.isFinite(v.duration) && v.duration > 0 ? v.duration : null)
     v.onerror = () => end(null)
     v.src = url
@@ -97,6 +98,49 @@ export function requestDurations(ids: string[], urgentRead = false) {
   if (added) void pump()
 }
 
+// ───────── Pause pendant la lecture d'une vidéo
+// L'hébergeur ne sert qu'une dizaine de connexions à la fois : les lectures de durées en parallèle ralentissaient le démarrage
+// et l'avance de la vidéo regardée. Dès que le lecteur s'ouvre, tout s'arrête (connexions coupées, vidéos remises en file),
+// et reprend quelques secondes après sa fermeture.
+const holds = new Set<symbol>()
+const running = new Map<string, () => void>() // vidéo en cours de lecture de durée → coupure
+const RESUME_AFTER_MS = 4000
+let resumeAt = 0
+let resumeWaiters: (() => void)[] = []
+let resumeTimer: ReturnType<typeof setTimeout> | undefined
+const isHeld = () => holds.size > 0 || Date.now() < resumeAt
+
+/** Suspend la lecture des durées (lecteur ouvert) ; renvoie la fonction qui la libère. */
+export function holdDurations(): () => void {
+  const k = Symbol('hold')
+  holds.add(k)
+  clearTimeout(resumeTimer)
+  for (const abort of running.values()) abort()
+  return () => {
+    if (!holds.delete(k) || holds.size) return
+    resumeAt = Date.now() + RESUME_AFTER_MS
+    clearTimeout(resumeTimer)
+    resumeTimer = setTimeout(() => {
+      if (holds.size) return
+      const w = resumeWaiters
+      resumeWaiters = []
+      w.forEach((r) => r())
+    }, RESUME_AFTER_MS)
+  }
+}
+const waitResume = () => new Promise<void>((r) => resumeWaiters.push(r))
+/** Attend que le lecteur soit fermé (lecture complète de l'admin). */
+export const waitDurationsFree = (): Promise<void> => (isHeld() ? waitResume().then(waitDurationsFree) : Promise.resolve())
+let adminSeq = 0
+/** Lecture d'une durée coupée automatiquement si le lecteur s'ouvre (null). */
+export async function probeDurationYielding(url: string | null, timeoutMs = PROBE_TIMEOUT_MS): Promise<number | null> {
+  if (isHeld()) return null
+  const k = `admin:${adminSeq++}`
+  const sec = await probeDuration(url, timeoutMs, (abort) => running.set(k, abort))
+  running.delete(k)
+  return sec
+}
+
 /** Une vidéo est-elle encore en attente / en cours de lecture ? */
 export const isDurationPending = (id: string) => queued.has(id)
 
@@ -116,6 +160,10 @@ async function pump() {
         })
         continue
       }
+      if (isHeld()) {
+        await waitResume()
+        continue
+      }
       const isUrgent = urgent.length > 0
       const ids = (isUrgent ? urgent : background).splice(0, CHUNK)
       const { s, profileId } = ctx
@@ -124,7 +172,18 @@ async function pump() {
         ids.map((id, i) => ({ id, url: urls[i] ?? null })),
         isUrgent ? PARALLEL_URGENT : PARALLEL_BACKGROUND,
         async (x) => {
-          const sec = hasExactLength(x.id) ? null : await probeDuration(x.url)
+          if (isHeld()) return requeue(x.id, isUrgent) // lecteur ouvert pendant ce lot : on n'ouvre plus rien
+          let aborted = false
+          const sec = hasExactLength(x.id)
+            ? null
+            : await probeDuration(x.url, PROBE_TIMEOUT_MS, (abort) =>
+                running.set(x.id, () => {
+                  aborted = true
+                  abort()
+                }),
+              )
+          running.delete(x.id)
+          if (aborted) return requeue(x.id, isUrgent) // coupée pour le lecteur : relue plus tard
           tried.add(x.id)
           queued.delete(x.id)
           if (sec != null && sec >= 1 && sec <= 86_400) {
@@ -139,6 +198,10 @@ async function pump() {
   } finally {
     pumping = false
   }
+}
+
+function requeue(id: string, isUrgent: boolean) {
+  ;(isUrgent ? urgent : background).unshift(id)
 }
 
 /** Enregistre tout de suite les durées lues (avant de recharger une page triée par durée). */

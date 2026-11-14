@@ -12,6 +12,7 @@ import { QueuePanel } from '@/components/player/QueuePanel'
 import { useSiteSettings } from '@/lib/site-settings'
 import { forgetStream, prefetchAround } from '@/lib/prefetch'
 import { markPlayed } from '@/lib/random-history'
+import { holdDurations } from '@/lib/duration-probe'
 
 export type SwitchTarget = { titleId?: string; episodeId?: string }
 
@@ -102,6 +103,9 @@ export function WatchSession({ data, mode, onBack, onSwitch }: { data: WatchData
     },
     [resolve],
   )
+
+  // pendant la lecture, aucune lecture de durée en parallèle (page /watch comprise) : toute la bande passante pour la vidéo
+  useEffect(() => holdDurations(), [])
 
   // File de lecture (playlist, lecture aléatoire) : la vidéo affichée en fait-elle partie ?
   const queue = useQueue()
