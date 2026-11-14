@@ -9,7 +9,7 @@ create or replace function public.search_catalog(
 returns table(id uuid, type public.title_type, slug text, title text, synopsis text, release_year smallint, runtime_minutes smallint,
               maturity_rating text, poster_url text, backdrop_url text, logo_url text, published_at timestamptz, genres jsonb,
               rank real, total_count bigint)
-language plpgsql stable set search_path to '' set pg_trgm.word_similarity_threshold to '0.4' as $$
+language plpgsql stable set search_path to '' as $$
 #variable_conflict use_column
 declare
   q text := nullif(btrim(lower(public.f_unaccent(coalesce(p_q, '')))), '');
@@ -33,6 +33,8 @@ begin
     ) c;
     -- peu de résultats : recherche approchée (fautes de frappe), seulement alors
     if not p_exact and length(q) >= 3 and cardinality(ids) < 12 then
+      perform extensions.similarity('a', 'a'); -- module trigrammes chargé avant de régler son seuil
+      perform set_config('pg_trgm.word_similarity_threshold', '0.4', true);
       select coalesce(array_agg(distinct x), '{}') into ids from (
         select unnest(ids) as x
         -- mot à mot : « alcie » retrouve « Alice » même dans un long titre (seuil 0,4, index trigrammes)
