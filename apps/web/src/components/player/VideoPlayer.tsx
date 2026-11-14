@@ -481,13 +481,14 @@ export function VideoPlayer({
     <PlayerButtonCls.Provider value={buttonClass(ui)}>
     <div
       ref={containerRef}
-      className={cn(embedded ? 'absolute inset-0' : 'fixed inset-0 z-50', 'sf-player bg-black select-none', !visible && 'cursor-none')}
+      className={cn(embedded ? 'absolute inset-0' : 'fixed inset-0 z-50', 'sf-player bg-[var(--sf-player-bg,#000)] select-none', !visible && 'cursor-none')}
       style={playerVars(ui, fontFamily)}
       onPointerMove={showControls}
       onPointerDown={showControls}
     >
       <style>{subsCss(ui, '.sf-player')}</style>
       <div className="absolute inset-y-0 left-0" style={{ right: sideShown ? 'min(20rem, 38vw)' : 0 }}>
+      <div className="absolute" style={{ inset: 'var(--sf-video-inset, 0)' }}>
       <video
         ref={videoRef}
         src={src}
@@ -496,7 +497,7 @@ export function VideoPlayer({
         autoPlay
         playsInline
         preload="auto"
-        className="absolute inset-0 size-full bg-black"
+        className="absolute inset-0 size-full bg-transparent"
         style={{ objectFit: fitMode === 'stretch' ? 'fill' : fitMode }}
         onClick={togglePlay}
         onDoubleClick={onVideoDoubleClick}
@@ -558,6 +559,7 @@ export function VideoPlayer({
           ) : null,
         )}
       </video>
+      </div>
 
       {/* Spinner / flash */}
       {waiting && (

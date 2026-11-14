@@ -5,6 +5,8 @@ import { useActiveProfile } from '@/components/profile/ActiveProfileContext'
 import { cancelWarm, directPreview, invalidatePreview, peekPreviewUrl, warmPreview } from '@/lib/preview'
 import { acquireSlot, attachSlot, detachSlot } from '@/lib/video-pool'
 import { SnapImage, useSnapFor } from '@/components/catalog/SnapImage'
+import { useSiteSettings } from '@/lib/site-settings'
+import { CSS_FIT } from '@/components/catalog/HoverPreview'
 
 /**
  * Visuel d'un film = l'image de SA vidéo à son moment enregistré (cover_pos), au lieu de l'image du modèle commune à
@@ -14,6 +16,7 @@ import { SnapImage, useSnapFor } from '@/components/catalog/SnapImage'
 export function CoverThumb({ titleId, coverPos, fallback, className, order = 0, direct = false }: { titleId: string; coverPos: number | null; fallback?: ReactNode; className?: string; order?: number; direct?: boolean }) {
   const { activeProfile } = useActiveProfile()
   const profileId = activeProfile?.id
+  const fit = CSS_FIT[useSiteSettings().preview.cardFit]
   // le lien appartient à UN film : quand la vignette change de film (recapture d'un modèle), l'ancien lien ne doit pas servir
   const [got, setGot] = useState<{ id: string; url: string | null }>(() => ({ id: titleId, url: peekPreviewUrl(titleId) }))
   const url = got.id === titleId ? got.url : peekPreviewUrl(titleId)
@@ -64,7 +67,7 @@ export function CoverThumb({ titleId, coverPos, fallback, className, order = 0, 
     const h = host.current
     if (!h || !url || !near || !needVideo) return
     const slot = acquireSlot(titleId, url, 30, rank, coverPos)
-    slot.el.style.objectFit = 'cover'
+    slot.el.style.objectFit = fit
     attachSlot(slot, h)
     const sync = () => {
       setReady(slot.ready)
@@ -81,12 +84,12 @@ export function CoverThumb({ titleId, coverPos, fallback, className, order = 0, 
       slot.subs.delete(sync)
       detachSlot(slot)
     }
-  }, [url, titleId, coverPos, rank, near, needVideo])
+  }, [url, titleId, coverPos, rank, near, needVideo, fit])
 
   return (
     <div className={cn('relative overflow-hidden bg-neutral-900', className)}>
       {fallback}
-      {snap && <SnapImage bitmap={snap} />}
+      {snap && <SnapImage bitmap={snap} fit={fit} />}
       <div ref={host} aria-hidden className={cn('pointer-events-none absolute inset-0 bg-black transition-opacity duration-500', ready && needVideo ? 'opacity-100' : 'opacity-0')} />
     </div>
   )

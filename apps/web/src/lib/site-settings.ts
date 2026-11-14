@@ -24,8 +24,25 @@ const okRatio = (v: unknown, d: string) => (typeof v === 'string' && RATIO_RE.te
 export const ratioCss = (r: string) => r.replace(':', ' / ')
 
 /** Aspect de la durée affichée sur les jaquettes (la position est dans cards.durationPos) */
-export type DurationStyle = { show: boolean; format: 'clock' | 'text'; size: number; color: string; bg: string; bgOpacity: number; radius: number; bold: boolean; padX: number }
-const DEFAULT_DURATION: DurationStyle = { show: true, format: 'clock', size: 11, color: '#ffffff', bg: '#000000', bgOpacity: 75, radius: 4, bold: true, padX: 6 }
+export type DurationStyle = { show: boolean; format: 'clock' | 'text'; size: number; color: string; bg: string; bgOpacity: number; radius: number; bold: boolean; padX: number; font: string }
+const DEFAULT_DURATION: DurationStyle = { show: true, format: 'clock', size: 11, color: '#ffffff', bg: '#000000', bgOpacity: 75, radius: 4, bold: true, padX: 6, font: 'site' }
+
+/** Polices proposées pour la durée des jaquettes (polices système : la CSP interdit les polices distantes) ; 'site' = celle du site */
+export const DURATION_FONTS = [
+  { key: 'site', label: 'Celle du site', family: null },
+  { key: 'segoe', label: 'Segoe UI', family: "'Segoe UI', system-ui, sans-serif" },
+  { key: 'arial', label: 'Arial', family: 'Arial, Helvetica, sans-serif' },
+  { key: 'narrow', label: 'Arial étroite', family: "'Arial Narrow', 'Roboto Condensed', sans-serif-condensed, sans-serif" },
+  { key: 'verdana', label: 'Verdana', family: 'Verdana, Geneva, sans-serif' },
+  { key: 'tahoma', label: 'Tahoma', family: 'Tahoma, Geneva, sans-serif' },
+  { key: 'trebuchet', label: 'Trebuchet', family: "'Trebuchet MS', Helvetica, sans-serif" },
+  { key: 'impact', label: 'Impact', family: "Impact, 'Arial Narrow', sans-serif" },
+  { key: 'arialblack', label: 'Arial Black', family: "'Arial Black', Gadget, sans-serif" },
+  { key: 'georgia', label: 'Georgia', family: "Georgia, 'Times New Roman', serif" },
+  { key: 'mono', label: 'Monospace', family: "'Cascadia Code', Consolas, 'Courier New', monospace" },
+  { key: 'courier', label: 'Machine à écrire', family: "'Courier New', monospace" },
+  { key: 'comic', label: 'Comic', family: "'Comic Sans MS', 'Chalkboard SE', cursive" },
+] as const
 
 /** Style CSS de la pastille de durée (jaquettes et simulation de l'admin) */
 export const durationCss = (d: DurationStyle): CSSProperties => {
@@ -40,6 +57,7 @@ export const durationCss = (d: DurationStyle): CSSProperties => {
     lineHeight: 1.25,
     whiteSpace: 'nowrap',
     fontVariantNumeric: 'tabular-nums',
+    fontFamily: DURATION_FONTS.find((f) => f.key === d.font)?.family ?? undefined,
   }
 }
 
@@ -73,6 +91,8 @@ export type SiteSettings = {
     radius: number
     fit: 'contain' | 'cover' | 'stretch'
     ratio: string
+    /** largeur du lecteur en % de la largeur de l'écran (size = hauteur en % de la hauteur de l'écran) */
+    width: number
     /** bandes qui encadrent la vidéo : horizontales (haut / bas) pour une vidéo large, verticales (côtés) pour une vidéo verticale */
     barsLandscape: boolean
     barsPortrait: boolean
@@ -132,6 +152,7 @@ export const DEFAULT_SETTINGS: SiteSettings = {
     radius: 16,
     fit: 'contain',
     ratio: '16:9',
+    width: 92,
     barsLandscape: true,
     barsPortrait: true,
     barSizeH: 8,
@@ -248,6 +269,7 @@ export function normalizeSettings(input: unknown): SiteSettings {
       radius: clamp(pl.radius, 0, 32, d.player.radius),
       fit: oneOf(pl.fit, ['contain', 'cover', 'stretch'] as const, 'contain'),
       ratio: okRatio(pl.ratio, '16:9'),
+      width: Math.round(clamp(pl.width, 40, 100, d.player.width)),
       barsLandscape: pl.barsLandscape !== false,
       barsPortrait: pl.barsPortrait !== false,
       barSizeH: Math.round(clamp(pl.barSizeH, 0, 30, d.player.barSizeH)),
@@ -276,6 +298,7 @@ export function normalizeSettings(input: unknown): SiteSettings {
         radius: Math.round(clamp(du.radius, 0, 16, DEFAULT_DURATION.radius)),
         bold: du.bold !== false,
         padX: Math.round(clamp(du.padX, 2, 16, DEFAULT_DURATION.padX)),
+        font: oneOf(du.font, DURATION_FONTS.map((f) => f.key), 'site'),
       }))((cd.duration && typeof cd.duration === 'object' ? cd.duration : {}) as Record<string, unknown>),
     },
     hero: {

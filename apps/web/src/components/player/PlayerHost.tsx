@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { X } from 'lucide-react'
 import { useRouteContext } from '@tanstack/react-router'
 import { StreamStatus } from '@/components/player/StreamStatus'
@@ -78,14 +78,16 @@ export function PlayerHost() {
   const windowed = player.mode === 'window'
   const [rw, rh] = player.ratio.split(':').map(Number)
   const ratio = videoRatio ?? (rw > 0 && rh > 0 ? rw / rh : 16 / 9)
-  const size = player.size
-  // bandes d'encadrement : horizontales pour une vidéo large, verticales pour une vidéo verticale (réglages « Lecteur »)
+  // Cadre de taille FIXE (largeur × hauteur réglées dans l'admin), comme YouTube : la vidéo s'y adapte sans jamais être rognée et
+  // les bandes remplissent le reste — horizontales (haut / bas) pour une vidéo large, verticales (côtés) pour une vidéo verticale.
+  // L'épaisseur réglée est un MINIMUM : le cadre ne rétrécit jamais, seule la vidéo s'ajuste à l'intérieur.
   const portrait = ratio < 1
-  const barOn = windowed && (portrait ? player.barsPortrait : player.barsLandscape)
-  const bar = barOn ? (portrait ? player.barSizeV : player.barSizeH) / 100 : 0
-  const outer = portrait ? ratio * (1 + 2 * bar) : ratio / (1 + 2 * bar) // proportions du cadre, bandes comprises
-  const inset = `${((bar / (1 + 2 * bar)) * 100).toFixed(3)}%`
-  const barBg = `color-mix(in srgb, ${player.barColor} ${player.barOpacity}%, transparent)`
+  const barOn = portrait ? player.barsPortrait : player.barsLandscape
+  const pad = barOn ? (portrait ? player.barSizeV : player.barSizeH) : 0
+  const videoInset = !pad ? '0' : portrait ? `0 ${pad}%` : `${pad}% 0`
+  const barBg = barOn ? `color-mix(in srgb, ${player.barColor} ${player.barOpacity}%, transparent)` : '#000'
+  const full = player.width >= 100 && player.size >= 100
+  const vars = { '--sf-player-bg': barBg, '--sf-video-inset': videoInset } as CSSProperties
   return (
     // Fond : la page reste visible derrière, assombrie et floutée (réglages « Lecteur » de l'admin) ; un clic dessus ferme le lecteur
     <div
@@ -109,19 +111,14 @@ export function PlayerHost() {
       </button>
       <div
         ref={frame}
-        className={windowed ? 'sf-player-frame relative overflow-hidden ring-1 ring-white/10' : 'relative overflow-hidden bg-black'}
+        className={windowed ? 'sf-player-frame relative overflow-hidden ring-1 ring-white/10' : 'relative overflow-hidden'}
         style={
           windowed
-            ? // aussi grand que possible (taille réglée dans l'admin, 100 % = tout l'écran) aux proportions de la vidéo ; le fond reste
-              // visible autour (bandes assombries) : un clic dessus ferme le lecteur
-              { width: `min(${size}vw, calc(${size}dvh * ${outer}))`, aspectRatio: String(outer), borderRadius: size >= 100 ? 0 : player.radius, background: bar ? barBg : '#000' }
-            : { width: '100vw', height: '100dvh' }
+            ? // le fond reste visible autour du cadre (assombri, flouté) : un clic dessus ferme le lecteur
+              { ...vars, width: `${player.width}vw`, height: `${player.size}dvh`, borderRadius: full ? 0 : player.radius, background: barBg }
+            : { ...vars, width: '100vw', height: '100dvh', background: barBg }
         }
       >
-        <div
-          className="absolute overflow-hidden bg-black"
-          style={bar ? (portrait ? { top: 0, bottom: 0, left: inset, right: inset } : { left: 0, right: 0, top: inset, bottom: inset }) : { inset: 0 }}
-        >
         {load.status === 'loading' && <StreamStatus phase="resolving" title="" onBack={closePlayer} embedded />}
         {load.status === 'error' && (
           <StreamStatus phase="error" code={load.code} title="" onBack={closePlayer} onRetry={() => o.titleId && openPlayer({ titleId: o.titleId, episodeId: o.episodeId, t: o.t })} embedded />
@@ -135,7 +132,6 @@ export function PlayerHost() {
             onSwitch={(t) => openPlayer({ titleId: t.titleId ?? load.data.title.id, episodeId: t.episodeId ?? null, t: 0 })}
           />
         )}
-        </div>
       </div>
     </div>
   )

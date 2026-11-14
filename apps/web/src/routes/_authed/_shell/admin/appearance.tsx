@@ -15,6 +15,7 @@ import {
   pin,
   RATIOS,
   durationCss,
+  DURATION_FONTS,
   ratioCss,
   NAME_PALETTES,
   SITE_FONTS,
@@ -519,8 +520,11 @@ function AppearanceAdmin() {
           <Field label="Format en attendant la vidéo (ensuite : celui de la vidéo)">
             <RatioField value={player.ratio} onChange={(v) => edit('player', { ratio: v })} />
           </Field>
-          <Field label="Taille de la fenêtre (100 % = plein écran)">
-            <Range value={player.size} min={40} max={100} step={1} onChange={(v) => edit('player', { size: v })} format={(v) => `${v} %`} />
+          <Field label="Largeur du lecteur">
+            <Range value={player.width} min={40} max={100} step={1} onChange={(v) => edit('player', { width: v })} format={(v) => `${v} % de l’écran`} />
+          </Field>
+          <Field label="Hauteur du lecteur">
+            <Range value={player.size} min={40} max={100} step={1} onChange={(v) => edit('player', { size: v })} format={(v) => `${v} % de l’écran`} />
           </Field>
           <Field label="Arrondi des coins">
             <Range value={player.radius} min={0} max={32} step={1} onChange={(v) => edit('player', { radius: v })} format={(v) => `${v} px`} />
@@ -534,20 +538,20 @@ function AppearanceAdmin() {
         </div>
         <div className="grid gap-4 rounded-md border p-3 sm:grid-cols-2 lg:grid-cols-3">
           <p className="text-xs text-muted-foreground sm:col-span-2 lg:col-span-3">
-            Bandes d’encadrement (mode fenêtre) : elles s’adaptent automatiquement au format de chaque vidéo — deux bandes horizontales en haut et en bas pour une vidéo large, deux bandes verticales sur les côtés pour une vidéo verticale.
+            Bandes d’encadrement : le lecteur garde TOUJOURS sa largeur et sa hauteur (réglées ci-dessus), comme sur YouTube ; la vidéo s’adapte à l’intérieur sans être rognée et les bandes remplissent le reste — horizontales en haut et en bas pour une vidéo large, verticales sur les côtés pour une vidéo verticale. L’épaisseur est un minimum : elle n’est ajoutée que si la vidéo touchait le bord.
           </p>
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={player.barsLandscape} onChange={(e) => edit('player', { barsLandscape: e.target.checked })} /> Bandes horizontales (vidéos larges)
           </label>
           <Field label="Épaisseur de chaque bande horizontale">
-            <Range value={player.barSizeH} min={0} max={30} step={1} onChange={(v) => edit('player', { barSizeH: v })} format={(v) => `${v} % de la hauteur`} />
+            <Range value={player.barSizeH} min={0} max={30} step={1} onChange={(v) => edit('player', { barSizeH: v })} format={(v) => `${v} % de la hauteur du lecteur`} />
           </Field>
           <span className="hidden lg:block" />
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={player.barsPortrait} onChange={(e) => edit('player', { barsPortrait: e.target.checked })} /> Bandes verticales (vidéos verticales)
           </label>
           <Field label="Épaisseur de chaque bande verticale">
-            <Range value={player.barSizeV} min={0} max={60} step={1} onChange={(v) => edit('player', { barSizeV: v })} format={(v) => `${v} % de la largeur`} />
+            <Range value={player.barSizeV} min={0} max={40} step={1} onChange={(v) => edit('player', { barSizeV: v })} format={(v) => `${v} % de la largeur du lecteur`} />
           </Field>
           <span className="hidden lg:block" />
           <Field label="Couleur des bandes">
@@ -572,7 +576,7 @@ function AppearanceAdmin() {
               >
                 <div
                   className="grid place-items-center bg-black text-[10px] text-neutral-300 shadow-xl ring-1 ring-white/10"
-                  style={player.mode === 'full' ? { width: '100%', height: '100%' } : { width: `${player.size}%`, aspectRatio: ratioCss(player.ratio), maxHeight: `${player.size}%`, borderRadius: player.radius / 2 }}
+                  style={player.mode === 'full' ? { width: '100%', height: '100%' } : { width: `${player.width}%`, height: `${player.size}%`, borderRadius: player.radius / 2 }}
                 >
                   Lecteur
                 </div>
@@ -715,7 +719,7 @@ function AppearanceAdmin() {
         </div>
       </Section>
 
-      <Section title="Durée de la vidéo sur les jaquettes" hint="Durée réelle du fichier, lue dans la vidéo (à la seconde). Aucune estimation n’est affichée : tant que la durée n’est pas connue, rien ne s’affiche. La position se règle plus haut.">
+      <Section title="Durée de la vidéo sur les jaquettes" hint="Durée réelle du fichier, lue dans la vidéo (à la seconde). Aucune estimation n’est affichée : tant que la durée n’est pas connue, rien ne s’affiche.">
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={cards.duration.show} onChange={(e) => edit('cards', { duration: { ...cards.duration, show: e.target.checked } })} /> Afficher la durée
         </label>
@@ -724,6 +728,15 @@ function AppearanceAdmin() {
             <select className={selectCls} value={cards.duration.format} onChange={(e) => edit('cards', { duration: { ...cards.duration, format: e.target.value as 'clock' | 'text' } })}>
               <option value="clock">1:23:45</option>
               <option value="text">1 h 23 min 45 s</option>
+            </select>
+          </Field>
+          <Field label="Police">
+            <select className={selectCls} value={cards.duration.font} onChange={(e) => edit('cards', { duration: { ...cards.duration, font: e.target.value } })}>
+              {DURATION_FONTS.map((f) => (
+                <option key={f.key} value={f.key} style={f.family ? { fontFamily: f.family } : undefined}>
+                  {f.label}
+                </option>
+              ))}
             </select>
           </Field>
           <Field label="Taille du texte">
@@ -747,6 +760,16 @@ function AppearanceAdmin() {
               </label>
             </div>
           </Field>
+        </div>
+        <div className="grid items-start gap-3 lg:grid-cols-[1fr_auto]">
+          <PositionPicker label="Position de la durée sur la jaquette" value={cards.durationPos} onChange={(p) => edit('cards', { durationPos: p })} />
+          <div className="relative w-36 overflow-hidden rounded-md bg-black ring-1 ring-white/20" style={{ aspectRatio: ratioCss(cards.ratio) }}>
+            {cards.duration.show && (
+              <span className="z-[5]" style={{ ...durationCss(cards.duration), ...pin(cards.durationPos) }}>
+                {cards.duration.format === 'clock' ? '27:02' : '27 min 02 s'}
+              </span>
+            )}
+          </div>
         </div>
       </Section>
 
@@ -803,26 +826,21 @@ function AppearanceAdmin() {
   )
 }
 
-/** Simulation des bandes d'encadrement : vidéo large (16:9) ou verticale (9:16) */
+/** Simulation des bandes : cadre du lecteur FIXE (proportions largeur × hauteur réglées), vidéo large ou verticale adaptée dedans */
 function BarsDemo({ player, portrait }: { player: SiteSettings['player']; portrait: boolean }) {
   const on = portrait ? player.barsPortrait : player.barsLandscape
-  const bar = on ? (portrait ? player.barSizeV : player.barSizeH) / 100 : 0
-  const ratio = portrait ? 9 / 16 : 16 / 9
-  const outer = portrait ? ratio * (1 + 2 * bar) : ratio / (1 + 2 * bar)
-  const inset = `${(bar / (1 + 2 * bar)) * 100}%`
-  const tall = outer < 1
+  const pad = on ? (portrait ? player.barSizeV : player.barSizeH) : 0
+  const frameW = 176
+  const frameH = Math.round(frameW * ((player.size * 9) / (player.width * 16)))
   return (
     <div>
       <p className="mb-1 text-xs text-muted-foreground">{portrait ? 'Vidéo verticale' : 'Vidéo large'}</p>
-      <div className="grid h-44 w-44 place-items-center rounded-md bg-neutral-700/60 ring-1 ring-white/20">
-        <div
-          className="relative overflow-hidden"
-          style={{ height: tall ? '100%' : undefined, width: tall ? undefined : '100%', aspectRatio: String(outer), background: `color-mix(in srgb, ${player.barColor} ${player.barOpacity}%, transparent)` }}
-        >
-          <div
-            className="absolute grid place-items-center bg-gradient-to-br from-sky-700 to-fuchsia-700 text-[10px] text-white"
-            style={bar ? (portrait ? { top: 0, bottom: 0, left: inset, right: inset } : { left: 0, right: 0, top: inset, bottom: inset }) : { inset: 0 }}
-          >
+      <div
+        className="relative overflow-hidden ring-1 ring-white/20"
+        style={{ width: frameW, height: Math.min(Math.max(frameH, 60), 176), background: on ? `color-mix(in srgb, ${player.barColor} ${player.barOpacity}%, transparent)` : '#000', borderRadius: 6 }}
+      >
+        <div className="absolute grid place-items-center" style={{ inset: !pad ? 0 : portrait ? `0 ${pad}%` : `${pad}% 0` }}>
+          <div className="grid max-h-full max-w-full place-items-center bg-gradient-to-br from-sky-700 to-fuchsia-700 text-[10px] text-white" style={{ aspectRatio: portrait ? '9 / 16' : '16 / 9', height: portrait ? '100%' : undefined, width: portrait ? undefined : '100%' }}>
             Vidéo
           </div>
         </div>
