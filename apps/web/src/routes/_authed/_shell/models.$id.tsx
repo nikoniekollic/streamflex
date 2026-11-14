@@ -1,6 +1,10 @@
 import { PlayList } from '@/components/catalog/PlayList'
-import { Link, createFileRoute, notFound, redirect, useNavigate } from '@tanstack/react-router'
-import { ArrowLeft } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import { Link, createFileRoute, notFound, redirect, useNavigate, useRouter } from '@tanstack/react-router'
+import { ArrowLeft, Loader2 } from 'lucide-react'
+import { supabase } from '@/lib/supabase'
+import { flushDurationReports, requestDurations, useDurationProgress } from '@/lib/duration-probe'
 import { MovieCard } from '@/components/catalog/MovieCard'
 import { PaginationBar } from '@/components/ui/pagination-bar'
 import { FilterPanel, type PanelValue } from '@/components/catalog/FilterPanel'
@@ -43,6 +47,8 @@ function ModelPage() {
   const apply = (v: PanelValue) => go({ q: v.q, sort: v.sort, min: v.min, max: v.max, exact: v.exact })
   const s = modelNameStyle(model.name, names)
   const pages = Math.max(1, Math.ceil(total / TITLES_PER_PAGE))
+  const byLength = search.sort === 'longest' || search.sort === 'shortest' || search.min != null || search.max != null
+  const durations = useModelRealDurations(model.id, byLength, search.sort === 'shortest')
   return (
     <section className="px-6 py-10 md:px-12">
       <Link to="/models" className="mb-4 inline-flex items-center gap-1 text-sm text-neutral-400 hover:text-white">
@@ -79,6 +85,13 @@ function ModelPage() {
         </div>
       </div>
       <FilterPanel value={search} onApply={apply} showQuery queryPlaceholder={`Rechercher dans les vidéos de ${model.name}…`} />
+      {durations.pending > 0 && (
+        <p className="mb-4 flex items-center gap-2 text-xs text-muted-foreground">
+          <Loader2 className="size-3.5 animate-spin" />
+          Lecture des durées réelles : {durations.total - durations.pending} / {durations.total}
+          {byLength ? ' — le tri par durée sera recalculé à la fin.' : ''}
+        </p>
+      )}
       {titles.length === 0 ? (
         <p className="text-muted-foreground">{filtered ? 'Aucune vidéo ne correspond à ces filtres.' : 'Aucune vidéo publiée pour ce modèle.'}</p>
       ) : (
@@ -95,4 +108,64 @@ function ModelPage() {
       <PaginationBar page={page} pages={pages} onPage={(p) => go({ ...search, page: p })} />
     </section>
   )
+}
+
+/**
+ * Vidéos du modèle dont la base ne connaît pas la durée réelle (seulement estimée d'après la taille du fichier) : elles sont
+ * toutes lues, puis la page est rechargée si elle est triée ou filtrée par durée — l'ordre suit alors les vraies durées.
+ */
+function useModelRealDurations(modelId: string, byLength: boolean, shortestFirst: boolean) {
+  const router = useRouter()
+  const [ids, setIds] = useState<string[]>([])
+  useEffect(() => {
+    let off = false
+    setIds([])
+    void (async () => {
+      // d'abord celles que le tri place en tête (estimation la plus longue / la plus courte) : la 1re page se corrige vite
+      const list: string[] = []
+      for (let from = 0; from < 6000 && !off; from += 1000) {
+        const { data, error } = await (supabase as unknown as SupabaseClient)
+          .from('titles')
+          .select('id')
+          .eq('model_id', modelId)
+          .eq('is_published', true)
+          .eq('type', 'movie')
+          .is('duration_s', null)
+          .order('len_key', { ascending: shortestFirst, nullsFirst: false })
+          .order('id')
+          .range(from, from + 999)
+        if (error) break
+        list.push(...((data ?? []) as { id: string }[]).map((r) => r.id))
+        if ((data?.length ?? 0) < 1000) break
+      }
+      if (off) return
+      requestDurations(list, true)
+      setIds(list)
+    })()
+    return () => {
+      off = true
+    }
+  }, [modelId, shortestFirst])
+  const { pending } = useDurationProgress(ids)
+  const before = useRef(0)
+  const latest = useRef(byLength)
+  latest.current = byLength
+  // longue lecture : l'ordre est recalculé toutes les 45 s avec les durées déjà lues
+  const reading = pending > 0
+  useEffect(() => {
+    if (!reading) return
+    const t = setInterval(() => {
+      if (latest.current) void flushDurationReports().then(() => router.invalidate({ filter: (m) => m.routeId === Route.id }))
+    }, 45_000)
+    return () => clearInterval(t)
+  }, [reading, router])
+  useEffect(() => {
+    // fin de la lecture : nouvel ordre d'après les durées réelles (enregistrées en base quelques secondes après la lecture)
+    if (before.current > 0 && pending === 0 && latest.current) {
+      before.current = 0
+      void flushDurationReports().then(() => router.invalidate({ filter: (m) => m.routeId === Route.id }))
+    }
+    before.current = pending
+  }, [pending, router])
+  return { total: ids.length, pending }
 }

@@ -12,6 +12,11 @@ const emojiOfModel = new Map<string, string | null>()
 /** durée réelle du fichier en secondes (exact = à la seconde ; sinon minutes enregistrées, jamais une estimation) */
 export type TitleLength = { seconds: number; exact: boolean }
 const lengthOfTitle = new Map<string, TitleLength | null>()
+/** appelé avec les vidéos dont la base ne connaît pas encore la durée réelle (lecture au passage) */
+let unknownLength: ((ids: string[]) => void) | null = null
+export function setUnknownLengthHandler(h: ((ids: string[]) => void) | null) {
+  unknownLength = h
+}
 
 /** Durée réelle lue dans la vidéo : mise à jour immédiate des jaquettes concernées. */
 export function setExactLength(id: string, seconds: number) {
@@ -60,13 +65,14 @@ async function flush() {
   const models = await loadModels()
   for (let i = 0; i < ids.length; i += 150) {
     const chunk = ids.slice(i, i + 150)
-    const { data, error } = await (supabase as unknown as SupabaseClient).from('titles').select('id, model_id, runtime_minutes, duration_s, cover_pos').in('id', chunk)
+    const { data, error } = await (supabase as unknown as SupabaseClient).from('titles').select('id, type, model_id, runtime_minutes, duration_s, cover_pos').in('id', chunk)
     if (error) {
       for (const id of chunk) coverOfTitle.set(id, null) // ne bloque pas les aperçus : moment au hasard
       continue
     }
-    type Row = { id: string; model_id: string | null; runtime_minutes: number | null; duration_s: number | null; cover_pos: number | null }
+    type Row = { id: string; type: string | null; model_id: string | null; runtime_minutes: number | null; duration_s: number | null; cover_pos: number | null }
     const found = new Map(((data ?? []) as Row[]).map((r) => [r.id, r]))
+    const unknown: string[] = []
     for (const id of chunk) {
       const r = found.get(id)
       nameOfTitle.set(id, r?.model_id ? (models.get(r.model_id) ?? null) : null)
@@ -77,8 +83,10 @@ async function flush() {
       } else if (r?.duration_s) lengthOfTitle.set(id, { seconds: r.duration_s, exact: true })
       else if (r?.runtime_minutes) lengthOfTitle.set(id, { seconds: r.runtime_minutes * 60, exact: false })
       else lengthOfTitle.set(id, null)
+      if (r && !r.duration_s && r.type === 'movie' && !lengthOfTitle.get(id)?.exact) unknown.push(id)
       coverOfTitle.set(id, r?.cover_pos ?? null)
     }
+    if (unknown.length) unknownLength?.(unknown)
   }
   notify()
 }

@@ -193,10 +193,10 @@ function resolveBatch(s: TypedSupabaseClient, profileId: string, ids: string[], 
 }
 
 /** Liens de plusieurs films d'un coup (montage d'un modèle) : une requête serveur, résultats dans l'ordre demandé. */
-export function resolveMany(s: TypedSupabaseClient, profileId: string, ids: string[]): Promise<(string | null)[]> {
+export function resolveMany(s: TypedSupabaseClient, profileId: string, ids: string[], high = true): Promise<(string | null)[]> {
   const fresh = (id: string) => (cache.get(id)?.until ?? 0) > Date.now()
   const missing = ids.filter((id) => UUID.test(id) && !fresh(id) && !inflight.has(id))
-  if (missing.length && Date.now() >= pausedUntil) resolveBatch(s, profileId, missing, true)
+  if (missing.length && Date.now() >= pausedUntil) resolveBatch(s, profileId, missing, high)
   return Promise.all(ids.map((id) => peekPreviewUrl(id) ?? inflight.get(id) ?? Promise.resolve(null)))
 }
 

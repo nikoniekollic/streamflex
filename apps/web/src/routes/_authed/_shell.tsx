@@ -4,6 +4,11 @@ import { AppHeader } from '@/components/layout/AppHeader'
 import { PlayerHost } from '@/components/player/PlayerHost'
 import { requireActiveProfile } from '@/lib/route-guards'
 import { useSiteSettings } from '@/lib/site-settings'
+import { useEffect } from 'react'
+import { supabase } from '@/lib/supabase'
+import { useActiveProfile } from '@/components/profile/ActiveProfileContext'
+import { requestDurations, setDurationContext } from '@/lib/duration-probe'
+import { setUnknownLengthHandler } from '@/lib/model-names'
 
 export const Route = createFileRoute('/_authed/_shell')({
   beforeLoad: ({ context, location }) => requireActiveProfile(context, location.href),
@@ -13,6 +18,18 @@ export const Route = createFileRoute('/_authed/_shell')({
 function Shell() {
   const { hasAccess, subscription } = useRouteContext({ from: '/_authed' })
   useSiteSettings() // charge et applique le thème choisi par l'admin
+  const { activeProfile } = useActiveProfile()
+  const profileId = activeProfile?.id ?? null
+  // durées réelles lues au passage pour les jaquettes affichées qui n'en ont pas (une seule fois par vidéo pour tout le site)
+  useEffect(() => {
+    if (!hasAccess || !profileId) return
+    setDurationContext(supabase, profileId)
+    setUnknownLengthHandler((ids) => requestDurations(ids))
+    return () => {
+      setUnknownLengthHandler(null)
+      setDurationContext(null, null)
+    }
+  }, [hasAccess, profileId])
   return (
     <>
       <AppHeader />

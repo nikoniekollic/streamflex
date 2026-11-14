@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { useActiveProfile } from '@/components/profile/ActiveProfileContext'
 import { resolveMany } from '@/lib/preview'
 import { setExactLength } from '@/lib/model-names'
+import { mapLimit, probeDuration } from '@/lib/duration-probe'
 import type { TypedSupabaseClient } from '@/lib/supabase'
 
 const BATCH = 24 // liens résolus en un seul appel serveur
@@ -14,43 +15,6 @@ const PARALLEL = 12 // vidéos lues en même temps
 const WORKERS = 1
 const PROBE_TIMEOUT_MS = 30_000
 const MAX_EMPTY_BATCHES = 5 // lots entiers sans aucune durée d'affilée : on s'arrête (liens refusés, Alldebrid en pause…)
-
-/** Lit la durée d'une vidéo (métadonnées seulement, quelques Ko). null si illisible. */
-function probe(url: string | null): Promise<number | null> {
-  if (!url) return Promise.resolve(null)
-  return new Promise((resolve) => {
-    const v = document.createElement('video')
-    v.preload = 'metadata'
-    v.muted = true
-    let timer: ReturnType<typeof setTimeout>
-    const end = (s: number | null) => {
-      clearTimeout(timer)
-      v.onloadedmetadata = null
-      v.onerror = null
-      v.removeAttribute('src')
-      v.load()
-      resolve(s)
-    }
-    timer = setTimeout(() => end(null), PROBE_TIMEOUT_MS)
-    v.onloadedmetadata = () => end(Number.isFinite(v.duration) && v.duration > 0 ? v.duration : null)
-    v.onerror = () => end(null)
-    v.src = url
-  })
-}
-
-async function mapLimit<T, R>(items: T[], limit: number, fn: (x: T) => Promise<R>): Promise<R[]> {
-  const out: R[] = new Array(items.length)
-  let i = 0
-  await Promise.all(
-    Array.from({ length: Math.min(limit, items.length) }, async () => {
-      while (i < items.length) {
-        const k = i++
-        out[k] = await fn(items[k])
-      }
-    }),
-  )
-  return out
-}
 
 type Stats = { total: number; missing: number }
 type Progress = { read: number; failed: number; note: string }
@@ -125,7 +89,7 @@ export function DurationScanPanel({ supabase }: { supabase: TypedSupabaseClient 
       while (cur && alive.current) {
         const nxt = take() // le lot suivant se résout pendant qu'on lit celui-ci
         const urls = await cur.urls
-        const res = await mapLimit(cur.ids.map((id, i) => ({ id, url: urls[i] ?? null })), PARALLEL, async (x) => ({ id: x.id, s: await probe(x.url) }))
+        const res = await mapLimit(cur.ids.map((id, i) => ({ id, url: urls[i] ?? null })), PARALLEL, async (x) => ({ id: x.id, s: await probeDuration(x.url, PROBE_TIMEOUT_MS) }))
         const ok = res.filter((r): r is { id: string; s: number } => r.s != null)
         if (ok.length) {
           const { error } = await db.rpc('admin_set_durations', { p_items: ok.map((r) => ({ id: r.id, s: Math.round(r.s) })) })
