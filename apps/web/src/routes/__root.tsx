@@ -26,7 +26,7 @@ export const Route = createRootRouteWithContext<RouterContext>()({
   component: () => (
     <div className="min-h-dvh">
       <Outlet />
-      <Toaster position="bottom-right" closeButton />
+      <Toaster position="bottom-right" closeButton visibleToasts={3} />
       <GlobalEmoji />
       {import.meta.env.DEV && <TanStackRouterDevtools position="bottom-right" />}
     </div>
