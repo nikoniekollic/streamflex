@@ -532,6 +532,31 @@ function AppearanceAdmin() {
             <Range value={player.blur} min={0} max={40} step={1} onChange={(v) => edit('player', { blur: v })} format={(v) => `${v} px`} />
           </Field>
         </div>
+        <div className="grid gap-4 rounded-md border p-3 sm:grid-cols-2 lg:grid-cols-3">
+          <p className="text-xs text-muted-foreground sm:col-span-2 lg:col-span-3">
+            Bandes d’encadrement (mode fenêtre) : elles s’adaptent automatiquement au format de chaque vidéo — deux bandes horizontales en haut et en bas pour une vidéo large, deux bandes verticales sur les côtés pour une vidéo verticale.
+          </p>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={player.barsLandscape} onChange={(e) => edit('player', { barsLandscape: e.target.checked })} /> Bandes horizontales (vidéos larges)
+          </label>
+          <Field label="Épaisseur de chaque bande horizontale">
+            <Range value={player.barSizeH} min={0} max={30} step={1} onChange={(v) => edit('player', { barSizeH: v })} format={(v) => `${v} % de la hauteur`} />
+          </Field>
+          <span className="hidden lg:block" />
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={player.barsPortrait} onChange={(e) => edit('player', { barsPortrait: e.target.checked })} /> Bandes verticales (vidéos verticales)
+          </label>
+          <Field label="Épaisseur de chaque bande verticale">
+            <Range value={player.barSizeV} min={0} max={60} step={1} onChange={(v) => edit('player', { barSizeV: v })} format={(v) => `${v} % de la largeur`} />
+          </Field>
+          <span className="hidden lg:block" />
+          <Field label="Couleur des bandes">
+            <input type="color" className="h-9 w-16 cursor-pointer rounded border bg-transparent" value={player.barColor} onChange={(e) => edit('player', { barColor: e.target.value })} />
+          </Field>
+          <Field label="Opacité des bandes">
+            <Range value={player.barOpacity} min={0} max={100} step={1} onChange={(v) => edit('player', { barOpacity: v })} format={(v) => `${v} %`} />
+          </Field>
+        </div>
         <div className="flex flex-wrap items-start gap-4">
           <div>
             <p className="mb-1 text-xs text-muted-foreground">Simulation (page derrière la fenêtre)</p>
@@ -554,6 +579,8 @@ function AppearanceAdmin() {
               </div>
             </div>
           </div>
+          <BarsDemo player={player} portrait={false} />
+          <BarsDemo player={player} portrait />
           <div>
             <Button size="sm" variant="ghost" onClick={() => reset('player')}>
               <RotateCcw className="size-4" /> Lecteur par défaut
@@ -772,6 +799,34 @@ function AppearanceAdmin() {
           <RotateCcw className="size-4" /> Formats par défaut
         </Button>
       </Section>
+    </div>
+  )
+}
+
+/** Simulation des bandes d'encadrement : vidéo large (16:9) ou verticale (9:16) */
+function BarsDemo({ player, portrait }: { player: SiteSettings['player']; portrait: boolean }) {
+  const on = portrait ? player.barsPortrait : player.barsLandscape
+  const bar = on ? (portrait ? player.barSizeV : player.barSizeH) / 100 : 0
+  const ratio = portrait ? 9 / 16 : 16 / 9
+  const outer = portrait ? ratio * (1 + 2 * bar) : ratio / (1 + 2 * bar)
+  const inset = `${(bar / (1 + 2 * bar)) * 100}%`
+  const tall = outer < 1
+  return (
+    <div>
+      <p className="mb-1 text-xs text-muted-foreground">{portrait ? 'Vidéo verticale' : 'Vidéo large'}</p>
+      <div className="grid h-44 w-44 place-items-center rounded-md bg-neutral-700/60 ring-1 ring-white/20">
+        <div
+          className="relative overflow-hidden"
+          style={{ height: tall ? '100%' : undefined, width: tall ? undefined : '100%', aspectRatio: String(outer), background: `color-mix(in srgb, ${player.barColor} ${player.barOpacity}%, transparent)` }}
+        >
+          <div
+            className="absolute grid place-items-center bg-gradient-to-br from-sky-700 to-fuchsia-700 text-[10px] text-white"
+            style={bar ? (portrait ? { top: 0, bottom: 0, left: inset, right: inset } : { left: 0, right: 0, top: inset, bottom: inset }) : { inset: 0 }}
+          >
+            Vidéo
+          </div>
+        </div>
+      </div>
     </div>
   )
 }

@@ -65,7 +65,23 @@ export type SiteSettings = {
     bannerClip: number
   }
   /** lecteur en premier plan : fenêtre centrée sur un fond flou transparent, ou plein écran */
-  player: { mode: 'window' | 'full'; size: number; backdrop: number; blur: number; radius: number; fit: 'contain' | 'cover' | 'stretch'; ratio: string }
+  player: {
+    mode: 'window' | 'full'
+    size: number
+    backdrop: number
+    blur: number
+    radius: number
+    fit: 'contain' | 'cover' | 'stretch'
+    ratio: string
+    /** bandes qui encadrent la vidéo : horizontales (haut / bas) pour une vidéo large, verticales (côtés) pour une vidéo verticale */
+    barsLandscape: boolean
+    barsPortrait: boolean
+    /** épaisseur de CHAQUE bande, en % de la hauteur (vidéo large) ou de la largeur (vidéo verticale) de la vidéo */
+    barSizeH: number
+    barSizeV: number
+    barColor: string
+    barOpacity: number
+  }
   /** formats des jaquettes de films et de modèles, icônes rondes en bas des jaquettes */
   cards: { ratio: string; modelRatio: string; icons: boolean; modelEmoji: string; videoEmoji: string; emojiFromName: boolean; modelPos: Point; videoPos: Point; durationPos: Point; duration: DurationStyle }
   /** bannière d'accueil : hauteur (en % de la hauteur de l'écran) ou format fixe */
@@ -108,7 +124,21 @@ export const DEFAULT_SETTINGS: SiteSettings = {
     bannerPos: 'center',
     bannerClip: 30,
   },
-  player: { mode: 'window', size: 100, backdrop: 55, blur: 14, radius: 16, fit: 'contain', ratio: '16:9' },
+  player: {
+    mode: 'window',
+    size: 100,
+    backdrop: 55,
+    blur: 14,
+    radius: 16,
+    fit: 'contain',
+    ratio: '16:9',
+    barsLandscape: true,
+    barsPortrait: true,
+    barSizeH: 8,
+    barSizeV: 20,
+    barColor: '#000000',
+    barOpacity: 100,
+  },
   cards: { ratio: '2:3', modelRatio: '2:3', icons: true, modelEmoji: '😀', videoEmoji: '▶️', emojiFromName: true, modelPos: { x: 8, y: 93 }, videoPos: { x: 92, y: 93 }, durationPos: { x: 50, y: 93 }, duration: DEFAULT_DURATION },
   hero: { ratio: 'auto', height: 62, radius: 16 },
   models: { image: 'auto' },
@@ -218,6 +248,12 @@ export function normalizeSettings(input: unknown): SiteSettings {
       radius: clamp(pl.radius, 0, 32, d.player.radius),
       fit: oneOf(pl.fit, ['contain', 'cover', 'stretch'] as const, 'contain'),
       ratio: okRatio(pl.ratio, '16:9'),
+      barsLandscape: pl.barsLandscape !== false,
+      barsPortrait: pl.barsPortrait !== false,
+      barSizeH: Math.round(clamp(pl.barSizeH, 0, 30, d.player.barSizeH)),
+      barSizeV: Math.round(clamp(pl.barSizeV, 0, 60, d.player.barSizeV)),
+      barColor: hex(pl.barColor, d.player.barColor)!,
+      barOpacity: Math.round(clamp(pl.barOpacity, 0, 100, d.player.barOpacity)),
     },
     models: { image: oneOf(md.image, ['auto', 'photo', 'capture'] as const, 'auto') },
     cards: {
