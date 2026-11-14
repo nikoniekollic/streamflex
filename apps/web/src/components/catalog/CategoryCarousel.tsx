@@ -5,7 +5,6 @@ import { PlayList } from '@/components/catalog/PlayList'
 import type { CatalogTitle, ContinueItem } from '@/lib/catalog'
 
 const POSTER_ITEM = 'basis-[38%] sm:basis-[28%] md:basis-[22%] lg:basis-[16.66%] xl:basis-[14.28%] 2xl:basis-[12.5%]'
-const BACKDROP_ITEM = 'basis-[70%] sm:basis-[45%] md:basis-[33.33%] lg:basis-[25%] xl:basis-[20%]'
 
 export function Row({ label, children, memoryKey, action }: { label: string; children: ReactNode; memoryKey?: string; action?: ReactNode }) {
   return (
@@ -44,13 +43,13 @@ export function ContinueWatchingCarousel({ items }: { items: ContinueItem[] }) {
   return (
     <Row label="Reprendre la lecture" memoryKey="home:continue">
       {items.map((i) => (
-        <CarouselItem key={i.id} className={BACKDROP_ITEM}>
+        // même jaquette que partout ailleurs (nom du modèle, durée, icônes, j'aime, playlist, aperçu) + barre de progression ;
+        // le clic reprend la lecture là où elle s'était arrêtée
+        <CarouselItem key={i.id} className={POSTER_ITEM}>
           <MovieCard
             title={i.title}
-            variant="backdrop"
             watch={{ episode: i.episode_id, t: i.position_seconds }}
             caption={i.caption}
-            favorite={false}
             progress={i.duration_seconds ? i.position_seconds / i.duration_seconds : undefined}
           />
         </CarouselItem>

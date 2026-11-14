@@ -27,7 +27,7 @@ import {
   type HistoryItem,
 } from '@/lib/history'
 
-const GRID = 'grid grid-cols-1 gap-x-4 gap-y-8 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'
+const GRID = 'grid grid-cols-2 gap-x-3 gap-y-6 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6'
 
 export const Route = createFileRoute('/_authed/_shell/history')({
   validateSearch: (s: Record<string, unknown>): { page?: number } => {
@@ -44,7 +44,7 @@ export const Route = createFileRoute('/_authed/_shell/history')({
       <ul className={GRID} aria-busy="true">
         {Array.from({ length: 8 }).map((_, i) => (
           <li key={i} className="grid gap-2">
-            <MovieCardSkeleton variant="backdrop" />
+            <MovieCardSkeleton />
             <div className="h-4 w-2/3 animate-pulse rounded bg-neutral-800" />
           </li>
         ))}
@@ -154,10 +154,8 @@ function HistoryPage() {
                 <li key={h.title_id} className="group/item relative">
                   <MovieCard
                     title={toCatalogTitle(h)}
-                    variant="backdrop"
                     progress={h.duration_seconds ? h.ratio : undefined}
                     watch={{ episode: h.episode_id, t: at }}
-                    favorite={false}
                     caption={ep}
                   />
                   <button
@@ -165,7 +163,7 @@ function HistoryPage() {
                     onClick={() => void remove(h)}
                     aria-label={`Retirer ${h.title} de l'historique`}
                     title="Retirer de l'historique"
-                    className="absolute top-2 right-2 z-20 flex size-8 items-center justify-center rounded-full border border-white/40 bg-black/70 text-white opacity-0 backdrop-blur-sm transition hover:border-white hover:bg-black focus-visible:opacity-100 group-hover/item:opacity-100 max-md:opacity-100"
+                    className="absolute top-2 left-2 z-20 flex size-8 items-center justify-center rounded-full border border-white/40 bg-black/70 text-white opacity-0 backdrop-blur-sm transition hover:border-white hover:bg-black focus-visible:opacity-100 group-hover/item:opacity-100 max-md:opacity-100"
                   >
                     <X className="size-4" />
                   </button>
