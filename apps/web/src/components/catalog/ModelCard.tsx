@@ -1,6 +1,6 @@
 import { useHoverIntent } from '@/lib/hover-intent'
 import { Link } from '@tanstack/react-router'
-import { GeneratedCover } from '@/components/catalog/GeneratedCover'
+import { BlankCover } from '@/components/catalog/GeneratedCover'
 import { ModelLabel } from '@/components/catalog/ModelName'
 import { ModelPreview } from '@/components/catalog/ModelPreview'
 import { CoverThumb } from '@/components/catalog/CoverThumb'
@@ -19,7 +19,7 @@ export function ModelCard({ model }: { model: PublicModel }) {
   const photo = model.image_url ? (
     <img src={model.image_url} alt="" loading="lazy" decoding="async" draggable={false} className="size-full object-cover transition-transform duration-500 group-hover/card:scale-105" />
   ) : (
-    <GeneratedCover seed={model.id} label={model.name} />
+    <BlankCover />
   )
   return (
     <Link

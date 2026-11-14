@@ -7,8 +7,8 @@ import { startQueue, stopQueue } from '@/lib/queue'
 import { cn } from '@/lib/utils'
 import type { CatalogTitle } from '@/lib/catalog'
 import { FavoriteButton } from '@/components/catalog/FavoriteButton'
-import { GeneratedCover, ModelCover } from '@/components/catalog/GeneratedCover'
-import { isModelCover, stripModelMark } from '@/lib/cover'
+import { BlankCover } from '@/components/catalog/GeneratedCover'
+import { isModelCover } from '@/lib/cover'
 import { ModelName } from '@/components/catalog/ModelName'
 import { HoverPreview } from '@/components/catalog/HoverPreview'
 import { PlaylistMenu } from '@/components/catalog/PlaylistMenu'
@@ -57,9 +57,8 @@ export function MovieCard({ title, variant = 'poster', progress, watch, favorite
 
   const content = (
     <>
-      {isModelCover(src) ? (
-        <ModelCover seed={title.id} label={title.title} src={stripModelMark(src)} />
-      ) : src ? (
+      {/* jaquette par défaut : fond noir uni (nom du modèle, durée et icônes par-dessus) ; l'aperçu de la vidéo la remplace dès qu'il est prêt */}
+      {src && !isModelCover(src) ? (
         <img
           src={src}
           alt={title.title}
@@ -69,7 +68,7 @@ export function MovieCard({ title, variant = 'poster', progress, watch, favorite
           className="size-full object-cover transition-transform duration-500 group-hover/card:scale-110"
         />
       ) : (
-        <GeneratedCover seed={title.id} label={title.title} />
+        <BlankCover />
       )}
 
       <ModelName titleId={title.id} />

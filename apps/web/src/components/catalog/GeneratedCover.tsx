@@ -24,6 +24,11 @@ export function CoverSymbol({ seed, className }: { seed: string; className?: str
   )
 }
 
+/** Jaquette par défaut : fond noir uni, en attendant l'aperçu de la vidéo (qui la remplace dès qu'il est prêt). */
+export function BlankCover() {
+  return <div aria-hidden className="size-full bg-black" />
+}
+
 /** Jaquette sans image : dégradé aléatoire stable + symbole + nom du fichier. */
 export function GeneratedCover({ seed, label }: { seed: string; label: string }) {
   const s = coverStyle(seed)
