@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useRouteContext } from '@tanstack/react-router'
+import { useNavigate, useRouteContext } from '@tanstack/react-router'
 import { VideoPlayer } from '@/components/player/VideoPlayer'
 import { StreamStatus } from '@/components/player/StreamStatus'
 import { useWatchProgress } from '@/hooks/useWatchProgress'
@@ -23,6 +23,13 @@ export type SwitchTarget = { titleId?: string; episodeId?: string }
 export function WatchSession({ data, mode, onBack, onSwitch }: { data: WatchData; mode: 'route' | 'overlay'; onBack: () => void; onSwitch: (t: SwitchTarget) => void }) {
   const { title, episode, nextEpisode, startAt: initialStart, subtitles } = data
   const { supabase, activeProfile } = useRouteContext({ from: '/_authed' })
+  const navigate = useNavigate()
+  // titre du lecteur cliquable : page de la vidéo (le lecteur se ferme, plein écran quitté)
+  const openTitlePage = () => {
+    if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined)
+    if (mode === 'overlay') onBack()
+    void navigate({ to: '/title/$slug', params: { slug: title.slug } })
+  }
   const profileId = activeProfile!.id
   const { player } = useSiteSettings()
 
@@ -186,6 +193,8 @@ export function WatchSession({ data, mode, onBack, onSwitch }: { data: WatchData
       src={stream.url}
       poster={title.backdrop_url}
       title={title.title}
+      titleHref={`/title/${encodeURIComponent(title.slug)}`}
+      onTitleClick={openTitlePage}
       subtitle={subtitle}
       startAt={startAt}
       qualities={stream.qualities}

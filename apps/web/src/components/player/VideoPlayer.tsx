@@ -59,6 +59,9 @@ export type VideoPlayerProps = {
   src: string
   poster?: string | null
   title: string
+  /** lien de la page de la vidéo : le titre affiché devient cliquable */
+  titleHref?: string
+  onTitleClick?: () => void
   subtitle?: string
   startAt?: number
   qualities?: Quality[]
@@ -105,6 +108,8 @@ export function VideoPlayer({
   src,
   poster,
   title,
+  titleHref,
+  onTitleClick,
   subtitle,
   startAt = 0,
   qualities = [],
@@ -598,7 +603,22 @@ export function VideoPlayer({
         {ui.showTitle && (
           <div className="min-w-0">
             <p className="truncate font-semibold" style={{ fontSize: ui.titleSize }}>
-              {title}
+              {titleHref ? (
+                <a
+                  href={titleHref}
+                  title="Ouvrir la page de la vidéo"
+                  className="underline-offset-4 hover:underline focus-visible:underline focus-visible:outline-none"
+                  onClick={(e) => {
+                    if (!onTitleClick || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return // nouvel onglet : comportement du lien
+                    e.preventDefault()
+                    onTitleClick()
+                  }}
+                >
+                  {title}
+                </a>
+              ) : (
+                title
+              )}
             </p>
             {subtitle && <p className="truncate text-sm opacity-75">{subtitle}</p>}
           </div>
