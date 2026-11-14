@@ -4,15 +4,16 @@ import { Loader2, SearchX, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { MovieCard, MovieCardSkeleton } from '@/components/catalog/MovieCard'
-import { SortSelect } from '@/components/catalog/SortSelect'
-import { SEARCH_PAGE_SIZE, searchTitles, validateSearchParams, type SearchParams } from '@/lib/search'
+import { FilterPanel } from '@/components/catalog/FilterPanel'
+import { ModelCard } from '@/components/catalog/ModelCard'
+import { SEARCH_PAGE_SIZE, hasVideoFilters, searchTitles, validateSearchParams, type SearchParams } from '@/lib/search'
 
 export const Route = createFileRoute('/_authed/_shell/search')({
   validateSearch: validateSearchParams,
   loaderDeps: ({ search }) => search,
   loader: ({ context, deps }) => searchTitles(context.supabase, deps, context.isKids),
-  staleTime: 30_000,
-  pendingMs: 150,
+  staleTime: 60_000,
+  pendingMs: 400,
   pendingMinMs: 250,
   pendingComponent: SearchPending,
   component: SearchPage,
@@ -20,28 +21,49 @@ export const Route = createFileRoute('/_authed/_shell/search')({
 
 const GRID = 'grid grid-cols-2 gap-x-3 gap-y-6 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6'
 
-const TYPES: { value: SearchParams['type']; label: string }[] = [
-  { value: undefined, label: 'Tout' },
-  { value: 'movie', label: 'Vidéos' },
-  { value: 'series', label: 'Séries' },
-]
-
 function SearchPage() {
-  const { results, total, hasMore, genres, isMock } = Route.useLoaderData()
+  const { results, total, hasMore, genres, models, isMock } = Route.useLoaderData()
   const search = Route.useSearch()
+  const navigate = useNavigate()
   const loading = useRouterState({ select: (s) => s.isLoading })
-  const hasFilters = !!(search.type || search.genre || search.sort)
+  const hasFilters = !!(search.type || search.genre || search.kind || hasVideoFilters(search))
   const page = search.page ?? 1
 
   return (
     <div className="px-6 py-8 md:px-12">
-      <Header q={search.q} total={total} loading={loading} />
-      <Filters search={search} genres={genres} />
+      <Header q={search.q} total={total} models={models.length} loading={loading} />
+      <FilterPanel
+        value={search}
+        showKind
+        showModel
+        showQuery
+        queryPlaceholder="Rechercher une vidéo ou un modèle…"
+        onApply={(v) => void navigate({ to: '/search', search: { q: v.q, sort: v.sort, min: v.min, max: v.max, exact: v.exact, model: v.model, kind: v.kind, genre: search.genre }, replace: true })}
+      />
+      <Genres search={search} genres={genres} />
 
-      {results.length === 0 ? (
-        <EmptyState q={search.q} hasFilters={hasFilters} />
+      {models.length > 0 && (
+        <section className="mb-10" aria-label="Modèles">
+          <h2 className="mb-3 text-lg font-semibold">
+            Modèles <span className="text-sm font-normal text-muted-foreground">({models.length})</span>
+          </h2>
+          <ul className={cn(GRID, 'gap-y-3')}>
+            {models.map((m) => (
+              <li key={m.id}>
+                <ModelCard model={m} />
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {search.kind === 'models' ? (
+        models.length === 0 && <EmptyState q={search.q} hasFilters={hasFilters} />
+      ) : results.length === 0 ? (
+        models.length === 0 && <EmptyState q={search.q} hasFilters={hasFilters} />
       ) : (
         <>
+          {models.length > 0 && <h2 className="mb-3 text-lg font-semibold">Vidéos</h2>}
           <PlayList titles={results} label={'Recherche'}>
 <ul className={cn(GRID, 'transition-opacity', loading && 'opacity-60')}>
             {results.map((t) => (
@@ -71,7 +93,7 @@ function SearchPage() {
   )
 }
 
-function Header({ q, total, loading }: { q?: string; total: number; loading: boolean }) {
+function Header({ q, total, models, loading }: { q?: string; total: number; models: number; loading: boolean }) {
   return (
     <div className="mb-6 flex flex-wrap items-baseline gap-x-4 gap-y-1">
       <h1 className="text-2xl font-bold md:text-3xl">
@@ -85,66 +107,37 @@ function Header({ q, total, loading }: { q?: string; total: number; loading: boo
       </h1>
       <span className="flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite">
         {loading ? <Loader2 className="size-4 animate-spin" /> : null}
-        {total} titre{total > 1 ? 's' : ''}
+        {total} vidéo{total > 1 ? 's' : ''}
+        {models > 0 && ` · ${models} modèle${models > 1 ? 's' : ''}`}
       </span>
     </div>
   )
 }
 
-function Filters({ search, genres }: { search: SearchParams; genres: { slug: string; name: string }[] }) {
-  const navigate = useNavigate()
+function Genres({ search, genres }: { search: SearchParams; genres: { slug: string; name: string }[] }) {
+  if (genres.length === 0) return null
   const chip = (active: boolean) =>
     cn(
       'shrink-0 rounded-full border px-4 py-1.5 text-sm transition-colors',
       active ? 'border-white bg-white font-medium text-black' : 'border-white/25 text-neutral-200 hover:border-white/60',
     )
-
   return (
-    <div className="mb-8 grid gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-      <div role="tablist" aria-label="Type" className="inline-flex w-fit rounded-lg bg-neutral-900 p-1">
-        {TYPES.map((t) => {
-          const active = search.type === t.value
-          return (
-            <Link
-              key={t.label}
-              role="tab"
-              aria-selected={active}
-              to="/search"
-              search={{ ...search, type: t.value, page: undefined }}
-              replace
-              className={cn(
-                'rounded-md px-4 py-1.5 text-sm font-medium transition-colors',
-                active ? 'bg-primary text-primary-foreground shadow' : 'text-neutral-300 hover:text-white',
-              )}
-            >
-              {t.label}
-            </Link>
-          )
-        })}
-      </div>
-      <SortSelect value={search.sort} onChange={(v) => void navigate({ to: '/search', search: { ...search, sort: v, page: undefined }, replace: true })} />
-      </div>
-
-      {genres.length > 0 && (
-        <div className="scrollbar-none -mx-6 flex gap-2 overflow-x-auto px-6 md:mx-0 md:flex-wrap md:px-0" aria-label="Catégories">
-          <Link to="/search" search={{ ...search, genre: undefined, page: undefined }} replace className={chip(!search.genre)}>
-            Toutes
-          </Link>
-          {genres.map((g) => (
-            <Link
-              key={g.slug}
-              to="/search"
-              search={{ ...search, genre: search.genre === g.slug ? undefined : g.slug, page: undefined }}
-              replace
-              aria-pressed={search.genre === g.slug}
-              className={chip(search.genre === g.slug)}
-            >
-              {g.name}
-            </Link>
-          ))}
-        </div>
-      )}
+    <div className="scrollbar-none -mx-6 mb-8 flex gap-2 overflow-x-auto px-6 md:mx-0 md:flex-wrap md:px-0" aria-label="Catégories">
+      <Link to="/search" search={{ ...search, genre: undefined, page: undefined }} replace className={chip(!search.genre)}>
+        Toutes
+      </Link>
+      {genres.map((g) => (
+        <Link
+          key={g.slug}
+          to="/search"
+          search={{ ...search, genre: search.genre === g.slug ? undefined : g.slug, page: undefined }}
+          replace
+          aria-pressed={search.genre === g.slug}
+          className={chip(search.genre === g.slug)}
+        >
+          {g.name}
+        </Link>
+      ))}
     </div>
   )
 }
@@ -156,7 +149,7 @@ function EmptyState({ q, hasFilters }: { q?: string; hasFilters: boolean }) {
       <h2 className="text-xl font-semibold">Aucun résultat{q ? ` pour « ${q} »` : ''}</h2>
       <ul className="text-sm text-muted-foreground">
         <li>Vérifie l'orthographe ou essaie des mots-clés plus courts.</li>
-        <li>Cherche par titre, titre original ou mot de la description.</li>
+        <li>Cherche par titre, nom de modèle ou mot de la description ; élargis la durée ou retire « Correspondance exacte ».</li>
       </ul>
       <div className="flex flex-wrap justify-center gap-2">
         {hasFilters && (

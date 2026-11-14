@@ -176,3 +176,23 @@ const subscribe = (l: () => void) => {
 export function useQueue(): Queue | null {
   return useSyncExternalStore(subscribe, getQueue)
 }
+
+/**
+ * Vidéo à proposer après une vidéo lue hors de toute liste (ou en fin de liste) : la vidéo suivante du même modèle
+ * (plus ancienne, puis on repart de la plus récente), sinon une vidéo au hasard.
+ */
+export async function suggestNext(s: TypedSupabaseClient, titleId: string, kids = false): Promise<string | null> {
+  const db = s as unknown as import('@supabase/supabase-js').SupabaseClient
+  const { data: cur } = await db.from('titles').select('model_id, published_at').eq('id', titleId).maybeSingle()
+  const row = cur as { model_id: string | null; published_at: string | null } | null
+  if (row?.model_id && !kids) {
+    const base = () => db.from('titles').select('id').eq('is_published', true).eq('model_id', row.model_id).neq('id', titleId)
+    const older = row.published_at
+      ? await base().lt('published_at', row.published_at).order('published_at', { ascending: false }).order('id').limit(1)
+      : { data: null }
+    const pick = (older.data as { id: string }[] | null)?.[0] ?? ((await base().order('published_at', { ascending: false }).order('id').limit(1)).data as { id: string }[] | null)?.[0]
+    if (pick) return pick.id
+  }
+  const ids = await randomTitleIds(s, { limit: 1, kids, exclude: [titleId] }).catch(() => [])
+  return ids[0] ?? null
+}

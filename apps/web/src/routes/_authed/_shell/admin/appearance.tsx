@@ -213,7 +213,7 @@ function AppearanceAdmin() {
 
   const reset = (group: keyof SiteSettings) => edit(group, DEFAULT_SETTINGS[group] as never)
 
-  const { theme, names, preview, player, models, cards, hero } = draft
+  const { theme, names, preview, player, models, cards, hero, glow } = draft
 
   return (
     <div className="flex flex-col gap-6">
@@ -564,6 +564,72 @@ function AppearanceAdmin() {
 
       <Section title="Design du lecteur" hint="Couleurs, boutons, barre de progression, sous-titres et comportement du lecteur vidéo. Choisis un style prêt à l’emploi puis ajuste chaque détail ; la simulation suit en direct.">
         <PlayerDesignPanel value={draft.playerUi} onChange={(patch) => edit('playerUi', patch)} />
+      </Section>
+
+      <Section title="Halo lumineux" hint="Une lueur colorée autour des jaquettes (au survol ou en permanence) et autour du lecteur en fenêtre. L’aperçu à droite et tout le site suivent en direct.">
+        <div className="grid gap-6 lg:grid-cols-[1fr_auto]">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Jaquettes">
+              <select className={selectCls} value={glow.cards} onChange={(e) => edit('glow', { cards: e.target.value as SiteSettings['glow']['cards'] })}>
+                <option value="hover">Au survol</option>
+                <option value="always">En permanence (plus intense au survol)</option>
+                <option value="off">Aucun halo</option>
+              </select>
+            </Field>
+            <Field label="Couleur">
+              <select className={selectCls} value={glow.source} onChange={(e) => edit('glow', { source: e.target.value as SiteSettings['glow']['source'] })}>
+                <option value="custom">Couleur choisie</option>
+                <option value="accent">Couleur principale du thème</option>
+                <option value="rainbow">Arc-en-ciel animé</option>
+              </select>
+            </Field>
+            {glow.source === 'custom' && (
+              <Field label="Teinte du halo">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Color label="Teinte du halo" value={glow.color} onChange={(color) => edit('glow', { color })} />
+                  {['#e50914', '#ff2d95', '#a855f7', '#3b82f6', '#22d3ee', '#22c55e', '#facc15', '#ffffff'].map((c) => (
+                    <button key={c} type="button" aria-label={`Teinte ${c}`} onClick={() => edit('glow', { color: c })} className={cn('size-6 rounded-full ring-1 ring-white/20', glow.color === c && 'ring-2 ring-white')} style={{ background: c }} />
+                  ))}
+                </div>
+              </Field>
+            )}
+            <Field label="Taille">
+              <Range value={glow.size} min={4} max={80} step={1} onChange={(size) => edit('glow', { size })} format={(v) => `${v} px`} />
+            </Field>
+            <Field label="Intensité">
+              <Range value={glow.strength} min={5} max={100} step={5} onChange={(strength) => edit('glow', { strength })} format={(v) => `${v} %`} />
+            </Field>
+            <div className="flex flex-col gap-2 text-sm sm:col-span-2">
+              <label className="flex items-center gap-2">
+                <input type="checkbox" checked={glow.models} onChange={(e) => edit('glow', { models: e.target.checked })} /> Aussi sur les jaquettes de modèles
+              </label>
+              <label className="flex items-center gap-2">
+                <input type="checkbox" checked={glow.player} onChange={(e) => edit('glow', { player: e.target.checked })} /> Autour du lecteur (mode fenêtre)
+              </label>
+              <label className="flex items-center gap-2">
+                <input type="checkbox" checked={glow.pulse} onChange={(e) => edit('glow', { pulse: e.target.checked })} /> Pulsation douce
+              </label>
+            </div>
+          </div>
+          <div className="flex items-center gap-6 rounded-lg bg-neutral-950 p-8">
+            <div className="grid justify-items-center gap-2 text-xs text-neutral-400">
+              <div className="sf-card grid h-36 w-24 place-items-center rounded-md bg-neutral-800 text-neutral-300 ring-2 ring-white/80" style={{ boxShadow: undefined }} data-preview="hover">
+                Survol
+              </div>
+              <style>{`[data-preview='hover'].sf-card{box-shadow:var(--tw-ring-offset-shadow,0 0 #0000),var(--tw-ring-shadow,0 0 #0000),var(--sf-glow)}`}</style>
+              Jaquette survolée
+            </div>
+            <div className="grid justify-items-center gap-2 text-xs text-neutral-400">
+              <div className="sf-card grid h-36 w-24 place-items-center rounded-md bg-neutral-800 text-neutral-300">Repos</div>
+              Jaquette au repos
+            </div>
+          </div>
+        </div>
+        <div>
+          <Button size="sm" variant="ghost" onClick={() => reset('glow')}>
+            <RotateCcw className="size-4" /> Halo par défaut
+          </Button>
+        </div>
       </Section>
 
       <Section title="Jaquettes de modèles" hint="L’image des cartes de la page Modèles et de la rangée « Modèles » de l’accueil.">

@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase'
 import { useActiveProfile } from '@/components/profile/ActiveProfileContext'
 import { cancelWarm, directPreview, invalidatePreview, peekPreviewUrl, warmPreview } from '@/lib/preview'
 import { acquireSlot, attachSlot, detachSlot } from '@/lib/video-pool'
+import { SnapImage, useSnap } from '@/components/catalog/SnapImage'
 
 /**
  * Visuel d'un film = l'image de SA vidéo à son moment enregistré (cover_pos), au lieu de l'image du modèle commune à
@@ -19,6 +20,9 @@ export function CoverThumb({ titleId, coverPos, fallback, className, order = 0, 
   const setUrl = (u: string | null) => setGot({ id: titleId, url: u })
   const [ready, setReady] = useState(false)
   const host = useRef<HTMLDivElement>(null)
+  // image figée déjà en mémoire (vue plus tôt dans la session) : affichée tout de suite, sans vidéo à charger
+  const snap = useSnap(titleId)
+  const needVideo = !snap
   const retried = useRef(false)
   useEffect(() => {
     retried.current = false
@@ -43,7 +47,7 @@ export function CoverThumb({ titleId, coverPos, fallback, className, order = 0, 
   }, [])
 
   useEffect(() => {
-    if (url || !profileId || !near) return
+    if (url || !profileId || !near || !needVideo) return
     let alive = true
     const wanted = { cancelled: false }
     void warmPreview(supabase, profileId, titleId, rank)
@@ -54,11 +58,11 @@ export function CoverThumb({ titleId, coverPos, fallback, className, order = 0, 
       wanted.cancelled = true
       cancelWarm(titleId)
     }
-  }, [url, profileId, titleId, rank, near, direct])
+  }, [url, profileId, titleId, rank, near, direct, needVideo])
 
   useEffect(() => {
     const h = host.current
-    if (!h || !url || !near) return
+    if (!h || !url || !near || !needVideo) return
     const slot = acquireSlot(titleId, url, 30, rank, coverPos)
     slot.el.style.objectFit = 'cover'
     attachSlot(slot, h)
@@ -77,12 +81,13 @@ export function CoverThumb({ titleId, coverPos, fallback, className, order = 0, 
       slot.subs.delete(sync)
       detachSlot(slot)
     }
-  }, [url, titleId, coverPos, rank, near])
+  }, [url, titleId, coverPos, rank, near, needVideo])
 
   return (
     <div className={cn('relative overflow-hidden bg-neutral-900', className)}>
       {fallback}
-      <div ref={host} aria-hidden className={cn('pointer-events-none absolute inset-0 bg-black transition-opacity duration-500', ready ? 'opacity-100' : 'opacity-0')} />
+      {snap && <SnapImage bitmap={snap} />}
+      <div ref={host} aria-hidden className={cn('pointer-events-none absolute inset-0 bg-black transition-opacity duration-500', ready && needVideo ? 'opacity-100' : 'opacity-0')} />
     </div>
   )
 }

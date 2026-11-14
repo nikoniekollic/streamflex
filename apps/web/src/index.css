@@ -120,3 +120,35 @@ video::cue {
   animation-timing-function: linear;
   animation-fill-mode: forwards;
 }
+
+/* ───────── Halo lumineux (réglages admin → Apparence → Halo lumineux ; variables posées par applyGlow sur <html>) */
+@property --sf-glow-hue {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 0;
+}
+@keyframes sf-glow-hue {
+  to { --sf-glow-hue: 360; }
+}
+@keyframes sf-glow-pulse {
+  50% { box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), 0 0 calc(var(--sf-glow-size) * 1.7) calc(var(--sf-glow-size) / 3) color-mix(in srgb, var(--sf-glow-color) var(--sf-glow-alpha), transparent); }
+}
+/* déclarées sur l'élément lui-même : la couleur arc-en-ciel (teinte animée) y est recalculée */
+.sf-card, .sf-player-frame {
+  --sf-glow: 0 0 var(--sf-glow-size) calc(var(--sf-glow-size) / 5) color-mix(in srgb, var(--sf-glow-color) var(--sf-glow-alpha), transparent);
+  --sf-glow-soft: 0 0 calc(var(--sf-glow-size) * 0.6) 0 color-mix(in srgb, var(--sf-glow-color) calc(var(--sf-glow-alpha) * 0.45), transparent);
+}
+html[data-glow-rainbow='on'] :is(.sf-card, .sf-player-frame) { --sf-glow-color: hsl(var(--sf-glow-hue) 95% 60%); }
+html:is([data-glow-cards='hover'], [data-glow-cards='always']) .sf-card:is(:hover, :focus-within) { box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--sf-glow); }
+html[data-glow-cards='always'] .sf-card:not(:hover, :focus-within) { box-shadow: var(--sf-glow-soft); }
+html[data-glow-player='on'] .sf-player-frame { box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--sf-glow); }
+/* animations : pulsation et/ou arc-en-ciel, seulement sur la carte survolée et le lecteur */
+html[data-glow-pulse='on'] :is(.sf-card:is(:hover, :focus-within), .sf-player-frame) { animation: sf-glow-pulse 2.4s ease-in-out infinite; }
+html[data-glow-rainbow='on'] :is(.sf-card:is(:hover, :focus-within), .sf-player-frame) { animation: sf-glow-hue 5s linear infinite; }
+html[data-glow-rainbow='on'][data-glow-pulse='on'] :is(.sf-card:is(:hover, :focus-within), .sf-player-frame) { animation: sf-glow-hue 5s linear infinite, sf-glow-pulse 2.4s ease-in-out infinite; }
+html[data-glow-cards='off'] .sf-card,
+html[data-glow-models='off'] .sf-card.sf-model-card,
+html[data-glow-player='off'] .sf-player-frame { box-shadow: none; animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  .sf-card, .sf-player-frame { animation: none !important; }
+}

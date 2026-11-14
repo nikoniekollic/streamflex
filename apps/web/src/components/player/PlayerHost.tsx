@@ -65,7 +65,7 @@ export function PlayerHost() {
       aria-label="Lecteur vidéo"
     >
       <div
-        className="relative overflow-hidden bg-black shadow-2xl ring-1 shadow-black/60 ring-white/10"
+        className={windowed ? 'sf-player-frame relative overflow-hidden bg-black ring-1 ring-white/10' : 'relative overflow-hidden bg-black'}
         style={
           windowed
             ? { width: `min(${player.size}vw, calc(${player.size}vh * ${player.ratio.split(':')[0]} / ${player.ratio.split(':')[1]}))`, aspectRatio: ratioCss(player.ratio), borderRadius: player.radius }

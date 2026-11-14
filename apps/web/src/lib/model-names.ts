@@ -132,6 +132,8 @@ export function formatDuration(seconds: number, style: 'clock' | 'text' = 'clock
   const m = Math.floor((s % 3600) / 60)
   const r = s % 60
   const p = (n: number) => String(n).padStart(2, '0')
+  // moins d'une minute : les secondes seules (« 45 s »), pour distinguer d'un coup d'œil les fichiers courts des longs
+  if (s < 60) return `${s} s`
   if (style === 'text') return h ? `${h} h ${p(m)} min ${p(r)} s` : `${m} min ${p(r)} s`
   return h ? `${h}:${p(m)}:${p(r)}` : `${m}:${p(r)}`
 }

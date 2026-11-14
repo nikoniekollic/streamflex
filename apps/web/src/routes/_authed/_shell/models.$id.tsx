@@ -3,26 +3,29 @@ import { Link, createFileRoute, notFound, redirect, useNavigate } from '@tanstac
 import { ArrowLeft } from 'lucide-react'
 import { MovieCard } from '@/components/catalog/MovieCard'
 import { PaginationBar } from '@/components/ui/pagination-bar'
-import { SortSelect } from '@/components/catalog/SortSelect'
+import { FilterPanel, type PanelValue } from '@/components/catalog/FilterPanel'
 import { ClearMarks } from '@/components/catalog/ClearMarks'
 import { RandomPlayButton } from '@/components/catalog/RandomPlay'
-import { validSort, type SortKey } from '@/lib/sort'
+import { hasVideoFilters, validateFilters, type VideoFilters } from '@/lib/search'
 import { TITLES_PER_PAGE, fetchModelPage } from '@/lib/model-catalog'
 import { modelNameStyle } from '@/lib/cover'
 import { useSiteSettings } from '@/lib/site-settings'
+
+type ModelSearch = VideoFilters & { q?: string; page?: number }
 
 export const Route = createFileRoute('/_authed/_shell/models/$id')({
   beforeLoad: ({ context }) => {
     if (context.isKids) throw redirect({ to: '/', replace: true })
   },
-  validateSearch: (s: Record<string, unknown>): { page?: number; sort?: SortKey } => {
+  validateSearch: (s: Record<string, unknown>): ModelSearch => {
     const p = Number(s.page)
-    const sort = validSort(s.sort)
-    return { ...(Number.isInteger(p) && p > 1 ? { page: p } : {}), ...(sort ? { sort } : {}) }
+    const q = typeof s.q === 'string' && s.q.trim() ? s.q.trim().slice(0, 100) : undefined
+    return { ...validateFilters(s), ...(q ? { q } : {}), ...(Number.isInteger(p) && p > 1 ? { page: p } : {}) }
   },
-  loaderDeps: ({ search }) => ({ page: search.page ?? 1, sort: search.sort }),
+  loaderDeps: ({ search }) => search,
   loader: async ({ context, params, deps }) => {
-    const r = await fetchModelPage(context.supabase, params.id, deps.page, deps.sort)
+    const { page, ...f } = deps
+    const r = await fetchModelPage(context.supabase, params.id, page ?? 1, f)
     if (!r.model) throw notFound()
     return { ...r, model: r.model }
   },
@@ -34,8 +37,10 @@ function ModelPage() {
   const { model, titles, total, page } = Route.useLoaderData()
   const { names } = useSiteSettings()
   const navigate = useNavigate()
-  const { sort } = Route.useSearch()
-  const go = (p: { page?: number; sort?: SortKey }) => void navigate({ to: '/models/$id', params: { id: model.id }, search: { ...(p.page && p.page > 1 ? { page: p.page } : {}), ...(p.sort ? { sort: p.sort } : {}) } })
+  const search = Route.useSearch()
+  const filtered = hasVideoFilters(search) || !!search.q
+  const go = (p: ModelSearch) => void navigate({ to: '/models/$id', params: { id: model.id }, search: { ...p, page: p.page && p.page > 1 ? p.page : undefined } })
+  const apply = (v: PanelValue) => go({ q: v.q, sort: v.sort, min: v.min, max: v.max, exact: v.exact })
   const s = modelNameStyle(model.name, names)
   const pages = Math.max(1, Math.ceil(total / TITLES_PER_PAGE))
   return (
@@ -63,6 +68,7 @@ function ModelPage() {
           </h1>
           <p className="text-sm text-muted-foreground">
             {total} vidéo{total > 1 ? 's' : ''}
+            {filtered && ' (filtrées)'}
           </p>
         </div>
       </div>
@@ -71,10 +77,10 @@ function ModelPage() {
           <RandomPlayButton label={model.name} modelId={model.id} />
           <ClearMarks modelId={model.id} modelName={model.name} />
         </div>
-        <SortSelect value={sort} onChange={(v) => go({ sort: v })} />
       </div>
+      <FilterPanel value={search} onApply={apply} showQuery queryPlaceholder={`Rechercher dans les vidéos de ${model.name}…`} />
       {titles.length === 0 ? (
-        <p className="text-muted-foreground">Aucune vidéo publiée pour ce modèle.</p>
+        <p className="text-muted-foreground">{filtered ? 'Aucune vidéo ne correspond à ces filtres.' : 'Aucune vidéo publiée pour ce modèle.'}</p>
       ) : (
         <PlayList titles={titles} label={model.name}>
 <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
@@ -86,7 +92,7 @@ function ModelPage() {
         </ul>
 </PlayList>
       )}
-      <PaginationBar page={page} pages={pages} onPage={(p) => go({ page: p, sort })} />
+      <PaginationBar page={page} pages={pages} onPage={(p) => go({ ...search, page: p })} />
     </section>
   )
 }

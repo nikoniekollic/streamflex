@@ -24,6 +24,7 @@ import {
 } from '@/lib/preview'
 import { acquireSlot, attachSlot, detachSlot, dropSlot, peekSlot, type PoolSlot } from '@/lib/video-pool'
 import { prefetchWatch } from '@/lib/prefetch'
+import { SnapImage, useSnap } from '@/components/catalog/SnapImage'
 
 export const CSS_FIT: Record<CardFit, 'cover' | 'contain' | 'fill'> = { cover: 'cover', contain: 'contain', stretch: 'fill' }
 /** Réglage « ajustement » de l'admin → mode CSS (adapté = vidéo entière, remplir = rogne, étirer = déforme) */
@@ -113,8 +114,10 @@ export function HoverPreview({ title, active, coverPos }: { title: CatalogTitle;
 
   useSyncExternalStore(subscribeAmbient, getAmbientVersion)
   const known = peekSlot(titleId, url)
-  const show = !!url && (active || isStillSlot(visKey) || !!known)
+  const snap = useSnap(titleId)
   const mode: 'hover' | 'ambient' | 'still' = active ? 'hover' : cfg.ambient && isAmbientSlot(visKey, cfg.ambientMax) ? 'ambient' : 'still'
+  // image figée déjà en mémoire : une jaquette au repos n'a pas besoin de vidéo (aucun chargement, aucune connexion)
+  const show = !!url && (active || mode === 'ambient' || !!known || (isStillSlot(visKey) && !snap))
 
   // Visibilité : lien préparé (par lots avec les autres jaquettes) ; ≥ 60 % visible → candidate à la lecture d'ambiance
   useEffect(() => {
@@ -259,6 +262,7 @@ export function HoverPreview({ title, active, coverPos }: { title: CatalogTitle;
   return (
     <>
       <span ref={sentinel} aria-hidden className="pointer-events-none absolute inset-0" />
+      {snap && <SnapImage bitmap={snap} fit={CSS_FIT[cfg.cardFit]} position={CSS_POS[cfg.restPos]} className="z-[1]" />}
       <div ref={host} aria-hidden className={cn('pointer-events-none absolute inset-0 z-[1] bg-black transition-opacity duration-500', show && ready ? 'opacity-100' : 'opacity-0')} />
       {active && show && ready && cfg.pauseButton && (
         <button

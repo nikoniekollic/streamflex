@@ -74,7 +74,21 @@ export type SiteSettings = {
   models: { image: 'auto' | 'photo' | 'capture' }
   /** design du lecteur : couleurs, barre de progression, boutons, sous-titres, comportement */
   playerUi: PlayerUi
+  /** halo lumineux autour des jaquettes (survol ou permanent) et du lecteur */
+  glow: Glow
 }
+
+export type Glow = {
+  cards: 'off' | 'hover' | 'always'
+  models: boolean
+  player: boolean
+  source: 'accent' | 'custom' | 'rainbow'
+  color: string
+  size: number
+  strength: number
+  pulse: boolean
+}
+export const DEFAULT_GLOW: Glow = { cards: 'hover', models: true, player: true, source: 'custom', color: '#e50914', size: 22, strength: 60, pulse: false }
 
 export const DEFAULT_SETTINGS: SiteSettings = {
   theme: { preset: 'default', primary: null, background: null, font: 'system', radius: 0.625 },
@@ -99,6 +113,7 @@ export const DEFAULT_SETTINGS: SiteSettings = {
   hero: { ratio: 'auto', height: 62, radius: 16 },
   models: { image: 'auto' },
   playerUi: DEFAULT_PLAYER_UI,
+  glow: DEFAULT_GLOW,
 }
 
 export const THEME_PRESETS = [
@@ -233,7 +248,32 @@ export function normalizeSettings(input: unknown): SiteSettings {
       radius: clamp(hr.radius, 0, 40, d.hero.radius),
     },
     playerUi: normalizePlayerUi(o.playerUi),
+    glow: ((g: Record<string, unknown>) => ({
+      cards: oneOf(g.cards, ['off', 'hover', 'always'] as const, DEFAULT_GLOW.cards),
+      models: g.models !== false,
+      player: g.player !== false,
+      source: oneOf(g.source, ['accent', 'custom', 'rainbow'] as const, DEFAULT_GLOW.source),
+      color: hex(g.color, DEFAULT_GLOW.color)!,
+      size: Math.round(clamp(g.size, 4, 80, DEFAULT_GLOW.size)),
+      strength: Math.round(clamp(g.strength, 5, 100, DEFAULT_GLOW.strength)),
+      pulse: g.pulse === true,
+    }))((o.glow && typeof o.glow === 'object' ? o.glow : {}) as Record<string, unknown>),
   }
+}
+
+/** Halo : variables CSS et attributs posés sur <html>, lus par la feuille de style (index.css, « Halo lumineux »). */
+export function applyGlow(g: Glow, primary: string | null) {
+  if (typeof document === 'undefined') return
+  const el = document.documentElement
+  const color = g.source === 'accent' ? (primary ?? 'var(--primary)') : g.color
+  el.style.setProperty('--sf-glow-color', color)
+  el.style.setProperty('--sf-glow-size', `${g.size}px`)
+  el.style.setProperty('--sf-glow-alpha', `${g.strength}%`)
+  el.dataset.glowCards = g.cards
+  el.dataset.glowModels = g.models ? 'on' : 'off'
+  el.dataset.glowPlayer = g.player ? 'on' : 'off'
+  el.dataset.glowPulse = g.pulse ? 'on' : 'off'
+  el.dataset.glowRainbow = g.source === 'rainbow' ? 'on' : 'off'
 }
 
 // ───────── Thème : variables CSS posées sur <html>
@@ -269,7 +309,10 @@ try {
   /* stockage indisponible */
 }
 
-if (typeof document !== 'undefined') applyTheme(current.theme)
+if (typeof document !== 'undefined') {
+  applyTheme(current.theme)
+  applyGlow(current.glow, current.theme.primary)
+}
 
 function publish(next: SiteSettings, persist = true) {
   current = next
@@ -282,6 +325,7 @@ function publish(next: SiteSettings, persist = true) {
     }
   }
   applyTheme(next.theme)
+  applyGlow(next.glow, next.theme.primary)
   listeners.forEach((l) => l())
 }
 

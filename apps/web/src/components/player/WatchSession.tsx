@@ -7,7 +7,7 @@ import { useStream } from '@/hooks/useStream'
 import { useBookmarks } from '@/hooks/useBookmarks'
 import type { Quality, WatchData } from '@/lib/stream'
 import { loadSubtitleUrl } from '@/lib/subtitles'
-import { cycleRepeat, jumpInQueue, nextInQueue, previousInQueue, syncQueue, toggleShuffle, useQueue } from '@/lib/queue'
+import { cycleRepeat, jumpInQueue, nextInQueue, previousInQueue, suggestNext, syncQueue, toggleShuffle, useQueue } from '@/lib/queue'
 import { QueuePanel } from '@/components/player/QueuePanel'
 import { useSiteSettings } from '@/lib/site-settings'
 import { forgetStream, prefetchAround } from '@/lib/prefetch'
@@ -143,14 +143,25 @@ export function WatchSession({ data, mode, onBack, onSwitch }: { data: WatchData
     },
     [flush, onSwitch],
   )
-  const goNextQueue = useCallback(() => void nextInQueue(supabase).then(goQueue), [supabase, goQueue])
-
+  // Vidéo suivante : la suivante de la liste ; en fin de liste ou hors liste, la suivante du même modèle (sinon au hasard)
+  const kids = !!activeProfile?.is_kids_profile
+  const going = useRef(false)
   const goNext = useCallback(() => {
-    if (inQueue) return goNextQueue()
-    if (!nextEpisode) return
-    void flush()
-    onSwitch({ episodeId: nextEpisode.id })
-  }, [flush, goNextQueue, inQueue, nextEpisode, onSwitch])
+    if (going.current) return
+    if (!inQueue && nextEpisode) {
+      void flush()
+      onSwitch({ episodeId: nextEpisode.id })
+      return
+    }
+    going.current = true
+    void (inQueue ? nextInQueue(supabase) : Promise.resolve(null))
+      .then((id) => id ?? suggestNext(supabase, title.id, kids))
+      .then(goQueue)
+      .catch(() => undefined)
+      .finally(() => {
+        going.current = false
+      })
+  }, [flush, goQueue, inQueue, nextEpisode, onSwitch, supabase, title.id, kids])
 
   const subtitle = episode ? `S${episode.season_number} · É${episode.episode_number}${episode.name ? ` — ${episode.name}` : ''}` : undefined
 
@@ -185,10 +196,11 @@ export function WatchSession({ data, mode, onBack, onSwitch }: { data: WatchData
       onPause={() => void flush()}
       onEnded={() => {
         void flush()
-        goNext()
+        // enchaînement automatique dans une liste (ou une série) ; une vidéo seule s'arrête et laisse le bouton « Vidéo suivante »
+        if (inQueue || nextEpisode) goNext()
       }}
-      onNext={inQueue || nextEpisode ? goNext : undefined}
-      nextLabel={inQueue ? 'Vidéo suivante' : nextEpisode ? `Épisode suivant (É${nextEpisode.episode_number})` : undefined}
+      onNext={goNext}
+      nextLabel={!inQueue && nextEpisode ? `Épisode suivant (É${nextEpisode.episode_number})` : 'Vidéo suivante'}
       loop={inQueue && queue?.repeat === 'one'}
       closeIcon={mode === 'overlay'}
       embedded={mode === 'overlay'}

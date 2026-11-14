@@ -466,7 +466,8 @@ export function VideoPlayer({
 
   const pct = (n: number) => (duration ? `${Math.min(100, (n / duration) * 100)}%` : '0%')
   const remaining = duration - current
-  const showNext = !!onNext && duration > 0 && remaining < 30
+  // fin de vidéo : les 30 dernières secondes (le dernier quart pour une vidéo très courte)
+  const showNext = !!onNext && duration > 0 && remaining < Math.min(30, Math.max(5, duration * 0.25))
   const VolumeIcon = muted || volume === 0 ? VolumeX : volume < 0.5 ? Volume1 : Volume2
   const visible = controlsVisible || !playing || menuOpen || panelOpen || markAt !== null
   const hasBookmarks = !!onCreateBookmark || bookmarks.length > 0
@@ -626,12 +627,16 @@ export function VideoPlayer({
         </button>
       )}
 
-      {/* Épisode suivant */}
+      {/* Vidéo / épisode suivant : au-dessus de la barre du bas (qui, affichée, recouvrait le bouton et avalait le clic) */}
       {showNext && (
         <button
           type="button"
-          onClick={onNext}
-          className="absolute right-6 bottom-28 flex items-center gap-2 rounded-md bg-white px-5 py-3 font-semibold text-black shadow-lg transition hover:bg-white/85 md:right-10"
+          onClick={(e) => {
+            e.stopPropagation()
+            onNext?.()
+          }}
+          onPointerDown={(e) => e.stopPropagation()}
+          className="absolute right-6 bottom-40 z-30 flex items-center gap-2 rounded-md bg-white px-5 py-3 font-semibold text-black shadow-lg transition hover:bg-white/85 md:right-10"
         >
           <SkipForward className="size-5 fill-current" /> {nextLabel ?? 'Épisode suivant'}
         </button>

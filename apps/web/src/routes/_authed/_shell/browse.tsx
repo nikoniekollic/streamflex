@@ -1,32 +1,28 @@
 import { PlayList } from '@/components/catalog/PlayList'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { PaginationBar } from '@/components/ui/pagination-bar'
-import { SortSelect } from '@/components/catalog/SortSelect'
 import { RandomPlayButton } from '@/components/catalog/RandomPlay'
-import { orderSpec, validSort, type SortKey } from '@/lib/sort'
 import { MovieCard } from '@/components/catalog/MovieCard'
-import type { CatalogTitle } from '@/lib/catalog'
+import { FilterPanel, type PanelValue } from '@/components/catalog/FilterPanel'
+import { hasVideoFilters, queryVideos, validateFilters, type VideoFilters } from '@/lib/search'
+
+type BrowseSearch = VideoFilters & { q?: string; model?: string; page?: number }
+const UUID = /^[0-9a-f-]{36}$/i
 
 const PAGE = 48
 
 export const Route = createFileRoute('/_authed/_shell/browse')({
-  validateSearch: (s: Record<string, unknown>): { page?: number; sort?: SortKey } => {
+  validateSearch: (s: Record<string, unknown>): BrowseSearch => {
     const p = Number(s.page)
-    const sort = validSort(s.sort)
-    return { ...(Number.isInteger(p) && p > 1 ? { page: p } : {}), ...(sort ? { sort } : {}) }
+    const q = typeof s.q === 'string' && s.q.trim() ? s.q.trim().slice(0, 100) : undefined
+    const model = typeof s.model === 'string' && UUID.test(s.model) ? s.model : undefined
+    return { ...validateFilters(s), ...(q ? { q } : {}), ...(model ? { model } : {}), ...(Number.isInteger(p) && p > 1 ? { page: p } : {}) }
   },
-  loaderDeps: ({ search }) => ({ page: search.page ?? 1, sort: search.sort }),
+  loaderDeps: ({ search }) => search,
   loader: async ({ context, deps }) => {
-    const from = (deps.page - 1) * PAGE
-    let q = context.supabase
-      .from('titles')
-      .select('id, type, slug, title, synopsis, release_year, runtime_minutes, maturity_rating, poster_url, backdrop_url, logo_url, published_at', { count: 'exact' })
-    for (const o of orderSpec(deps.sort)) q = q.order(o.column, o)
-    const { data, error, count } = await q.range(from, from + PAGE - 1)
-    if (error) throw error
-    const rows = data ?? []
-    const titles: CatalogTitle[] = rows.map((t) => ({ ...t, genres: [] }))
-    return { titles, total: count ?? titles.length, page: deps.page }
+    const { page = 1, ...f } = deps
+    const { titles, total } = await queryVideos(context.supabase, f, { limit: PAGE, offset: (page - 1) * PAGE, kids: context.isKids })
+    return { titles, total, page }
   },
   staleTime: 5 * 60_000,
   component: Browse,
@@ -34,20 +30,24 @@ export const Route = createFileRoute('/_authed/_shell/browse')({
 
 function Browse() {
   const { titles, total, page } = Route.useLoaderData()
-  const { sort } = Route.useSearch()
+  const search = Route.useSearch()
   const navigate = useNavigate()
+  const go = (p: BrowseSearch) => void navigate({ to: '/browse', search: { ...p, page: p.page && p.page > 1 ? p.page : undefined } })
+  const apply = (v: PanelValue) => go({ q: v.q, sort: v.sort, min: v.min, max: v.max, exact: v.exact, model: v.model })
   const pages = Math.max(1, Math.ceil(total / PAGE))
   return (
     <section className="px-6 py-10 md:px-12">
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold">Catalogue</h1>
+        <h1 className="text-2xl font-bold">
+          Catalogue <span className="text-sm font-normal text-muted-foreground">{total} vidéo{total > 1 ? 's' : ''}{hasVideoFilters(search) || search.q ? ' (filtrées)' : ''}</span>
+        </h1>
         <div className="flex flex-wrap items-center gap-3">
           <RandomPlayButton label="Catalogue" />
-          <SortSelect value={sort} onChange={(v) => void navigate({ to: '/browse', search: v ? { sort: v } : {} })} />
         </div>
       </div>
+      <FilterPanel value={search} onApply={apply} showQuery showModel queryPlaceholder="Rechercher dans le catalogue…" />
       {titles.length === 0 ? (
-        <p className="text-muted-foreground">Aucun titre publié pour le moment.</p>
+        <p className="text-muted-foreground">{hasVideoFilters(search) || search.q ? 'Aucune vidéo ne correspond à ces filtres.' : 'Aucun titre publié pour le moment.'}</p>
       ) : (
         <PlayList titles={titles} label={'Catalogue'}>
 <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
@@ -59,7 +59,7 @@ function Browse() {
         </ul>
 </PlayList>
       )}
-      <PaginationBar page={page} pages={pages} onPage={(p) => void navigate({ to: '/browse', search: { ...(p > 1 ? { page: p } : {}), ...(sort ? { sort } : {}) } })} />
+      <PaginationBar page={page} pages={pages} onPage={(p) => go({ ...search, page: p })} />
     </section>
   )
 }

@@ -110,8 +110,8 @@ export function HeaderSearch() {
             }
           }
         }}
-        placeholder="Titres, descriptions…"
-        aria-label="Rechercher un film ou une série"
+        placeholder="Vidéos, modèles…"
+        aria-label="Rechercher une vidéo ou un modèle"
         tabIndex={expanded ? 0 : -1}
         className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-neutral-400 [&::-webkit-search-cancel-button]:hidden"
       />

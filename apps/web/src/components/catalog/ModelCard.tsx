@@ -29,7 +29,7 @@ export function ModelCard({ model }: { model: PublicModel }) {
       onPointerEnter={intent.onPointerEnter}
       onPointerLeave={intent.onPointerLeave}
       style={{ aspectRatio: ratioCss(models.ratio) }}
-      className="group/card relative block overflow-hidden rounded-md bg-neutral-900 transition-shadow duration-300 outline-none hover:ring-2 hover:ring-white/80 focus-visible:ring-2 focus-visible:ring-white"
+      className="sf-card sf-model-card group/card relative block overflow-hidden rounded-md bg-neutral-900 transition-shadow duration-300 outline-none hover:ring-2 hover:ring-white/80 focus-visible:ring-2 focus-visible:ring-white"
     >
       {capture ? <CoverThumb titleId={model.cover_title_id!} coverPos={model.cover_pos} fallback={photo} className="absolute inset-0" direct /> : photo}
       <ModelPreview modelId={model.id} active={hovered} />

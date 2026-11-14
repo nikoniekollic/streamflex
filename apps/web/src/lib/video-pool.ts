@@ -64,6 +64,53 @@ function rememberQuick(titleId: string, at: number) {
   }, 2000)
 }
 
+// ───────── Images figées des jaquettes (en mémoire, pour la session)
+// Dès qu'une jaquette a son image, on en garde une copie réduite (ImageBitmap, ~240 px de large). Une jaquette revue
+// (défilement aller-retour, retour sur une page, même film dans une autre rangée) s'affiche alors instantanément, sans
+// recharger de vidéo ni occuper de connexion : la vidéo n'est relancée que pour l'aperçu animé (survol, ambiance).
+// (Ces images ne peuvent pas être enregistrées : l'hébergeur n'autorise pas leur lecture par le site, seulement leur affichage.)
+const SNAP_MAX = (nav.deviceMemory ?? 4) >= 8 ? 400 : (nav.deviceMemory ?? 4) <= 2 ? 80 : 220
+const SNAP_W = 240
+type Snap = { bm: ImageBitmap; pos: number | null }
+const snaps = new Map<string, Snap>() // ordre d'insertion = LRU
+const snapSubs = new Set<() => void>()
+let snapVersion = 0
+const canSnap = typeof window !== 'undefined' && 'createImageBitmap' in window
+
+function takeSnap(titleId: string, el: HTMLVideoElement, pos: number | null) {
+  if (!canSnap || !el.videoWidth || el.readyState < 2) return
+  const cur = snaps.get(titleId)
+  if (cur && (cur.pos === pos || pos == null)) return
+  createImageBitmap(el, { resizeWidth: Math.min(SNAP_W, el.videoWidth), resizeQuality: 'medium' })
+    .then((bm) => {
+      snaps.get(titleId)?.bm.close()
+      snaps.delete(titleId)
+      snaps.set(titleId, { bm, pos })
+      while (snaps.size > SNAP_MAX) {
+        const [k, v] = snaps.entries().next().value as [string, Snap]
+        v.bm.close()
+        snaps.delete(k)
+      }
+      snapVersion++
+      snapSubs.forEach((l) => l())
+    })
+    .catch(() => undefined) // navigateur sans prise en charge des vidéos d'un autre site : on s'en passe
+}
+
+/** Image figée déjà connue de ce film (null = aucune). */
+export function peekSnap(titleId: string): ImageBitmap | null {
+  const s = snaps.get(titleId)
+  if (!s) return null
+  snaps.delete(titleId) // récemment utilisée
+  snaps.set(titleId, s)
+  return s.bm
+}
+export const subscribeSnaps = (l: () => void) => {
+  snapSubs.add(l)
+  return () => void snapSubs.delete(l)
+}
+export const getSnapVersion = () => snapVersion
+
 const pool = new Map<string, PoolSlot[]>() // l'ordre d'insertion sert de LRU
 const waiting: PoolSlot[] = []
 let loadingCount = 0
@@ -149,6 +196,7 @@ export function acquireSlot(titleId: string, url: string, clip: number, order = 
   const markReady = () => {
     if (slot.ready || slot.failed) return
     slot.ready = true
+    takeSnap(titleId, el, coverPos)
     notify(slot)
   }
   const done = () => {

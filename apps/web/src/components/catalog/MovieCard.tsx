@@ -168,7 +168,7 @@ export function MovieCard({ title, variant = 'poster', progress, watch, favorite
       onPointerEnter={intent.onPointerEnter}
       onPointerLeave={intent.onPointerLeave}
       className={cn(
-        'group/card relative overflow-hidden rounded-md bg-neutral-900',
+        'sf-card group/card relative overflow-hidden rounded-md bg-neutral-900',
         // Films : aucun transform sur la carte (le panneau d'aperçu en position fixe doit pouvoir sortir du carrousel)
         isMovie ? 'transition-shadow duration-300' : 'transition-all duration-300 ease-out will-change-transform',
         isMovie ? 'hover:z-10 hover:ring-2 hover:ring-white/80' : 'hover:z-10 hover:scale-105 hover:shadow-2xl hover:ring-2 hover:shadow-black/70 hover:ring-white/80',
