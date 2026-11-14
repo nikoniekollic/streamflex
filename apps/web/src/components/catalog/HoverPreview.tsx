@@ -24,7 +24,7 @@ import {
 } from '@/lib/preview'
 import { acquireSlot, attachSlot, detachSlot, dropSlot, peekSlot, type PoolSlot } from '@/lib/video-pool'
 import { prefetchWatch } from '@/lib/prefetch'
-import { SnapImage, useSnap } from '@/components/catalog/SnapImage'
+import { SnapImage, useSnapFor } from '@/components/catalog/SnapImage'
 
 export const CSS_FIT: Record<CardFit, 'cover' | 'contain' | 'fill'> = { cover: 'cover', contain: 'contain', stretch: 'fill' }
 /** Réglage « ajustement » de l'admin → mode CSS (adapté = vidéo entière, remplir = rogne, étirer = déforme) */
@@ -114,7 +114,7 @@ export function HoverPreview({ title, active, coverPos }: { title: CatalogTitle;
 
   useSyncExternalStore(subscribeAmbient, getAmbientVersion)
   const known = peekSlot(titleId, url)
-  const snap = useSnap(titleId)
+  const snap = useSnapFor(titleId, host)
   const mode: 'hover' | 'ambient' | 'still' = active ? 'hover' : cfg.ambient && isAmbientSlot(visKey, cfg.ambientMax) ? 'ambient' : 'still'
   // image figée déjà en mémoire : une jaquette au repos n'a pas besoin de vidéo (aucun chargement, aucune connexion)
   const show = !!url && (active || mode === 'ambient' || !!known || (isStillSlot(visKey) && !snap))

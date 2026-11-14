@@ -69,38 +69,53 @@ function rememberQuick(titleId: string, at: number) {
 // (défilement aller-retour, retour sur une page, même film dans une autre rangée) s'affiche alors instantanément, sans
 // recharger de vidéo ni occuper de connexion : la vidéo n'est relancée que pour l'aperçu animé (survol, ambiance).
 // (Ces images ne peuvent pas être enregistrées : l'hébergeur n'autorise pas leur lecture par le site, seulement leur affichage.)
+// Taille de la copie = taille RÉELLE de la jaquette à l'écran (× densité de pixels), au lieu de 240 px pour toutes : une carte de
+// modèle de 400 px affichait une image étirée, pixelisée. Mémoire bornée en pixels (les plus anciennes sont libérées).
 const SNAP_MAX = (nav.deviceMemory ?? 4) >= 8 ? 400 : (nav.deviceMemory ?? 4) <= 2 ? 80 : 220
-const SNAP_W = 240
-type Snap = { bm: ImageBitmap; pos: number | null }
+const SNAP_BUDGET_PX = (nav.deviceMemory ?? 4) >= 8 ? 40e6 : (nav.deviceMemory ?? 4) <= 2 ? 8e6 : 20e6
+const SNAP_MIN_W = 240
+const SNAP_MAX_W = 1280
+let snapPixels = 0
+type Snap = { bm: ImageBitmap; pos: number | null; full: boolean }
 const snaps = new Map<string, Snap>() // ordre d'insertion = LRU
 const snapSubs = new Set<() => void>()
 let snapVersion = 0
 const canSnap = typeof window !== 'undefined' && 'createImageBitmap' in window
 
+/** Largeur utile (pixels physiques) pour une jaquette affichée sur `cssWidth` pixels. */
+export const snapWidthFor = (cssWidth: number) =>
+  Math.min(SNAP_MAX_W, Math.max(SNAP_MIN_W, Math.ceil(cssWidth * Math.min(typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1, 2))))
+
+function dropSnap(k: string) {
+  const v = snaps.get(k)
+  if (!v) return
+  snapPixels -= v.bm.width * v.bm.height
+  v.bm.close()
+  snaps.delete(k)
+}
+
 function takeSnap(titleId: string, el: HTMLVideoElement, pos: number | null) {
   if (!canSnap || !el.videoWidth || el.readyState < 2) return
+  const want = Math.min(el.videoWidth, snapWidthFor(el.parentElement?.clientWidth || SNAP_MIN_W))
   const cur = snaps.get(titleId)
-  if (cur && (cur.pos === pos || pos == null)) return
-  createImageBitmap(el, { resizeWidth: Math.min(SNAP_W, el.videoWidth), resizeQuality: 'medium' })
+  if (cur && (cur.pos === pos || pos == null) && (cur.full || cur.bm.width >= want)) return
+  createImageBitmap(el, { resizeWidth: want, resizeQuality: 'high' })
     .then((bm) => {
-      snaps.get(titleId)?.bm.close()
-      snaps.delete(titleId)
-      snaps.set(titleId, { bm, pos })
-      while (snaps.size > SNAP_MAX) {
-        const [k, v] = snaps.entries().next().value as [string, Snap]
-        v.bm.close()
-        snaps.delete(k)
-      }
+      dropSnap(titleId)
+      snaps.set(titleId, { bm, pos, full: want >= el.videoWidth })
+      snapPixels += bm.width * bm.height
+      while (snaps.size > 1 && (snaps.size > SNAP_MAX || snapPixels > SNAP_BUDGET_PX)) dropSnap(snaps.keys().next().value as string)
       snapVersion++
       snapSubs.forEach((l) => l())
     })
     .catch(() => undefined) // navigateur sans prise en charge des vidéos d'un autre site : on s'en passe
 }
 
-/** Image figée déjà connue de ce film (null = aucune). */
-export function peekSnap(titleId: string): ImageBitmap | null {
+/** Image figée déjà connue de ce film (null = aucune, ou trop petite pour `minWidth` pixels physiques). */
+export function peekSnap(titleId: string, minWidth = 0): ImageBitmap | null {
   const s = snaps.get(titleId)
   if (!s) return null
+  if (!s.full && s.bm.width < minWidth * 0.9) return null // trop petite : la vidéo est rechargée et la copie refaite à la bonne taille
   snaps.delete(titleId) // récemment utilisée
   snaps.set(titleId, s)
   return s.bm

@@ -1,11 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { X } from 'lucide-react'
 import { useRouteContext } from '@tanstack/react-router'
 import { StreamStatus } from '@/components/player/StreamStatus'
 import { WatchSession } from '@/components/player/WatchSession'
 import { StreamError, loadWatch, type StreamErrorCode, type WatchData } from '@/lib/stream'
 import { prefetchStream, takeWatch } from '@/lib/prefetch'
 import { closePlayer, openPlayer, usePlayerOverlay } from '@/lib/player-overlay'
-import { ratioCss, useSiteSettings } from '@/lib/site-settings'
+import { useSiteSettings } from '@/lib/site-settings'
 
 type Load = { status: 'loading' } | { status: 'ready'; data: WatchData } | { status: 'error'; code: StreamErrorCode }
 
@@ -16,6 +17,27 @@ export function PlayerHost() {
   const { supabase, activeProfile } = useRouteContext({ from: '/_authed' })
   const profileId = activeProfile?.id
   const [load, setLoad] = useState<Load>({ status: 'loading' })
+  // proportions RÉELLES de la vidéo (lues dans le fichier) : le lecteur s'agrandit au maximum de l'écran sans bandes noires
+  const [videoRatio, setVideoRatio] = useState<number | null>(null)
+  const frame = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = frame.current
+    if (!el) return
+    const onMeta = (e: Event) => {
+      const v = e.target
+      if (v instanceof HTMLVideoElement && v.videoWidth > 0 && v.videoHeight > 0) {
+        const r = v.videoWidth / v.videoHeight
+        if (r > 0.3 && r < 4) setVideoRatio(Math.round(r * 1000) / 1000)
+      }
+    }
+    // événements des vidéos (ils ne remontent pas : écoute en phase de capture) ; « resize » = changement de qualité
+    el.addEventListener('loadedmetadata', onMeta, true)
+    el.addEventListener('resize', onMeta, true)
+    return () => {
+      el.removeEventListener('loadedmetadata', onMeta, true)
+      el.removeEventListener('resize', onMeta, true)
+    }
+  }, [o.open])
 
   useEffect(() => {
     if (!o.open || !o.titleId || !profileId) {
@@ -54,6 +76,9 @@ export function PlayerHost() {
 
   if (!o.open) return null
   const windowed = player.mode === 'window'
+  const [rw, rh] = player.ratio.split(':').map(Number)
+  const ratio = videoRatio ?? (rw > 0 && rh > 0 ? rw / rh : 16 / 9)
+  const size = player.size
   return (
     // Fond : la page reste visible derrière, assombrie et floutée (réglages « Lecteur » de l'admin) ; un clic dessus ferme le lecteur
     <div
@@ -64,11 +89,25 @@ export function PlayerHost() {
       aria-modal="true"
       aria-label="Lecteur vidéo"
     >
+      {/* croix rouge, toujours visible en haut à droite : ferme le lecteur et ramène à la page d'avant */}
+      <button
+        type="button"
+        onClick={closePlayer}
+        onMouseDown={(e) => e.stopPropagation()}
+        aria-label="Fermer le lecteur (Échap)"
+        title="Fermer (Échap)"
+        className="fixed top-3 right-3 z-[120] flex size-11 items-center justify-center rounded-full bg-red-600 text-white shadow-lg ring-2 ring-white/20 transition hover:scale-110 hover:bg-red-500 focus-visible:ring-white md:top-4 md:right-4"
+      >
+        <X className="size-6" strokeWidth={3} />
+      </button>
       <div
+        ref={frame}
         className={windowed ? 'sf-player-frame relative overflow-hidden bg-black ring-1 ring-white/10' : 'relative overflow-hidden bg-black'}
         style={
           windowed
-            ? { width: `min(${player.size}vw, calc(${player.size}vh * ${player.ratio.split(':')[0]} / ${player.ratio.split(':')[1]}))`, aspectRatio: ratioCss(player.ratio), borderRadius: player.radius }
+            ? // aussi grand que possible (taille réglée dans l'admin, 100 % = tout l'écran) aux proportions de la vidéo ; le fond reste
+              // visible autour (bandes assombries) : un clic dessus ferme le lecteur
+              { width: `min(${size}vw, calc(${size}dvh * ${ratio}))`, aspectRatio: String(ratio), borderRadius: size >= 100 ? 0 : player.radius }
             : { width: '100vw', height: '100dvh' }
         }
       >

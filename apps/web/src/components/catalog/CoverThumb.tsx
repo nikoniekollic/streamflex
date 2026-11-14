@@ -4,7 +4,7 @@ import { supabase } from '@/lib/supabase'
 import { useActiveProfile } from '@/components/profile/ActiveProfileContext'
 import { cancelWarm, directPreview, invalidatePreview, peekPreviewUrl, warmPreview } from '@/lib/preview'
 import { acquireSlot, attachSlot, detachSlot } from '@/lib/video-pool'
-import { SnapImage, useSnap } from '@/components/catalog/SnapImage'
+import { SnapImage, useSnapFor } from '@/components/catalog/SnapImage'
 
 /**
  * Visuel d'un film = l'image de SA vidéo à son moment enregistré (cover_pos), au lieu de l'image du modèle commune à
@@ -21,7 +21,7 @@ export function CoverThumb({ titleId, coverPos, fallback, className, order = 0, 
   const [ready, setReady] = useState(false)
   const host = useRef<HTMLDivElement>(null)
   // image figée déjà en mémoire (vue plus tôt dans la session) : affichée tout de suite, sans vidéo à charger
-  const snap = useSnap(titleId)
+  const snap = useSnapFor(titleId, host)
   const needVideo = !snap
   const retried = useRef(false)
   useEffect(() => {

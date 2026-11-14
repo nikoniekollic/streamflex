@@ -108,7 +108,7 @@ export const DEFAULT_SETTINGS: SiteSettings = {
     bannerPos: 'center',
     bannerClip: 30,
   },
-  player: { mode: 'window', size: 72, backdrop: 55, blur: 14, radius: 16, fit: 'contain', ratio: '16:9' },
+  player: { mode: 'window', size: 100, backdrop: 55, blur: 14, radius: 16, fit: 'contain', ratio: '16:9' },
   cards: { ratio: '2:3', modelRatio: '2:3', icons: true, modelEmoji: '😀', videoEmoji: '▶️', emojiFromName: true, modelPos: { x: 8, y: 93 }, videoPos: { x: 92, y: 93 }, durationPos: { x: 50, y: 93 }, duration: DEFAULT_DURATION },
   hero: { ratio: 'auto', height: 62, radius: 16 },
   models: { image: 'auto' },

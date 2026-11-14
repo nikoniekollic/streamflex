@@ -516,10 +516,10 @@ function AppearanceAdmin() {
               <option value="stretch">Étirer (déforme l’image)</option>
             </select>
           </Field>
-          <Field label="Format de la fenêtre">
+          <Field label="Format en attendant la vidéo (ensuite : celui de la vidéo)">
             <RatioField value={player.ratio} onChange={(v) => edit('player', { ratio: v })} />
           </Field>
-          <Field label="Taille de la fenêtre">
+          <Field label="Taille de la fenêtre (100 % = plein écran)">
             <Range value={player.size} min={40} max={100} step={1} onChange={(v) => edit('player', { size: v })} format={(v) => `${v} %`} />
           </Field>
           <Field label="Arrondi des coins">
