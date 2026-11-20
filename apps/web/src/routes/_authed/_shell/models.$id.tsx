@@ -10,6 +10,7 @@ import { PaginationBar } from '@/components/ui/pagination-bar'
 import { FilterPanel, type PanelValue } from '@/components/catalog/FilterPanel'
 import { ClearMarks } from '@/components/catalog/ClearMarks'
 import { RandomPlayButton } from '@/components/catalog/RandomPlay'
+import { SelectModeButton, SelectOverlay, SelectionBar, useVideoSelection } from '@/components/catalog/VideoSelection'
 import { hasVideoFilters, validateFilters, type VideoFilters } from '@/lib/search'
 import { fetchModelPage } from '@/lib/model-catalog'
 import { gridPageSize } from '@/lib/screen'
@@ -50,6 +51,7 @@ function ModelPage() {
   const pages = Math.max(1, Math.ceil(total / per))
   const byLength = search.sort === 'longest' || search.sort === 'shortest' || search.min != null || search.max != null
   const durations = useModelRealDurations(model.id, byLength, search.sort === 'shortest')
+  const sel = useVideoSelection(titles)
   return (
     <section className="px-6 py-10 md:px-12">
       <Link to="/models" className="mb-4 inline-flex items-center gap-1 text-sm text-neutral-400 hover:text-white">
@@ -83,8 +85,10 @@ function ModelPage() {
         <div className="flex flex-wrap items-center gap-2">
           <RandomPlayButton label={model.name} modelId={model.id} />
           <ClearMarks modelId={model.id} modelName={model.name} />
+          <SelectModeButton sel={sel} />
         </div>
       </div>
+      <SelectionBar sel={sel} />
       <FilterPanel value={search} onApply={apply} showQuery queryPlaceholder={`Rechercher dans les vidéos de ${model.name}…`} />
       {durations.pending > 0 && (
         <p className="mb-4 flex items-center gap-2 text-xs text-muted-foreground">
@@ -99,8 +103,9 @@ function ModelPage() {
         <PlayList titles={titles} label={model.name}>
 <ul className="sf-grid">
           {titles.map((t) => (
-            <li key={t.id}>
+            <li key={t.id} className="relative">
               <MovieCard title={t} />
+              <SelectOverlay sel={sel} id={t.id} title={t.title} />
             </li>
           ))}
         </ul>
