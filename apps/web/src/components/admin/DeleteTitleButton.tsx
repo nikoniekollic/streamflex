@@ -44,8 +44,8 @@ export function DeleteTitleButton({ title, onConfirm, size = 'icon' }: Props) {
         <AlertDialogHeader>
           <AlertDialogTitle>Supprimer « {title} » ?</AlertDialogTitle>
           <AlertDialogDescription>
-            Le titre, ses saisons, épisodes, sources vidéo et la progression des utilisateurs seront supprimés
-            définitivement.
+            Le fichier vidéo est aussi supprimé chez 1fichier (il reste 30 jours dans la corbeille 1fichier). Le titre, ses
+            saisons, épisodes, sources vidéo et la progression des utilisateurs sont supprimés du site définitivement.
           </AlertDialogDescription>
         </AlertDialogHeader>
         {error && <p className="text-sm text-destructive">{error}</p>}

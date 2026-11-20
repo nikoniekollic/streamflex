@@ -721,6 +721,72 @@ async function sweep(): Promise<string> {
   return removed || gone ? `, ${removed} fichier(s) retiré(s)${gone ? ` (${gone} dossier(s) disparu(s))` : ''}` : ''
 }
 
+// ───────── Suppression depuis le site : le fichier part dans la corbeille 1fichier (récupérable 30 jours depuis le panneau
+// 1fichier), PUIS le film est effacé de la base. Dans cet ordre : un film effacé dont le fichier resterait chez 1fichier serait
+// réimporté par la surveillance au relevé suivant. Un fichier que 1fichier refuse de supprimer garde son film (signalé à l'admin).
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const RM_CHUNK = 50
+
+async function deleteTitles(ids: string[]) {
+  const db = adminClient()
+  const chunk = <T,>(a: T[], n: number) => Array.from({ length: Math.ceil(a.length / n) }, (_, i) => a.slice(i * n, i * n + n))
+  // fichiers 1fichier encore présents : sources du film et de ses épisodes
+  const files = new Map<string, string[]>() // titre → fichiers
+  const add = (tid: string, fid: string | null) => fid && files.set(tid, [...(files.get(tid) ?? []), fid])
+  for (const c of chunk(ids, 100)) {
+    const { data: direct, error } = await db.from('media_sources').select('title_id, file_id').eq('provider', 'onefichier').is('removed_at', null).in('title_id', c)
+    if (error) throw new Error(error.message)
+    for (const r of direct ?? []) add(r.title_id as string, r.file_id as string | null)
+    const { data: eps } = await db.from('episodes').select('id, title_id').in('title_id', c)
+    const epTitle = new Map((eps ?? []).map((e) => [e.id as string, e.title_id as string]))
+    for (const ec of chunk([...epTitle.keys()], 100)) {
+      const { data: es } = await db.from('media_sources').select('episode_id, file_id').eq('provider', 'onefichier').is('removed_at', null).in('episode_id', ec)
+      for (const r of es ?? []) add(epTitle.get(r.episode_id as string) as string, r.file_id as string | null)
+    }
+  }
+  const all = [...new Set([...files.values()].flat())]
+  const removed = new Set<string>()
+  const failed = new Map<string, string>() // fichier → raison
+  for (const c of chunk(all, RM_CHUNK)) {
+    try {
+      const body = await onefichierCall('file/rm.cgi', { files: c.map((f) => ({ url: `https://1fichier.com/?${f}` })) }, LANE_ADMIN, { acceptKo: true })
+      if (Array.isArray(body?.urls)) {
+        for (const u of body.urls) {
+          const id = fileIdOf(u)
+          if (id) removed.add(id)
+        }
+        if (body.status === 'KO') {
+          for (const f of c) if (!removed.has(f)) failed.set(f, String(body.message ?? 'refusé par 1fichier'))
+        } else {
+          for (const f of c) removed.add(f) // OK : tout le lot est supprimé
+        }
+      } else {
+        for (const f of c) removed.add(f)
+      }
+    } catch (e) {
+      // déjà absent chez 1fichier : rien à supprimer, le film peut partir
+      if (e instanceof OnefichierError && e.failure === 'offline') for (const f of c) removed.add(f)
+      else {
+        for (const f of c) failed.set(f, (e as Error).message)
+        if (e instanceof OnefichierError && e.failure === 'auth') break
+      }
+    }
+  }
+  const ok: string[] = []
+  const kept: { id: string; reason: string }[] = []
+  for (const id of ids) {
+    const bad = (files.get(id) ?? []).find((f) => failed.has(f))
+    if (bad) kept.push({ id, reason: failed.get(bad) ?? 'refusé par 1fichier' })
+    else ok.push(id)
+  }
+  for (const c of chunk(ok, 100)) {
+    const { error } = await db.from('titles').delete().in('id', c)
+    if (error) throw new Error(error.message)
+  }
+  console.log('[onefichier-import] suppression', JSON.stringify({ titles: ok.length, files: removed.size, kept: kept.length }))
+  return { deleted: ok.length, filesRemoved: removed.size, kept }
+}
+
 async function watchTick(): Promise<string> {
   const db = adminClient()
   const note = async (message: string) => {
@@ -860,6 +926,11 @@ Deno.serve(async (req) => {
     if (body.action === 'job_cancel' && typeof body.job_id === 'string') {
       await adminClient().from('import_jobs').update({ status: 'cancelled', completed_at: new Date().toISOString(), last_message: 'Arrêté' }).eq('id', body.job_id).in('status', ['pending', 'running', 'waiting'])
       return json({ ok: true })
+    }
+    if (body.action === 'delete_titles') {
+      const ids = Array.isArray(body.ids) ? [...new Set(body.ids.filter((x: unknown): x is string => typeof x === 'string' && UUID_RE.test(x)))] : []
+      if (ids.length === 0 || ids.length > 500) return json({ error: 'invalid_ids', max: 500 }, 400)
+      return json(await deleteTitles(ids))
     }
     if (body.action === 'import') {
       const input: unknown[] = Array.isArray(body.files) ? body.files : []

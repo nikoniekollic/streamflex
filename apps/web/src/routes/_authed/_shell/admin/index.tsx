@@ -273,7 +273,7 @@ function AdminList() {
             variant="destructive"
             className="ml-auto"
             disabled={working}
-            onClick={() => void runBulk('Supprimés', (ids) => bulkDelete(supabase, ids), 'Supprimer définitivement {n} titre(s) et leurs sources ? Cette action est irréversible.')}
+            onClick={() => void runBulk('Supprimés', (ids) => bulkDelete(supabase, ids), 'Supprimer {n} titre(s) du site ET leurs fichiers chez 1fichier ? Les fichiers restent 30 jours dans la corbeille 1fichier ; sur le site, c’est définitif.')}
           >
             {working ? <Loader2 className="animate-spin" /> : <Trash2 />} Supprimer
           </Button>

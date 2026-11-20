@@ -177,12 +177,36 @@ export async function bulkSetPublished(supabase: TypedSupabaseClient, ids: strin
   void invalidateCatalogCache(supabase)
 }
 
-export async function bulkDelete(supabase: TypedSupabaseClient, ids: string[]) {
-  for (const c of chunks(ids, 100)) {
-    const { error } = await supabase.from('titles').delete().in('id', c)
-    if (error) throw error
+/**
+ * Suppression : le fichier part dans la corbeille 1fichier (récupérable 30 jours depuis le panneau 1fichier), puis le film est
+ * effacé du site. Sans cela, la surveillance réimportait le fichier resté chez 1fichier au relevé suivant.
+ * Un fichier que 1fichier refuse de supprimer garde son film : erreur détaillée.
+ */
+async function deleteEverywhere(supabase: TypedSupabaseClient, ids: string[]) {
+  let deleted = 0
+  const kept: { id: string; reason: string }[] = []
+  try {
+    for (const c of chunks(ids, 200)) {
+      const { data, error } = await supabase.functions.invoke<{ deleted: number; kept: { id: string; reason: string }[] }>('onefichier-import', { body: { action: 'delete_titles', ids: c } })
+      if (error) {
+        const ctx = (error as { context?: Response }).context
+        const body = ctx && typeof ctx.json === 'function' ? ((await ctx.json().catch(() => ({}))) as { message?: string }) : {}
+        throw new Error(`Suppression chez 1fichier impossible : ${body.message ?? error.message}`)
+      }
+      deleted += data?.deleted ?? 0
+      kept.push(...(data?.kept ?? []))
+    }
+  } finally {
+    void invalidateCatalogCache(supabase)
   }
-  void invalidateCatalogCache(supabase)
+  if (kept.length) {
+    throw new Error(`${deleted} supprimé(s) ; ${kept.length} conservé(s) car 1fichier a refusé de supprimer le fichier (${kept[0].reason}).`)
+  }
+  return deleted
+}
+
+export async function bulkDelete(supabase: TypedSupabaseClient, ids: string[]) {
+  await deleteEverywhere(supabase, ids)
 }
 
 export async function bulkGenre(supabase: TypedSupabaseClient, ids: string[], genreId: number, add: boolean) {
@@ -296,9 +320,7 @@ export async function saveTitle(supabase: TypedSupabaseClient, v: TitleFormValue
 }
 
 export async function deleteTitle(supabase: TypedSupabaseClient, id: string) {
-  const { error } = await supabase.from('titles').delete().eq('id', id)
-  if (error) throw error
-  void invalidateCatalogCache(supabase)
+  await deleteEverywhere(supabase, [id])
 }
 
 export async function setPublished(supabase: TypedSupabaseClient, id: string, is_published: boolean) {

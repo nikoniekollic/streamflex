@@ -32,7 +32,8 @@ const LOCK = /locked|account|#2\d\d|#4\d\d|blocked|banned|flood|too many|invalid
 const GONE = /not found|introuvable|no such|deleted|supprim|invalid.*(url|link)|file.*(not|n'existe)/i
 
 // deno-lint-ignore no-explicit-any
-export async function onefichierCall(path: string, payload: Record<string, unknown>, lane: Lane): Promise<any> {
+// acceptKo : réponse « KO » qui détaille quand même ce qui a été fait (suppression : liste `urls` des fichiers supprimés)
+export async function onefichierCall(path: string, payload: Record<string, unknown>, lane: Lane, opts: { acceptKo?: boolean } = {}): Promise<any> {
   const admin = adminClient()
   const key = await getSecret('ONEFICHIER_API_KEY')
   if (!key) throw new OnefichierError('auth', 'ONEFICHIER_API_KEY non configurée', 503)
@@ -55,6 +56,7 @@ export async function onefichierCall(path: string, payload: Record<string, unkno
   }
   const body = await res.json().catch(() => ({}))
   if (res.ok && body?.status !== 'KO') return body
+  if (res.ok && opts.acceptKo && Array.isArray(body?.urls)) return body
 
   const msg: string = body?.message ?? `HTTP ${res.status}`
   if (/#236|must be a customer|premium/i.test(msg)) {
