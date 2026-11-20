@@ -471,11 +471,12 @@ async function resumeStalled() {
 // ───────── Surveillance permanente : signature des dossiers, relevés ciblés, synchronisation (suppression / déplacement / renommage)
 //  • un dossier qui a des sous-dossiers est relu toutes les 10 min SANS ses fichiers (réponse légère : sous-dossiers + leur nombre de
 //    fichiers et leur taille) ; un sous-dossier dont la signature a changé est marqué « à relire en entier » ;
-//  • un dossier sans sous-dossier n'est relu en entier que s'il a changé, ou une fois par jour (filet de sécurité : renommages) ;
+//  • un dossier sans sous-dossier n'est relu en entier que s'il a changé, ou toutes les 3 h (filet de sécurité : renommages) ;
 //  • chaque relevé complet synchronise la base : nouveaux, renommés, déplacés ; les fichiers absents sont retirés après un délai de grâce.
 const STRUCTURE_MIN = 10
-const FULL_MAX_H = 6 // filet de sécurité : chaque dossier est relu en entier au moins toutes les 6 h (avant : 24 h)
-const GRACE_MIN = 90
+const FULL_MAX_H = 3 // filet de sécurité : chaque dossier est relu en entier au moins toutes les 3 h (avant : 6 h)
+const GRACE_MIN = 20 // absent d'un relevé complet depuis 20 min : retiré du site (avant : 90 min)
+const VERIFY_PER_TICK = 8 // fichiers signalés morts vérifiés un par un auprès de 1fichier par passage (gros dossiers tronqués)
 const WATCH_BUDGET_MS = 100_000
 const WATCH_PARALLEL = 3
 
@@ -655,6 +656,71 @@ async function scanWindow(f: WatchRow, cfg: { model_per_folder: boolean; publish
   }
 }
 
+/**
+ * Fichiers signalés morts par le lecteur d'un abonné (report_dead_titles) :
+ *  • dossier ordinaire : il a été relu en entier depuis le signalement et le fichier y figurait → fausse alerte, signalement effacé
+ *    (absent, il est déjà marqué manquant et le balayage le retire tout de suite) ;
+ *  • dossier tronqué (> 5 000 fichiers, comme la racine) ou inconnu : aucun relevé ne peut prouver l'absence → vérification du
+ *    fichier auprès de l'API 1fichier (file/info.cgi), quelques-uns par passage seulement (les 404 répétés font bannir).
+ */
+async function verifySuspects(): Promise<number> {
+  const db = adminClient()
+  const { data } = await db
+    .from('media_sources')
+    .select('id, file_id, folder_id, suspect_at')
+    .eq('provider', 'onefichier')
+    .is('removed_at', null)
+    .is('missing_since', null)
+    .not('suspect_at', 'is', null)
+    .gt('suspect_at', new Date(Date.now() - 86_400_000).toISOString())
+    .order('suspect_at', { ascending: true })
+    .limit(200)
+  const rows = (data ?? []) as { id: string; file_id: string | null; folder_id: number | null; suspect_at: string }[]
+  if (!rows.length) return 0
+  const folderIds = [...new Set(rows.map((r) => r.folder_id).filter((x): x is number => x != null))]
+  const { data: fs } = folderIds.length
+    ? await db.from('watch_folders').select('folder_id, full_at, capped, active').in('folder_id', folderIds)
+    : { data: [] }
+  const folders = new Map((fs ?? []).map((f) => [Number(f.folder_id), f as { full_at: string | null; capped: boolean | null; active: boolean }]))
+  const cleared: string[] = []
+  const check: typeof rows = []
+  for (const r of rows) {
+    const f = r.folder_id != null ? folders.get(Number(r.folder_id)) : undefined
+    const listable = f && f.active && !f.capped
+    if (listable) {
+      if (f.full_at && new Date(f.full_at).getTime() > new Date(r.suspect_at).getTime()) cleared.push(r.id) // relu depuis : présent
+    } else if (check.length < VERIFY_PER_TICK && r.file_id) {
+      check.push(r)
+    }
+  }
+  let gone = 0
+  for (const r of check) {
+    try {
+      await onefichierCall('file/info.cgi', { url: `https://1fichier.com/?${r.file_id}` }, LANE_WATCH)
+      cleared.push(r.id) // en ligne : fausse alerte (lien Alldebrid momentanément refusé)
+    } catch (e) {
+      if (e instanceof OnefichierError && e.failure === 'offline') {
+        await db.from('media_sources').update({ missing_since: new Date().toISOString(), last_checked_at: new Date().toISOString(), last_status: 404 }).eq('id', r.id).is('missing_since', null)
+        gone++
+      } else if (e instanceof OnefichierError && (e.failure === 'auth' || e.failure === 'host_busy')) {
+        break // compte en pause : on réessaiera au passage suivant
+      }
+    }
+  }
+  for (let i = 0; i < cleared.length; i += 200) {
+    await db.from('media_sources').update({ suspect_at: null }).in('id', cleared.slice(i, i + 200))
+  }
+  return gone
+}
+
+/** Retire du site ce qui manque (dépublié, jamais effacé : revient si le fichier revient). */
+async function sweep(): Promise<string> {
+  const { data: sw } = await adminClient().rpc('sync_onefichier_sweep', { p_grace_min: GRACE_MIN })
+  const removed = Number(sw?.files_removed ?? 0)
+  const gone = Number(sw?.folders_gone ?? 0)
+  return removed || gone ? `, ${removed} fichier(s) retiré(s)${gone ? ` (${gone} dossier(s) disparu(s))` : ''}` : ''
+}
+
 async function watchTick(): Promise<string> {
   const db = adminClient()
   const note = async (message: string) => {
@@ -664,7 +730,12 @@ async function watchTick(): Promise<string> {
   const { data: cfg } = await db.from('watch_config').select('enabled, publish, model_per_folder, folders_per_tick').eq('id', 1).single()
   if (!cfg?.enabled) return 'désactivée'
   const { count: busy } = await db.from('import_jobs').select('id', { count: 'exact', head: true }).in('status', ['pending', 'running', 'waiting'])
-  if ((busy ?? 0) > 0) return note('Import en cours : surveillance en pause')
+  if ((busy ?? 0) > 0) {
+    // import en cours : pas de relevé de dossiers, mais les fichiers signalés morts sont quand même vérifiés et retirés
+    const dead = await verifySuspects().catch(() => 0)
+    const swept = await sweep().catch(() => '')
+    return note(`Import en cours : surveillance en pause${dead ? `, ${dead} fichier(s) supprimé(s) chez 1fichier` : ''}${swept}`)
+  }
 
   const { data: due } = await db
     .from('watch_folders')
@@ -688,13 +759,12 @@ async function watchTick(): Promise<string> {
   }
   await Promise.all(Array.from({ length: WATCH_PARALLEL }, worker))
 
-  // balayage : retire du site ce qui manque depuis plus de GRACE_MIN minutes (dépublié, jamais effacé : revient si le fichier revient)
+  // fichiers signalés morts par les lecteurs, puis balayage : retire du site ce qui manque
   let swept = ''
   if (!st.stopped) {
-    const { data: sw } = await db.rpc('sync_onefichier_sweep', { p_grace_min: GRACE_MIN })
-    const removed = Number(sw?.files_removed ?? 0)
-    const gone = Number(sw?.folders_gone ?? 0)
-    if (removed || gone) swept = `, ${removed} fichier(s) retiré(s)${gone ? ` (${gone} dossier(s) disparu(s))` : ''}`
+    const dead = await verifySuspects().catch((e) => (console.error('[onefichier-import] vérification', (e as Error).message), 0))
+    if (dead) swept = `, ${dead} fichier(s) supprimé(s) chez 1fichier`
+    swept += await sweep()
   }
   if (list.length === 0) return note(`Rien à relire pour le moment${swept}`)
   return note(

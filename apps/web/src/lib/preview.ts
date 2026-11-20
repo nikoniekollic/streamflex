@@ -3,6 +3,7 @@ import { StreamError, resolveStream } from '@/lib/stream'
 import { DebridClientError, unlockInBrowser, type ClientDebrid } from '@/lib/alldebrid'
 import { shareLink } from '@/lib/shared-links'
 import { hasExactLength, setExactLength } from '@/lib/model-names'
+import { isGoneError, reportDeadTitle } from '@/lib/dead-files'
 
 // Aperçus : les liens (Alldebrid, débridés dans le navigateur) sont préparés PAR VAGUES DE 6 jaquettes, de la première ligne
 // à la dernière (ordre de la page) :
@@ -183,6 +184,7 @@ function resolveBatch(s: TypedSupabaseClient, profileId: string, ids: string[], 
         } catch (e) {
           // un fichier hors ligne n'est pas une panne d'Alldebrid : on ne coupe pas tous les aperçus pour ça
           if (!(e instanceof DebridClientError && e.failure === 'offline')) noteFailure(e instanceof Error ? e.message : 'débridage')
+          if (isGoneError(e)) reportDeadTitle(s, id) // fichier supprimé chez 1fichier : retiré du site au prochain passage de la surveillance
           finish(id, null)
         } finally {
           releaseUnlock()

@@ -4,6 +4,7 @@ import type { TypedSupabaseClient } from '@/lib/supabase'
 import type { Enums, Tables } from '@/types/database'
 import { fetchSubtitles, type SubtitleTrack } from '@/lib/subtitles'
 import { DebridClientError, unlockInBrowser, type ClientDebrid } from '@/lib/alldebrid'
+import { isGoneError, reportDeadTitle } from '@/lib/dead-files'
 import { shareLink } from '@/lib/shared-links'
 
 export type Quality = Enums<'video_quality'>
@@ -165,6 +166,7 @@ async function resolveStreamOnce(supabase: TypedSupabaseClient, params: ResolveP
       return { ...info, url: u.url, expiresAt: Date.now() + u.ttl * 1000 }
     } catch (e) {
       const f = e instanceof DebridClientError ? e.failure : 'unavailable'
+      if (isGoneError(e)) reportDeadTitle(supabase, params.titleId) // fichier supprimé chez 1fichier : retiré du site sous 5 min
       console.error('[StreamFlex] Alldebrid (navigateur) :', e instanceof DebridClientError ? e.code : e)
       throw new StreamError(f === 'offline' ? 'source_offline' : f === 'host_busy' ? 'host_busy' : 'source_unavailable', e instanceof DebridClientError ? e.code : undefined, f !== 'offline')
     }
