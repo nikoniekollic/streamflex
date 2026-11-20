@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useSyncExternalStore } from 'react'
 import { Link, createFileRoute, useRouter } from '@tanstack/react-router'
 import { toast } from 'sonner'
 import { ChevronLeft, ChevronRight, Eye, EyeOff, Film, Loader2, Pencil, Plus, Search, Tag, Trash2, Tv, UserRound, X } from 'lucide-react'
@@ -49,6 +49,39 @@ export const Route = createFileRoute('/_authed/_shell/admin/')({
   component: AdminList,
 })
 
+// ───── Sélection gardée HORS de la page : pendant le chargement de la page suivante (plus d'1 s), le routeur affiche un écran
+// d'attente qui démontait la liste et effaçait la sélection. Ici elle survit au changement de page, de filtre, et au
+// rechargement de l'onglet (sessionStorage) : on sélectionne page après page, puis on supprime tout d'un coup.
+const SEL_KEY = 'sf:admin-selection:v1'
+let selection: ReadonlySet<string> = (() => {
+  try {
+    const v = JSON.parse(sessionStorage.getItem(SEL_KEY) ?? '[]') as unknown
+    return new Set(Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [])
+  } catch {
+    return new Set<string>()
+  }
+})()
+const selSubs = new Set<() => void>()
+function setSelection(next: ReadonlySet<string> | ((s: ReadonlySet<string>) => ReadonlySet<string>)) {
+  selection = typeof next === 'function' ? next(selection) : next
+  try {
+    sessionStorage.setItem(SEL_KEY, JSON.stringify([...selection]))
+  } catch {
+    /* stockage plein / indisponible : la sélection reste en mémoire */
+  }
+  selSubs.forEach((l) => l())
+}
+function useSelection(): [ReadonlySet<string>, typeof setSelection] {
+  const s = useSyncExternalStore(
+    (l) => {
+      selSubs.add(l)
+      return () => void selSubs.delete(l)
+    },
+    () => selection,
+  )
+  return [s, setSelection]
+}
+
 function AdminList() {
   const { rows, total, pageCount, genres, models } = Route.useLoaderData()
   const search = Route.useSearch()
@@ -60,8 +93,8 @@ function AdminList() {
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  // ───── sélection (conservée d'une page à l'autre)
-  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
+  // ───── sélection (conservée d'une page à l'autre, voir useSelection)
+  const [selected, setSelected] = useSelection()
   const [working, setWorking] = useState(false)
   const [bulkGenreId, setBulkGenreId] = useState('')
   const [bulkModelId, setBulkModelId] = useState('')
@@ -280,6 +313,29 @@ function AdminList() {
         </div>
       )}
 
+      {/* sélection page après page : le compteur s'additionne d'une page à l'autre, puis tout est supprimé d'un coup */}
+      <div className="flex flex-wrap items-center gap-2">
+        <Button size="sm" variant="outline" disabled={rows.length === 0 || working} onClick={togglePage}>
+          {allOnPage ? 'Désélectionner cette page' : 'Tout sélectionner (cette page)'}
+        </Button>
+        <span className="text-sm text-muted-foreground">
+          {selected.size > 0
+            ? `${selected.size} titre${selected.size > 1 ? 's' : ''} sélectionné${selected.size > 1 ? 's' : ''} au total — passe à la page suivante pour en ajouter`
+            : 'Aucun titre sélectionné'}
+        </span>
+        {selected.size > 0 && (
+          <Button
+            size="sm"
+            variant="destructive"
+            className="ml-auto"
+            disabled={working}
+            onClick={() => void runBulk('Supprimés', (ids) => bulkDelete(supabase, ids), 'Supprimer {n} titre(s) du site ET leurs fichiers chez 1fichier ? Les fichiers restent 30 jours dans la corbeille 1fichier ; sur le site, c’est définitif.')}
+          >
+            {working ? <Loader2 className="animate-spin" /> : <Trash2 />} Supprimer ({selected.size})
+          </Button>
+        )}
+      </div>
+
       <div className="rounded-lg border bg-card">
         <Table>
           <TableHeader>
@@ -384,6 +440,7 @@ function AdminList() {
       <div className="flex items-center justify-between text-sm text-muted-foreground">
         <span>
           {total} titre{total > 1 ? 's' : ''} · page {page}/{pageCount}
+          {selected.size > 0 && ` · ${selected.size} sélectionné${selected.size > 1 ? 's' : ''}`}
         </span>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => navigate({ search: (p) => ({ ...p, page: page - 1 > 1 ? page - 1 : undefined }) })}>
