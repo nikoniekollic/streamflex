@@ -928,6 +928,117 @@ async function runVerify(runId: string, scope: 'model' | 'folder', target: strin
   }
 }
 
+// ───────── Déplacement vers un modèle (admin) : les fichiers partent d'abord dans le dossier 1fichier du modèle (file/mv.cgi),
+// PUIS les vidéos sont rattachées au modèle sur le site. Dans cet ordre : la surveillance, qui range chaque fichier selon son
+// dossier, retrouve ensuite exactement la même chose. Dossier du modèle : celui qui contient déjà le plus de ses fichiers, sinon
+// le dossier portant son nom ; un modèle sans dossier en reçoit un, créé à la racine du compte à son nom.
+const MV_CHUNK = 50
+
+async function modelFolder(modelId: string): Promise<{ folderId: number; name: string; created: boolean }> {
+  const db = adminClient()
+  const { data: model, error } = await db.from('models').select('id, name').eq('id', modelId).maybeSingle()
+  if (error || !model) throw new OnefichierError('unavailable', 'Modèle introuvable', 404)
+  const name = String(model.name)
+  if (name === 'Racine') return { folderId: 0, name, created: false }
+  // dossier qui contient déjà le plus de fichiers du modèle (ex. « Posts / Videos »)
+  const { data: rows } = await db
+    .from('media_sources')
+    .select('folder_id, titles!inner(model_id)')
+    .eq('titles.model_id', modelId)
+    .eq('provider', 'onefichier')
+    .is('removed_at', null)
+    .not('folder_id', 'is', null)
+    .limit(1000)
+  const counts = new Map<number, number>()
+  for (const r of (rows ?? []) as { folder_id: number }[]) counts.set(Number(r.folder_id), (counts.get(Number(r.folder_id)) ?? 0) + 1)
+  const ranked = [...counts.entries()].sort((a, b) => b[1] - a[1])
+  if (ranked.length) {
+    const ids = ranked.map(([id]) => id)
+    const { data: ws } = await db.from('watch_folders').select('folder_id, active, missing_since').in('folder_id', ids.slice(0, 20))
+    const ok = new Set(((ws ?? []) as { folder_id: number; active: boolean; missing_since: string | null }[]).filter((w) => w.active && !w.missing_since).map((w) => Number(w.folder_id)))
+    const best = ids.find((id) => ok.has(id))
+    if (best != null) return { folderId: best, name, created: false }
+  }
+  // sinon le dossier au nom du modèle
+  const { data: named } = await db.from('watch_folders').select('folder_id, name').eq('model_name', name).eq('active', true).is('missing_since', null).limit(20)
+  const top = ((named ?? []) as { folder_id: number; name: string }[]).find((w) => w.name === name) ?? (named ?? [])[0]
+  if (top) return { folderId: Number(top.folder_id), name, created: false }
+  // aucun dossier : création à la racine (la surveillance le découvre et le rattache au modèle grâce à son nom)
+  const made = await onefichierCall('folder/mkdir.cgi', { name: name.slice(0, 250), folder_id: 0 }, LANE_ADMIN)
+  const fid = Number(made?.folder_id)
+  if (!Number.isInteger(fid) || fid <= 0) throw new OnefichierError('unavailable', `1fichier n'a pas créé le dossier « ${name} »`, 502)
+  await db.from('watch_folders').update({ next_scan_at: new Date().toISOString() }).eq('folder_id', 0) // la racine est relue : nouveau dossier repéré
+  return { folderId: fid, name, created: true }
+}
+
+// deno-lint-ignore no-explicit-any
+async function moveTitles(ids: string[], modelId: string | null, user: any) {
+  const db = adminClient()
+  const chunk = <T,>(a: T[], n: number) => Array.from({ length: Math.ceil(a.length / n) }, (_, i) => a.slice(i * n, i * n + n))
+  // « Détacher du modèle » : rien ne bouge chez 1fichier (aucun dossier de destination)
+  const dest = modelId ? await modelFolder(modelId) : null
+  const files = new Map<string, { sid: string; fid: string }[]>() // titre → fichiers à déplacer
+  if (dest) {
+    for (const c of chunk(ids, 100)) {
+      const { data, error } = await db.from('media_sources').select('id, title_id, file_id, folder_id').eq('provider', 'onefichier').is('removed_at', null).not('file_id', 'is', null).in('title_id', c)
+      if (error) throw new Error(error.message)
+      for (const r of (data ?? []) as { id: string; title_id: string; file_id: string; folder_id: number | null }[]) {
+        if (r.folder_id != null && Number(r.folder_id) === dest.folderId) continue // déjà dans le dossier du modèle
+        files.set(r.title_id, [...(files.get(r.title_id) ?? []), { sid: r.id, fid: r.file_id }])
+      }
+    }
+  }
+  const all = [...files.values()].flat()
+  const moved = new Set<string>()
+  const failed = new Map<string, string>()
+  for (const c of chunk(all, MV_CHUNK)) {
+    try {
+      const body = await onefichierCall('file/mv.cgi', { urls: c.map((f) => `https://1fichier.com/?${f.fid}`), destination_folder_id: dest!.folderId }, LANE_ADMIN, { acceptKo: true })
+      if (Array.isArray(body?.urls)) {
+        for (const u of body.urls) {
+          const id = fileIdOf(u)
+          if (id) moved.add(id)
+        }
+        if (body.status === 'KO') {
+          for (const f of c) if (!moved.has(f.fid)) failed.set(f.fid, String(body.message ?? 'refusé par 1fichier'))
+        } else {
+          for (const f of c) moved.add(f.fid)
+        }
+      } else {
+        for (const f of c) moved.add(f.fid)
+      }
+    } catch (e) {
+      for (const f of c) failed.set(f.fid, (e as Error).message)
+      if (e instanceof OnefichierError && (e.failure === 'auth' || e.failure === 'host_busy')) break
+    }
+  }
+  // le site suit : nouveau dossier des fichiers déplacés (la surveillance ne les croira pas disparus de l'ancien)
+  const movedSids = all.filter((f) => moved.has(f.fid)).map((f) => f.sid)
+  for (const c of chunk(movedSids, 200)) {
+    await db.from('media_sources').update({ folder_id: dest!.folderId, missing_since: null, suspect_at: null }).in('id', c)
+  }
+  const ok: string[] = []
+  const kept: { id: string; reason: string }[] = []
+  for (const id of ids) {
+    const bad = (files.get(id) ?? []).find((f) => failed.has(f.fid))
+    if (bad) kept.push({ id, reason: failed.get(bad.fid) ?? 'refusé par 1fichier' })
+    else ok.push(id)
+  }
+  // rattachement au modèle sur le site (même règle que la liste « Modèle » de l'admin, avec les droits de l'admin connecté)
+  let attached = 0
+  for (const c of chunk(ok, 500)) {
+    const { data, error } = await user.rpc('admin_attach_titles', { p_model: modelId, p_title_ids: c })
+    if (error) throw new Error(error.message)
+    attached += Number(data ?? 0)
+  }
+  if (dest && moved.size) {
+    // dossiers concernés relus au prochain passage : leur contenu a changé
+    await db.from('watch_folders').update({ force_full: true, next_scan_at: new Date().toISOString() }).eq('folder_id', dest.folderId)
+  }
+  console.log('[onefichier-import] déplacement', JSON.stringify({ titles: ok.length, files: moved.size, kept: kept.length, folder: dest?.folderId }))
+  return { moved: ok.length, attached, filesMoved: moved.size, kept, folder: dest ? { id: dest.folderId, created: dest.created } : null }
+}
+
 async function watchTick(): Promise<string> {
   const db = adminClient()
   const note = async (message: string) => {
@@ -1094,6 +1205,13 @@ Deno.serve(async (req) => {
         return json({ ...data, status: 'error', message })
       }
       return json(data)
+    }
+    if (body.action === 'move_titles') {
+      const ids = Array.isArray(body.ids) ? [...new Set(body.ids.filter((x: unknown): x is string => typeof x === 'string' && UUID_RE.test(x)))] : []
+      if (ids.length === 0 || ids.length > 500) return json({ error: 'invalid_ids', max: 500 }, 400)
+      const modelId = body.model_id == null ? null : String(body.model_id)
+      if (modelId != null && !UUID_RE.test(modelId)) return json({ error: 'invalid_model' }, 400)
+      return json(await moveTitles(ids as string[], modelId, user))
     }
     if (body.action === 'delete_titles') {
       const ids = Array.isArray(body.ids) ? [...new Set(body.ids.filter((x: unknown): x is string => typeof x === 'string' && UUID_RE.test(x)))] : []

@@ -1,14 +1,16 @@
 // Sélection de vidéos pour les supprimer (admin) : pages Catalogue et Modèle.
 // La sélection est gardée d'une page à l'autre (voir lib/selection) : on coche page après page, le compteur s'additionne,
 // puis « Supprimer » efface tout d'un coup, sur le site ET chez 1fichier (corbeille 30 jours).
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouteContext, useRouter } from '@tanstack/react-router'
 import { toast } from 'sonner'
-import { CheckCircle2, Circle, ListChecks, Loader2, Trash2, X } from 'lucide-react'
+import { CheckCircle2, Circle, FolderInput, ListChecks, Loader2, Trash2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { useSelection } from '@/lib/selection'
-import { adminErrorMessage, bulkDelete } from '@/lib/admin'
+import { adminErrorMessage, bulkDelete, moveToModel } from '@/lib/admin'
+import { listModels, type AdminModel } from '@/lib/models'
+import { NativeSelect } from '@/components/ui/native-select'
 
 // Mode sélection : gardé d'une page à l'autre et au rechargement de l'onglet, comme la sélection elle-même
 const MODE_KEY = 'sf:browse-select-mode:v1'
@@ -68,6 +70,29 @@ export function useVideoSelection(titles: { id: string }[]) {
         }
         return n
       }),
+    move: async (modelId: string | null, modelName: string) => {
+      const ids = [...selected]
+      if (!ids.length) return
+      const q = modelId
+        ? `Déplacer ${ids.length} vidéo(s) vers « ${modelName} » ? Leurs fichiers sont aussi déplacés chez 1fichier, dans le dossier de ce modèle.`
+        : `Détacher ${ids.length} vidéo(s) de leur modèle ? (rien ne bouge chez 1fichier)`
+      if (!window.confirm(q)) return
+      setWorking(true)
+      try {
+        const r = await moveToModel(supabase, ids, modelId)
+        toast.success(
+          modelId
+            ? `${r.moved} vidéo${r.moved > 1 ? 's' : ''} déplacée${r.moved > 1 ? 's' : ''} vers « ${modelName} » (${r.filesMoved} fichier${r.filesMoved > 1 ? 's' : ''} déplacé${r.filesMoved > 1 ? 's' : ''} chez 1fichier${r.created ? ', dossier créé' : ''})`
+            : `${r.moved} vidéo${r.moved > 1 ? 's' : ''} détachée${r.moved > 1 ? 's' : ''}`,
+        )
+        setSelected(new Set())
+      } catch (e) {
+        toast.error(adminErrorMessage(e))
+      } finally {
+        await router.invalidate()
+        setWorking(false)
+      }
+    },
     remove: async () => {
       const ids = [...selected]
       if (!ids.length) return
@@ -111,7 +136,8 @@ export function SelectionBar({ sel }: { sel: VideoSelection }) {
           ? `${n} vidéo${n > 1 ? 's' : ''} sélectionnée${n > 1 ? 's' : ''} au total — passe à la page suivante pour en ajouter`
           : 'Clique sur les vidéos pour les sélectionner'}
       </span>
-      <div className="ml-auto flex items-center gap-2">
+      <div className="ml-auto flex flex-wrap items-center gap-2">
+        <MoveToModel sel={sel} />
         {n > 0 && (
           <Button size="sm" variant="ghost" disabled={sel.working} onClick={sel.clear}>
             Tout désélectionner
@@ -141,5 +167,46 @@ export function SelectOverlay({ sel, id, title }: { sel: VideoSelection; id: str
         {on ? <CheckCircle2 className="size-6 text-primary" /> : <Circle className="size-6 text-white" />}
       </span>
     </button>
+  )
+}
+
+// modèles chargés une fois (liste de l'admin), partagés par toutes les barres de sélection
+let modelsCache: Promise<AdminModel[]> | null = null
+
+/** Liste déroulante des modèles + « Déplacer » : vidéos ET fichiers 1fichier vont dans le modèle choisi. */
+function MoveToModel({ sel }: { sel: VideoSelection }) {
+  const { supabase } = useRouteContext({ from: '/_authed' })
+  const [models, setModels] = useState<AdminModel[]>([])
+  const [target, setTarget] = useState('')
+  useEffect(() => {
+    let off = false
+    modelsCache ??= listModels(supabase).catch((e) => {
+      modelsCache = null
+      throw e
+    })
+    modelsCache.then((m) => !off && setModels([...m].sort((a, b) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' }))), () => undefined)
+    return () => {
+      off = true
+    }
+  }, [supabase])
+  const n = sel.selected.size
+  const name = target === '__none' ? '' : (models.find((m) => m.id === target)?.name ?? '')
+  return (
+    <span className="flex items-center gap-1">
+      <span className="w-48">
+        <NativeSelect aria-label="Modèle de destination" value={target} onChange={(e) => setTarget(e.target.value)} disabled={sel.working}>
+          <option value="">Déplacer vers le modèle…</option>
+          <option value="__none">Détacher du modèle</option>
+          {models.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.name}
+            </option>
+          ))}
+        </NativeSelect>
+      </span>
+      <Button size="sm" variant="secondary" disabled={sel.working || n === 0 || !target} onClick={() => void sel.move(target === '__none' ? null : target, name)}>
+        {sel.working ? <Loader2 className="animate-spin" /> : <FolderInput />} Déplacer ({n})
+      </Button>
+    </span>
   )
 }

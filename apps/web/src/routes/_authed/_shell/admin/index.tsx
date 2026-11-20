@@ -15,6 +15,7 @@ import { CoverThumb } from '@/components/catalog/CoverThumb'
 import {
   adminErrorMessage,
   bulkDelete,
+  moveToModel,
   bulkGenre,
   bulkSetPublished,
   deleteTitle,
@@ -24,7 +25,7 @@ import {
   setPublished,
   type AdminListSearch,
 } from '@/lib/admin'
-import { attachTitles, listModels } from '@/lib/models'
+import { listModels } from '@/lib/models'
 
 export const Route = createFileRoute('/_authed/_shell/admin/')({
   validateSearch: (s: Record<string, unknown>): AdminListSearch => {
@@ -264,9 +265,9 @@ function AdminList() {
               size="sm"
               variant="secondary"
               disabled={working || !bulkModelId}
-              onClick={() => void runBulk('Modèle mis à jour', (ids) => attachTitles(supabase, bulkModelId === '__none' ? null : bulkModelId, ids))}
+              onClick={() => void runBulk(bulkModelId === '__none' ? 'Détachés du modèle' : 'Déplacés vers le modèle', (ids) => moveToModel(supabase, ids, bulkModelId === '__none' ? null : bulkModelId), bulkModelId === '__none' ? undefined : 'Déplacer {n} titre(s) vers ce modèle ? Leurs fichiers sont aussi déplacés chez 1fichier, dans le dossier du modèle.')}
             >
-              <UserRound /> Appliquer
+              <UserRound /> Déplacer
             </Button>
           </div>
           <Button

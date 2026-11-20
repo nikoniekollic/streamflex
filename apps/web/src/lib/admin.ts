@@ -205,6 +205,41 @@ async function deleteEverywhere(supabase: TypedSupabaseClient, ids: string[]) {
   return deleted
 }
 
+/**
+ * Déplace des vidéos vers un modèle : leurs fichiers partent dans le dossier 1fichier du modèle, puis elles sont rattachées au
+ * modèle sur le site. modelId null = détacher du modèle (rien ne bouge chez 1fichier). Une vidéo dont 1fichier refuse de
+ * déplacer le fichier reste où elle est : erreur détaillée.
+ */
+export async function moveToModel(supabase: TypedSupabaseClient, ids: string[], modelId: string | null) {
+  let moved = 0
+  let filesMoved = 0
+  let created = false
+  const kept: { id: string; reason: string }[] = []
+  try {
+    for (const c of chunks(ids, 200)) {
+      const { data, error } = await supabase.functions.invoke<{ moved: number; filesMoved: number; kept: { id: string; reason: string }[]; folder: { id: number; created: boolean } | null }>(
+        'onefichier-import',
+        { body: { action: 'move_titles', ids: c, model_id: modelId } },
+      )
+      if (error) {
+        const ctx = (error as { context?: Response }).context
+        const body = ctx && typeof ctx.json === 'function' ? ((await ctx.json().catch(() => ({}))) as { message?: string }) : {}
+        throw new Error(`Déplacement chez 1fichier impossible : ${body.message ?? error.message}`)
+      }
+      moved += data?.moved ?? 0
+      filesMoved += data?.filesMoved ?? 0
+      created ||= data?.folder?.created === true
+      kept.push(...(data?.kept ?? []))
+    }
+  } finally {
+    void invalidateCatalogCache(supabase)
+  }
+  if (kept.length) {
+    throw new Error(`${moved} déplacé(s) ; ${kept.length} laissé(s) en place car 1fichier a refusé de déplacer le fichier (${kept[0].reason}).`)
+  }
+  return { moved, filesMoved, created }
+}
+
 export async function bulkDelete(supabase: TypedSupabaseClient, ids: string[]) {
   await deleteEverywhere(supabase, ids)
 }
