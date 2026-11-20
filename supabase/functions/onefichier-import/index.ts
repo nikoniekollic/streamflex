@@ -787,6 +787,147 @@ async function deleteTitles(ids: string[]) {
   return { deleted: ok.length, filesRemoved: removed.size, kept }
 }
 
+// ───────── Vérification ciblée (admin) : UN modèle ou UN dossier (ex. le répertoire de base après y avoir supprimé des fichiers).
+// Seuls les fichiers de ce modèle / de ce dossier sont comparés au relevé 1fichier ; ceux des autres modèles, même rangés dans
+// le même dossier, ne sont jamais marqués. Un fichier absent du relevé est vérifié un par un (file/info.cgi) avant d'être retiré :
+// un fichier simplement déplacé vers un autre dossier reste en ligne et n'est pas retiré. Au plus VERIFY_CONFIRM_MAX vérifications
+// par passage (les erreurs 404 répétées font bannir le compte) ; le reste est retiré par la surveillance après son délai de grâce
+// (dossier complet) ou attend une nouvelle vérification (dossier tronqué à 5 000 fichiers, comme la racine).
+const VERIFY_CONFIRM_MAX = 40
+const VERIFY_BUDGET_MS = 130_000
+
+type ScopeRow = { id: string; file_id: string; folder_id: number | null }
+
+async function scopeSources(scope: 'model' | 'folder', target: string): Promise<ScopeRow[]> {
+  const db = adminClient()
+  const out: ScopeRow[] = []
+  for (let from = 0; from < 50_000; from += 1000) {
+    const q =
+      scope === 'model'
+        ? db.from('media_sources').select('id, file_id, folder_id, titles!inner(model_id)').eq('titles.model_id', target)
+        : db.from('media_sources').select('id, file_id, folder_id').eq('folder_id', Number(target))
+    const { data, error } = await q.eq('provider', 'onefichier').is('removed_at', null).not('file_id', 'is', null).order('id').range(from, from + 999)
+    if (error) throw new Error(error.message)
+    for (const r of (data ?? []) as Record<string, unknown>[]) out.push({ id: r.id as string, file_id: r.file_id as string, folder_id: r.folder_id == null ? null : Number(r.folder_id) })
+    if ((data?.length ?? 0) < 1000) break
+  }
+  return out
+}
+
+async function runVerify(runId: string, scope: 'model' | 'folder', target: string) {
+  const db = adminClient()
+  const t0 = Date.now()
+  const upd = (patch: Record<string, unknown>) => db.from('verify_runs').update(patch).eq('id', runId)
+  try {
+    const rows = await scopeSources(scope, target)
+    await upd({ total: rows.length, message: `${rows.length} fichier(s) à comparer avec 1fichier…` })
+    const byFolder = new Map<number | null, ScopeRow[]>()
+    for (const r of rows) byFolder.set(r.folder_id, [...(byFolder.get(r.folder_id) ?? []), r])
+
+    const confirmQueue: { row: ScopeRow; complete: boolean }[] = [] // absents du relevé, à vérifier un par un
+    const skipped: string[] = []
+    let absent = 0
+    let folderLeft = byFolder.size
+    for (const [folderId, list] of byFolder) {
+      if (Date.now() - t0 > VERIFY_BUDGET_MS - 40_000) {
+        skipped.push(`${folderLeft} dossier(s) pas encore relu(s) : relance la vérification`)
+        break
+      }
+      folderLeft--
+      if (folderId == null) {
+        // dossier inconnu (fichier d'avant le suivi) : vérification une par une seulement
+        for (const row of list) confirmQueue.push({ row, complete: false })
+        absent += list.length
+        continue
+      }
+      // 1fichier : un relevé par dossier toutes les 30 s ; on attend son tour au lieu d'abandonner
+      let listing: Awaited<ReturnType<typeof listFolder>> | null = null
+      let folderGone = false
+      for (let i = 0; i < 3 && !listing && !folderGone; i++) {
+        try {
+          listing = await listFolder(folderId, { annotate: false, lane: LANE_ADMIN, files: true })
+        } catch (e) {
+          if (e instanceof OnefichierError && e.failure === 'host_busy' && /30 s/.test(e.message) && i < 2) {
+            await new Promise((r) => setTimeout(r, 31_000))
+            continue
+          }
+          if (e instanceof OnefichierError && e.failure === 'offline') {
+            folderGone = true // dossier entier supprimé : chaque fichier est vérifié un par un
+            break
+          }
+          throw e
+        }
+      }
+      if (folderGone) {
+        for (const row of list) confirmQueue.push({ row, complete: false })
+        absent += list.length
+        continue
+      }
+      if (!listing) continue
+      const present = new Set(listing.files.map((f) => f.id))
+      const missing = list.filter((r) => !present.has(r.file_id))
+      // relevé douteux (réponse partielle de 1fichier ?) : on ne retire rien de ce dossier
+      if (!listing.capped && missing.length > 20 && missing.length > list.length / 2) {
+        skipped.push(`dossier ${folderId} : ${missing.length}/${list.length} absents, relevé douteux ignoré`)
+        continue
+      }
+      absent += missing.length
+      for (const row of missing) confirmQueue.push({ row, complete: !listing.capped })
+      await upd({ absent })
+    }
+
+    // vérification une par une des absents (dans la limite du passage)
+    const gone: string[] = []
+    let confirmed = 0
+    let stopped: string | null = null
+    const left: { row: ScopeRow; complete: boolean }[] = []
+    for (const item of confirmQueue) {
+      if (stopped || confirmed >= VERIFY_CONFIRM_MAX || Date.now() - t0 > VERIFY_BUDGET_MS) {
+        left.push(item)
+        continue
+      }
+      try {
+        await onefichierCall('file/info.cgi', { url: `https://1fichier.com/?${item.row.file_id}` }, LANE_ADMIN)
+        // en ligne : déplacé vers un autre dossier (la surveillance le rattache), pas supprimé
+      } catch (e) {
+        if (e instanceof OnefichierError && e.failure === 'offline') gone.push(item.row.id)
+        else {
+          if (e instanceof OnefichierError && (e.failure === 'auth' || e.failure === 'host_busy')) stopped = e.message
+          left.push(item)
+          continue
+        }
+      }
+      confirmed++
+      if (confirmed % 5 === 0) await upd({ confirmed, removed: gone.length })
+      await new Promise((r) => setTimeout(r, 500)) // en douceur : pas de rafale de 404
+    }
+
+    let removed = 0
+    for (let i = 0; i < gone.length; i += 500) {
+      const { data, error } = await db.rpc('verify_remove_sources', { p_ids: gone.slice(i, i + 500) })
+      if (error) throw new Error(error.message)
+      removed += Number(data ?? 0)
+    }
+    // non vérifiés, absents d'un relevé COMPLET : marqués manquants, retirés par la surveillance après le délai de grâce (20 min)
+    const later = left.filter((x) => x.complete).map((x) => x.row.id)
+    for (let i = 0; i < later.length; i += 200) {
+      await db.from('media_sources').update({ missing_since: new Date().toISOString() }).in('id', later.slice(i, i + 200)).is('missing_since', null)
+    }
+    const recheck = left.length - later.length
+    const parts = [
+      removed ? `${removed} fichier(s) supprimé(s) chez 1fichier retiré(s) du site` : 'aucun fichier supprimé trouvé',
+      confirmed - gone.length > 0 ? `${confirmed - gone.length} déplacé(s) (toujours en ligne, conservé(s))` : '',
+      later.length ? `${later.length} retiré(s) dans 20 min environ (non vérifié(s) un par un)` : '',
+      recheck ? `${recheck} à revérifier : relance la vérification` : '',
+      stopped ? `1fichier a demandé une pause : ${stopped}` : '',
+      ...skipped,
+    ].filter(Boolean)
+    await upd({ status: 'done', absent, confirmed, removed, pending: left.length, message: parts.join(' · '), finished_at: new Date().toISOString() })
+  } catch (e) {
+    await upd({ status: 'error', message: (e as Error).message.slice(0, 400), finished_at: new Date().toISOString() })
+  }
+}
+
 async function watchTick(): Promise<string> {
   const db = adminClient()
   const note = async (message: string) => {
@@ -926,6 +1067,33 @@ Deno.serve(async (req) => {
     if (body.action === 'job_cancel' && typeof body.job_id === 'string') {
       await adminClient().from('import_jobs').update({ status: 'cancelled', completed_at: new Date().toISOString(), last_message: 'Arrêté' }).eq('id', body.job_id).in('status', ['pending', 'running', 'waiting'])
       return json({ ok: true })
+    }
+    if (body.action === 'verify_start') {
+      const scope: 'model' | 'folder' = body.model_id ? 'model' : 'folder'
+      const target = scope === 'model' ? String(body.model_id) : String(Number(body.folder_id ?? 0))
+      const valid = scope === 'model' ? UUID_RE.test(target) : Number.isInteger(Number(target)) && Number(target) >= 0
+      if (!valid) return json({ error: 'invalid_scope' }, 400)
+      const db = adminClient()
+      // une vérification à la fois (1fichier : débit limité)
+      const { data: busy } = await db.from('verify_runs').select('id').eq('status', 'running').gt('created_at', new Date(Date.now() - 5 * 60_000).toISOString()).limit(1)
+      if (busy?.length) return json({ error: 'busy', message: 'Une vérification est déjà en cours, patiente une minute.', run_id: busy[0].id }, 409)
+      const { data: uid } = await user.auth.getUser()
+      const label = typeof body.label === 'string' ? body.label.slice(0, 120) : null
+      const { data: run, error } = await db.from('verify_runs').insert({ scope, target, label, created_by: uid.user?.id, message: 'Démarrage…' }).select('id').single()
+      if (error || !run) return json({ error: 'internal', message: error?.message }, 500)
+      await background(runVerify(run.id, scope, target))
+      return json({ run_id: run.id })
+    }
+    if (body.action === 'verify_status' && typeof body.run_id === 'string' && UUID_RE.test(body.run_id)) {
+      const { data } = await adminClient().from('verify_runs').select('id, status, message, total, absent, confirmed, removed, pending, created_at, finished_at').eq('id', body.run_id).maybeSingle()
+      if (!data) return json({ error: 'not_found' }, 404)
+      // passage interrompu (fonction arrêtée) : signalé au lieu de tourner sans fin
+      if (data.status === 'running' && Date.now() - new Date(data.created_at).getTime() > 5 * 60_000) {
+        const message = 'Vérification interrompue : relance-la.'
+        await adminClient().from('verify_runs').update({ status: 'error', message, finished_at: new Date().toISOString() }).eq('id', data.id)
+        return json({ ...data, status: 'error', message })
+      }
+      return json(data)
     }
     if (body.action === 'delete_titles') {
       const ids = Array.isArray(body.ids) ? [...new Set(body.ids.filter((x: unknown): x is string => typeof x === 'string' && UUID_RE.test(x)))] : []

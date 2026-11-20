@@ -10,6 +10,7 @@ import { PaginationBar } from '@/components/ui/pagination-bar'
 import { FilterPanel, type PanelValue } from '@/components/catalog/FilterPanel'
 import { ClearMarks } from '@/components/catalog/ClearMarks'
 import { RandomPlayButton } from '@/components/catalog/RandomPlay'
+import { VerifyFilesButton } from '@/components/admin/VerifyFilesButton'
 import { SelectModeButton, SelectOverlay, SelectionBar, useVideoSelection } from '@/components/catalog/VideoSelection'
 import { hasVideoFilters, validateFilters, type VideoFilters } from '@/lib/search'
 import { fetchModelPage } from '@/lib/model-catalog'
@@ -52,6 +53,7 @@ function ModelPage() {
   const byLength = search.sort === 'longest' || search.sort === 'shortest' || search.min != null || search.max != null
   const durations = useModelRealDurations(model.id, byLength, search.sort === 'shortest')
   const sel = useVideoSelection(titles)
+  const { supabase: sb } = Route.useRouteContext()
   return (
     <section className="px-6 py-10 md:px-12">
       <Link to="/models" className="mb-4 inline-flex items-center gap-1 text-sm text-neutral-400 hover:text-white">
@@ -86,6 +88,7 @@ function ModelPage() {
           <RandomPlayButton label={model.name} modelId={model.id} />
           <ClearMarks modelId={model.id} modelName={model.name} />
           <SelectModeButton sel={sel} />
+          {sel.canSelect && <VerifyFilesButton supabase={sb} scope={{ modelId: model.id }} label={model.name} />}
         </div>
       </div>
       <SelectionBar sel={sel} />

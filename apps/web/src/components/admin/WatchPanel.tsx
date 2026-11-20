@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { fetchWatch, setWatch, watchNow, type WatchConfig, type WatchStats } from '@/lib/watch'
 import type { TypedSupabaseClient } from '@/lib/supabase'
+import { VerifyFilesButton } from '@/components/admin/VerifyFilesButton'
 
 const ago = (iso: string | null) => {
   if (!iso) return 'jamais'
@@ -80,6 +81,8 @@ export function WatchPanel({ supabase }: { supabase: TypedSupabaseClient }) {
         <Button variant="outline" onClick={() => void scanNow()} disabled={busy || !cfg?.enabled}>
           Analyser maintenant
         </Button>
+        {/* après avoir supprimé des fichiers à la racine du compte : seuls les fichiers de la racine sont vérifiés */}
+        <VerifyFilesButton supabase={supabase} scope={{ folderId: 0 }} label="Répertoire de base" size="default" />
         <label className="flex items-center gap-1.5 text-sm">
           <input type="checkbox" checked={cfg?.publish ?? false} onChange={(e) => void save({ publish: e.target.checked })} disabled={busy || !cfg} /> Publier directement
         </label>
