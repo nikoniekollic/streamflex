@@ -8,18 +8,39 @@
 import { json } from '../_shared/cors.ts'
 import { adminClient } from '../_shared/admin-client.ts'
 import { getSecret } from '../_shared/secrets.ts'
+import { background } from '../_shared/background.ts'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const STILLS_MAX_MB = 850 // offre gratuite Supabase : 1 Go de stockage ; au-delà, durées seulement
 const STILL_MAX_BYTES = 60_000
-const STATS_TTL_MS = 2 * 60_000
+const STORAGE_TTL_MS = 2 * 60_000
+const STATS_TTL_MS = 10 * 60_000
 
-let stats: { at: number; data: Record<string, number> } | null = null
-async function getStats(): Promise<Record<string, number>> {
-  if (stats && Date.now() - stats.at < STATS_TTL_MS) return stats.data
-  const { data } = await adminClient().rpc('media_worker_stats')
-  stats = { at: Date.now(), data: (data ?? {}) as Record<string, number> }
-  return stats.data
+// Espace occupé par les images (rapide) : décide si l'on distribue encore des images à prendre
+let storage: { at: number; mb: number } | null = null
+async function storageMb(): Promise<number> {
+  if (storage && Date.now() - storage.at < STORAGE_TTL_MS) return storage.mb
+  const { data, error } = await adminClient().rpc('media_worker_storage_mb')
+  if (error) return storage?.mb ?? 0
+  storage = { at: Date.now(), mb: Number(data ?? 0) }
+  return storage.mb
+}
+
+// Restant à traiter (comptage du catalogue, ~3 s) : pour le journal seulement, recalculé en arrière-plan, jamais attendu
+let stats: { at: number; data: Record<string, number> } = { at: 0, data: {} }
+let statsRunning = false
+function refreshStats() {
+  if (statsRunning || Date.now() - stats.at < STATS_TTL_MS) return
+  statsRunning = true
+  stats.at = Date.now()
+  void background(
+    adminClient()
+      .rpc('media_worker_stats')
+      .then(({ data }) => {
+        if (data) stats = { at: Date.now(), data: data as Record<string, number> }
+      })
+      .then(() => (statsRunning = false), () => (statsRunning = false)),
+  )
 }
 
 /** Comparaison à temps constant (la clé ne se devine pas caractère par caractère). */
@@ -52,8 +73,10 @@ Deno.serve(async (req) => {
   try {
     switch (body?.action) {
       case 'claim': {
-        const st = await getStats()
-        const stills = Number(st.stills_mb ?? 0) < STILLS_MAX_MB
+        const mb = await storageMb()
+        const stills = mb < STILLS_MAX_MB
+        refreshStats()
+        const st = { ...stats.data, stills_mb: mb }
         const n = Math.min(50, Math.max(1, Number(body.n) || 12))
         const { data, error } = await db.rpc('media_worker_claim', { p_n: n, p_stills: stills })
         if (error) return json({ error: 'db_error', message: error.message }, 500)
