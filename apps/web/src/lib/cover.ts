@@ -1,10 +1,16 @@
 import { DEFAULT_SETTINGS, NAME_PALETTES, type SiteSettings } from '@/lib/site-settings'
+import { env } from '@/lib/env'
 
 // Jaquettes générées : couleurs et symbole déterministes (aléatoires d'un fichier à l'autre, stables pour un même fichier).
 export const MODEL_MARK = '#model'
 
 export const isModelCover = (url: string | null | undefined): url is string => !!url && url.endsWith(MODEL_MARK)
 export const stripModelMark = (url: string) => url.slice(0, -MODEL_MARK.length)
+
+// Images de jaquettes prises par le travailleur autonome (programme du PC de l'admin) : bucket « stills », une par film
+export const isStillCover = (url: string | null | undefined): boolean => !!url && url.includes('/storage/v1/object/public/stills/')
+/** Adresse de l'image d'un film (peut ne pas exister encore : prévoir onError). */
+export const stillUrlFor = (titleId: string) => `${env.supabaseUrl}/storage/v1/object/public/stills/${titleId.toLowerCase()}.webp`
 
 function hash(seed: string): number {
   let h = 2166136261

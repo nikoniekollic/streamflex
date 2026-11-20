@@ -56,3 +56,6 @@ alist-data/
 *.mkv
 *.avi
 *.mov
+
+# Travailleur autonome (PC de l admin)
+pipelines/worker/worker.log*

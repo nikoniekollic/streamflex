@@ -7,6 +7,7 @@ import { acquireSlot, attachSlot, detachSlot } from '@/lib/video-pool'
 import { SnapImage, useSnapFor } from '@/components/catalog/SnapImage'
 import { useSiteSettings } from '@/lib/site-settings'
 import { CSS_FIT } from '@/components/catalog/HoverPreview'
+import { stillUrlFor } from '@/lib/cover'
 
 /**
  * Visuel d'un film = l'image de SA vidéo à son moment enregistré (cover_pos), au lieu de l'image du modèle commune à
@@ -22,6 +23,8 @@ export function CoverThumb({ titleId, coverPos, fallback, className, order = 0, 
   const url = got.id === titleId ? got.url : peekPreviewUrl(titleId)
   const setUrl = (u: string | null) => setGot({ id: titleId, url: u })
   const [ready, setReady] = useState(false)
+  // image prise par le travailleur autonome (affichée tout de suite ; absente tant qu'il n'est pas passé sur ce film)
+  const [stillMissing, setStillMissing] = useState<string | null>(null)
   const host = useRef<HTMLDivElement>(null)
   // image figée déjà en mémoire (vue plus tôt dans la session) : affichée tout de suite, sans vidéo à charger
   const snap = useSnapFor(titleId, host)
@@ -89,6 +92,9 @@ export function CoverThumb({ titleId, coverPos, fallback, className, order = 0, 
   return (
     <div className={cn('relative overflow-hidden bg-neutral-900', className)}>
       {fallback}
+      {!snap && stillMissing !== titleId && (
+        <img src={stillUrlFor(titleId)} alt="" aria-hidden loading="lazy" decoding="async" draggable={false} onError={() => setStillMissing(titleId)} className="pointer-events-none absolute inset-0 size-full bg-black" style={{ objectFit: fit }} />
+      )}
       {snap && <SnapImage bitmap={snap} fit={fit} />}
       <div ref={host} aria-hidden className={cn('pointer-events-none absolute inset-0 bg-black transition-opacity duration-500', ready && needVideo ? 'opacity-100' : 'opacity-0')} />
     </div>

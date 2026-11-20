@@ -9,6 +9,7 @@ export type SecretName =
   | 'UPSTASH_REDIS_REST_TOKEN'
   | 'REDIS_URL'
   | 'CATALOG_WEBHOOK_SECRET'
+  | 'WORKER_SECRET'
 
 const TTL_MS = 5 * 60_000
 // La PROMESSE est mise en cache : un lot de 24 films demande la clé 24 fois en même temps, une seule lecture du Vault part

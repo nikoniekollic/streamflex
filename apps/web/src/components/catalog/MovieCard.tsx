@@ -8,13 +8,14 @@ import { cn } from '@/lib/utils'
 import type { CatalogTitle } from '@/lib/catalog'
 import { FavoriteButton } from '@/components/catalog/FavoriteButton'
 import { BlankCover } from '@/components/catalog/GeneratedCover'
-import { isModelCover } from '@/lib/cover'
+import { isModelCover, isStillCover } from '@/lib/cover'
 import { ModelName } from '@/components/catalog/ModelName'
 import { HoverPreview } from '@/components/catalog/HoverPreview'
 import { PlaylistMenu } from '@/components/catalog/PlaylistMenu'
 import { formatDuration, useCoverPos, useModelInfo, useTitleLength } from '@/lib/model-names'
 import { EmojiView } from '@/lib/emoji-media'
 import { durationCss, pin, ratioCss, useSiteSettings } from '@/lib/site-settings'
+import { CSS_FIT } from '@/components/catalog/HoverPreview'
 import { firstEmoji } from '@/lib/emoji'
 
 const ICON = 'flex size-7 items-center justify-center rounded-full bg-black/75 text-base leading-none ring-1 ring-white/25 backdrop-blur-sm transition hover:scale-110 hover:bg-black/90 focus-visible:ring-2 focus-visible:ring-white focus-visible:outline-none'
@@ -47,7 +48,7 @@ export function MovieCard({ title, variant = 'poster', progress, watch, favorite
   const isMovie = title.type === 'movie'
   const length = useTitleLength(title.id, title.runtime_minutes)
   const coverPos = useCoverPos(title.id)
-  const { cards } = useSiteSettings()
+  const { cards, preview } = useSiteSettings()
   const modelInfo = useModelInfo(title.id)
   // emoji du bouton « page du modèle » : celui du modèle, sinon celui de son nom, sinon l'emoji par défaut (Apparence)
   const modelEmoji = modelInfo?.emoji || (cards.emojiFromName ? firstEmoji(modelInfo?.name) : null) || cards.modelEmoji
@@ -57,8 +58,19 @@ export function MovieCard({ title, variant = 'poster', progress, watch, favorite
 
   const content = (
     <>
-      {/* jaquette par défaut : fond noir uni (nom du modèle, durée et icônes par-dessus) ; l'aperçu de la vidéo la remplace dès qu'il est prêt */}
-      {src && !isModelCover(src) ? (
+      {/* jaquette par défaut : image prise par le travailleur autonome (même cadrage que l'aperçu), sinon fond noir uni ;
+          l'aperçu de la vidéo la remplace dès qu'il est prêt */}
+      {src && isStillCover(src) ? (
+        <img
+          src={src}
+          alt={title.title}
+          loading="lazy"
+          decoding="async"
+          draggable={false}
+          className="size-full bg-black"
+          style={{ objectFit: CSS_FIT[preview.cardFit] }}
+        />
+      ) : src && !isModelCover(src) ? (
         <img
           src={src}
           alt={title.title}
