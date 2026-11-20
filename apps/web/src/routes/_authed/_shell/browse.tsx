@@ -1,3 +1,4 @@
+import { gridPageSize } from '@/lib/screen'
 import { PlayList } from '@/components/catalog/PlayList'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { PaginationBar } from '@/components/ui/pagination-bar'
@@ -9,7 +10,6 @@ import { hasVideoFilters, queryVideos, validateFilters, type VideoFilters } from
 type BrowseSearch = VideoFilters & { q?: string; model?: string; page?: number }
 const UUID = /^[0-9a-f-]{36}$/i
 
-const PAGE = 48
 
 export const Route = createFileRoute('/_authed/_shell/browse')({
   validateSearch: (s: Record<string, unknown>): BrowseSearch => {
@@ -21,20 +21,21 @@ export const Route = createFileRoute('/_authed/_shell/browse')({
   loaderDeps: ({ search }) => search,
   loader: async ({ context, deps }) => {
     const { page = 1, ...f } = deps
-    const { titles, total } = await queryVideos(context.supabase, f, { limit: PAGE, offset: (page - 1) * PAGE, kids: context.isKids })
-    return { titles, total, page }
+    const per = gridPageSize() // lignes complètes, selon le nombre de colonnes de cet écran
+    const { titles, total } = await queryVideos(context.supabase, f, { limit: per, offset: (page - 1) * per, kids: context.isKids })
+    return { titles, total, page, per }
   },
   staleTime: 5 * 60_000,
   component: Browse,
 })
 
 function Browse() {
-  const { titles, total, page } = Route.useLoaderData()
+  const { titles, total, page, per } = Route.useLoaderData()
   const search = Route.useSearch()
   const navigate = useNavigate()
   const go = (p: BrowseSearch) => void navigate({ to: '/browse', search: { ...p, page: p.page && p.page > 1 ? p.page : undefined } })
   const apply = (v: PanelValue) => go({ q: v.q, sort: v.sort, min: v.min, max: v.max, exact: v.exact, model: v.model })
-  const pages = Math.max(1, Math.ceil(total / PAGE))
+  const pages = Math.max(1, Math.ceil(total / per))
   return (
     <section className="px-6 py-10 md:px-12">
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
@@ -50,7 +51,7 @@ function Browse() {
         <p className="text-muted-foreground">{hasVideoFilters(search) || search.q ? 'Aucune vidéo ne correspond à ces filtres.' : 'Aucun titre publié pour le moment.'}</p>
       ) : (
         <PlayList titles={titles} label={'Catalogue'}>
-<ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+<ul className="sf-grid">
           {titles.map((t) => (
             <li key={t.id}>
               <MovieCard title={t} />

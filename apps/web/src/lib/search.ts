@@ -1,3 +1,4 @@
+import { gridPageSize } from '@/lib/screen'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { TypedSupabaseClient } from '@/lib/supabase'
 import type { CatalogTitle } from '@/lib/catalog'
@@ -126,7 +127,7 @@ export async function searchModels(supabase: TypedSupabaseClient, q: string, lim
 }
 
 export async function searchTitles(supabase: TypedSupabaseClient, p: SearchParams, kids = false): Promise<SearchResult> {
-  const limit = (p.page ?? 1) * SEARCH_PAGE_SIZE
+  const limit = (p.page ?? 1) * gridPageSize(SEARCH_PAGE_SIZE) // « Voir plus » : lignes complètes selon l'écran
   const wantModels = !!p.q && !kids && p.kind !== 'videos' && !p.model
   const [videos, genres, models] = await Promise.all([
     p.kind === 'models' ? Promise.resolve({ titles: [], total: 0 }) : queryVideos(supabase, p, { limit, kids }),

@@ -11,7 +11,8 @@ import { FilterPanel, type PanelValue } from '@/components/catalog/FilterPanel'
 import { ClearMarks } from '@/components/catalog/ClearMarks'
 import { RandomPlayButton } from '@/components/catalog/RandomPlay'
 import { hasVideoFilters, validateFilters, type VideoFilters } from '@/lib/search'
-import { TITLES_PER_PAGE, fetchModelPage } from '@/lib/model-catalog'
+import { fetchModelPage } from '@/lib/model-catalog'
+import { gridPageSize } from '@/lib/screen'
 import { modelNameStyle } from '@/lib/cover'
 import { useSiteSettings } from '@/lib/site-settings'
 
@@ -29,7 +30,7 @@ export const Route = createFileRoute('/_authed/_shell/models/$id')({
   loaderDeps: ({ search }) => search,
   loader: async ({ context, params, deps }) => {
     const { page, ...f } = deps
-    const r = await fetchModelPage(context.supabase, params.id, page ?? 1, f)
+    const r = await fetchModelPage(context.supabase, params.id, page ?? 1, f, gridPageSize())
     if (!r.model) throw notFound()
     return { ...r, model: r.model }
   },
@@ -38,7 +39,7 @@ export const Route = createFileRoute('/_authed/_shell/models/$id')({
 })
 
 function ModelPage() {
-  const { model, titles, total, page } = Route.useLoaderData()
+  const { model, titles, total, page, per } = Route.useLoaderData()
   const { names } = useSiteSettings()
   const navigate = useNavigate()
   const search = Route.useSearch()
@@ -46,7 +47,7 @@ function ModelPage() {
   const go = (p: ModelSearch) => void navigate({ to: '/models/$id', params: { id: model.id }, search: { ...p, page: p.page && p.page > 1 ? p.page : undefined } })
   const apply = (v: PanelValue) => go({ q: v.q, sort: v.sort, min: v.min, max: v.max, exact: v.exact })
   const s = modelNameStyle(model.name, names)
-  const pages = Math.max(1, Math.ceil(total / TITLES_PER_PAGE))
+  const pages = Math.max(1, Math.ceil(total / per))
   const byLength = search.sort === 'longest' || search.sort === 'shortest' || search.min != null || search.max != null
   const durations = useModelRealDurations(model.id, byLength, search.sort === 'shortest')
   return (
@@ -96,7 +97,7 @@ function ModelPage() {
         <p className="text-muted-foreground">{filtered ? 'Aucune vidéo ne correspond à ces filtres.' : 'Aucune vidéo publiée pour ce modèle.'}</p>
       ) : (
         <PlayList titles={titles} label={model.name}>
-<ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+<ul className="sf-grid">
           {titles.map((t) => (
             <li key={t.id}>
               <MovieCard title={t} />

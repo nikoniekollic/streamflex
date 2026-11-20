@@ -34,11 +34,11 @@ export async function fetchPublicModels(s: TypedSupabaseClient, page = 1, per = 
 }
 
 /** Vidéos d'un modèle : tri, durée, recherche dans ses vidéos (filtrés par la base). `all` = nombre total sans filtre. */
-export async function fetchModelPage(s: TypedSupabaseClient, id: string, page = 1, f: VideoFilters & { q?: string } = {}) {
+export async function fetchModelPage(s: TypedSupabaseClient, id: string, page = 1, f: VideoFilters & { q?: string } = {}, per = TITLES_PER_PAGE) {
   const [model, list] = await Promise.all([
     s.from('models').select('id, name, image_url').eq('id', id).maybeSingle(),
-    queryVideos(s, { ...f, model: id }, { limit: TITLES_PER_PAGE, offset: (page - 1) * TITLES_PER_PAGE }),
+    queryVideos(s, { ...f, model: id }, { limit: per, offset: (page - 1) * per }),
   ])
   const titles: CatalogTitle[] = list.titles
-  return { model: model.data, titles, total: list.total, page }
+  return { model: model.data, titles, total: list.total, page, per }
 }

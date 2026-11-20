@@ -4,7 +4,7 @@ import { Row } from '@/components/catalog/CategoryCarousel'
 import { ModelCard } from '@/components/catalog/ModelCard'
 import type { PublicModel } from '@/lib/model-catalog'
 
-const ITEM = 'basis-[38%] sm:basis-[28%] md:basis-[22%] lg:basis-[16.66%] xl:basis-[14.28%] 2xl:basis-[12.5%]'
+const ITEM = 'sf-row-item'
 
 /** Rangée « Modèles » de l'accueil. */
 export function ModelsCarousel({ models }: { models: PublicModel[] }) {

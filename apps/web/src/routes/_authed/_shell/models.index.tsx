@@ -1,8 +1,9 @@
+import { gridPageSize } from '@/lib/screen'
 import { createFileRoute, redirect, useNavigate } from '@tanstack/react-router'
 import { ModelCard } from '@/components/catalog/ModelCard'
 import { PaginationBar } from '@/components/ui/pagination-bar'
 import { ClearMarks } from '@/components/catalog/ClearMarks'
-import { MODELS_PER_PAGE, MODEL_SORTS, fetchPublicModels, validModelSort, type ModelSort } from '@/lib/model-catalog'
+import { MODEL_SORTS, fetchPublicModels, validModelSort, type ModelSort } from '@/lib/model-catalog'
 import { ArrowDownUp, Search } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
@@ -19,13 +20,16 @@ export const Route = createFileRoute('/_authed/_shell/models/')({
     return { ...(Number.isInteger(p) && p > 1 ? { page: p } : {}), ...(sort ? { sort } : {}), ...(q ? { q } : {}) }
   },
   loaderDeps: ({ search }) => search,
-  loader: async ({ context, deps }) => ({ ...(await fetchPublicModels(context.supabase, deps.page ?? 1, MODELS_PER_PAGE, { sort: deps.sort, q: deps.q })), page: deps.page ?? 1 }),
+  loader: async ({ context, deps }) => {
+    const per = gridPageSize() // lignes complètes, selon le nombre de colonnes de cet écran
+    return { ...(await fetchPublicModels(context.supabase, deps.page ?? 1, per, { sort: deps.sort, q: deps.q })), page: deps.page ?? 1, per }
+  },
   staleTime: 5 * 60_000,
   component: ModelsPage,
 })
 
 function ModelsPage() {
-  const { models, total, page } = Route.useLoaderData()
+  const { models, total, page, per } = Route.useLoaderData()
   const navigate = useNavigate()
   const search = Route.useSearch()
   const go = (p: ModelsSearch) => void navigate({ to: '/models', search: { ...p, page: p.page && p.page > 1 ? p.page : undefined }, replace: true })
@@ -38,7 +42,7 @@ function ModelsPage() {
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q])
-  const pages = Math.max(1, Math.ceil(total / MODELS_PER_PAGE))
+  const pages = Math.max(1, Math.ceil(total / per))
   return (
     <section className="px-6 py-10 md:px-12">
       <h1 className="mb-1 text-2xl font-bold">Modèles</h1>
@@ -78,7 +82,7 @@ function ModelsPage() {
       {models.length === 0 ? (
         <p className="text-muted-foreground">{search.q ? `Aucun modèle ne correspond à « ${search.q} ».` : 'Aucun modèle pour le moment.'}</p>
       ) : (
-        <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+        <ul className="sf-grid">
           {models.map((m) => (
             <li key={m.id}>
               <ModelCard model={m} />

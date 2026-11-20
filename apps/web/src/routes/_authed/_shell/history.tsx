@@ -27,7 +27,7 @@ import {
   type HistoryItem,
 } from '@/lib/history'
 
-const GRID = 'grid grid-cols-2 gap-x-3 gap-y-6 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6'
+const GRID = 'sf-grid gap-y-6'
 
 export const Route = createFileRoute('/_authed/_shell/history')({
   validateSearch: (s: Record<string, unknown>): { page?: number } => {

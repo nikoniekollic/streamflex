@@ -76,7 +76,7 @@ function PlaylistPage() {
         <p className="text-muted-foreground">Cette liste est vide. Ajoute des vidéos avec le bouton « liste » de chaque jaquette.</p>
       ) : (
         <PlayList titles={titles} label={playlist.name}>
-<ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+<ul className="sf-grid">
           {titles.map((t) => (
             <li key={t.id} className="relative">
               <MovieCard title={t} />

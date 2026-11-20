@@ -4,7 +4,7 @@ import { MovieCard, MovieCardSkeleton } from '@/components/catalog/MovieCard'
 import { PlayList } from '@/components/catalog/PlayList'
 import type { CatalogTitle, ContinueItem } from '@/lib/catalog'
 
-const POSTER_ITEM = 'basis-[38%] sm:basis-[28%] md:basis-[22%] lg:basis-[16.66%] xl:basis-[14.28%] 2xl:basis-[12.5%]'
+const POSTER_ITEM = 'sf-row-item'
 
 export function Row({ label, children, memoryKey, action }: { label: string; children: ReactNode; memoryKey?: string; action?: ReactNode }) {
   return (

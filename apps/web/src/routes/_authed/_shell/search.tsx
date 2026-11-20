@@ -19,7 +19,7 @@ export const Route = createFileRoute('/_authed/_shell/search')({
   component: SearchPage,
 })
 
-const GRID = 'grid grid-cols-2 gap-x-3 gap-y-6 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6'
+const GRID = 'sf-grid gap-y-6'
 
 function SearchPage() {
   const { results, total, hasMore, genres, models, isMock } = Route.useLoaderData()

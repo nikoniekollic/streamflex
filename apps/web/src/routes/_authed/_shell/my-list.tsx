@@ -6,7 +6,7 @@ import { MovieCard, MovieCardSkeleton } from '@/components/catalog/MovieCard'
 import { PlayListButtons } from '@/components/catalog/RandomPlay'
 import { fetchMyList, useFavorites } from '@/lib/favorites'
 
-const GRID = 'grid grid-cols-2 gap-x-3 gap-y-6 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6'
+const GRID = 'sf-grid gap-y-6'
 
 export const Route = createFileRoute('/_authed/_shell/my-list')({
   loader: ({ context }) => fetchMyList(context.supabase, context.activeProfile!.id),
