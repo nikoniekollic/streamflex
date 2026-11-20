@@ -1,4 +1,5 @@
-import { useMemo, useState, useSyncExternalStore } from 'react'
+import { useMemo, useState } from 'react'
+import { useSelection } from '@/lib/selection'
 import { Link, createFileRoute, useRouter } from '@tanstack/react-router'
 import { toast } from 'sonner'
 import { ChevronLeft, ChevronRight, Eye, EyeOff, Film, Loader2, Pencil, Plus, Search, Tag, Trash2, Tv, UserRound, X } from 'lucide-react'
@@ -48,39 +49,6 @@ export const Route = createFileRoute('/_authed/_shell/admin/')({
   },
   component: AdminList,
 })
-
-// ───── Sélection gardée HORS de la page : pendant le chargement de la page suivante (plus d'1 s), le routeur affiche un écran
-// d'attente qui démontait la liste et effaçait la sélection. Ici elle survit au changement de page, de filtre, et au
-// rechargement de l'onglet (sessionStorage) : on sélectionne page après page, puis on supprime tout d'un coup.
-const SEL_KEY = 'sf:admin-selection:v1'
-let selection: ReadonlySet<string> = (() => {
-  try {
-    const v = JSON.parse(sessionStorage.getItem(SEL_KEY) ?? '[]') as unknown
-    return new Set(Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [])
-  } catch {
-    return new Set<string>()
-  }
-})()
-const selSubs = new Set<() => void>()
-function setSelection(next: ReadonlySet<string> | ((s: ReadonlySet<string>) => ReadonlySet<string>)) {
-  selection = typeof next === 'function' ? next(selection) : next
-  try {
-    sessionStorage.setItem(SEL_KEY, JSON.stringify([...selection]))
-  } catch {
-    /* stockage plein / indisponible : la sélection reste en mémoire */
-  }
-  selSubs.forEach((l) => l())
-}
-function useSelection(): [ReadonlySet<string>, typeof setSelection] {
-  const s = useSyncExternalStore(
-    (l) => {
-      selSubs.add(l)
-      return () => void selSubs.delete(l)
-    },
-    () => selection,
-  )
-  return [s, setSelection]
-}
 
 function AdminList() {
   const { rows, total, pageCount, genres, models } = Route.useLoaderData()
