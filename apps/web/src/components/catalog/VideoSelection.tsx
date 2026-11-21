@@ -190,23 +190,26 @@ function MoveToModel({ sel }: { sel: VideoSelection }) {
     }
   }, [supabase])
   const n = sel.selected.size
-  const name = target === '__none' ? '' : (models.find((m) => m.id === target)?.name ?? '')
+  const pick = (v: string) => {
+    setTarget(v)
+    if (!v) return
+    const name = v === '__none' ? '' : (models.find((m) => m.id === v)?.name ?? '')
+    void sel.move(v === '__none' ? null : v, name).finally(() => setTarget(''))
+  }
   return (
-    <span className="flex items-center gap-1">
-      <span className="w-48">
-        <NativeSelect aria-label="Modèle de destination" value={target} onChange={(e) => setTarget(e.target.value)} disabled={sel.working}>
-          <option value="">Déplacer vers le modèle…</option>
-          <option value="__none">Détacher du modèle</option>
+    <span className="flex items-center gap-2">
+      {sel.working ? <Loader2 className="size-4 animate-spin" /> : <FolderInput className="size-4 text-muted-foreground" />}
+      <span className="w-60">
+        <NativeSelect aria-label="Déplacer vers un modèle" value={target} onChange={(e) => pick(e.target.value)} disabled={sel.working || n === 0}>
+          <option value="">{n === 0 ? 'Sélectionne des vidéos pour les déplacer' : `Déplacer ${n} vidéo${n > 1 ? 's' : ''} vers le modèle…`}</option>
           {models.map((m) => (
             <option key={m.id} value={m.id}>
               {m.name}
             </option>
           ))}
+          <option value="__none">— Détacher du modèle</option>
         </NativeSelect>
       </span>
-      <Button size="sm" variant="secondary" disabled={sel.working || n === 0 || !target} onClick={() => void sel.move(target === '__none' ? null : target, name)}>
-        {sel.working ? <Loader2 className="animate-spin" /> : <FolderInput />} Déplacer ({n})
-      </Button>
     </span>
   )
 }

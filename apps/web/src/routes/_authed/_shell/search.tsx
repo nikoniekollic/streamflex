@@ -4,6 +4,7 @@ import { Loader2, SearchX, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { MovieCard, MovieCardSkeleton } from '@/components/catalog/MovieCard'
+import { SelectModeButton, SelectOverlay, SelectionBar, useVideoSelection } from '@/components/catalog/VideoSelection'
 import { FilterPanel } from '@/components/catalog/FilterPanel'
 import { ModelCard } from '@/components/catalog/ModelCard'
 import { SEARCH_PAGE_SIZE, hasVideoFilters, searchTitles, validateSearchParams, type SearchParams } from '@/lib/search'
@@ -28,10 +29,15 @@ function SearchPage() {
   const loading = useRouterState({ select: (s) => s.isLoading })
   const hasFilters = !!(search.type || search.genre || search.kind || hasVideoFilters(search))
   const page = search.page ?? 1
+  const sel = useVideoSelection(search.kind === 'models' ? [] : results)
 
   return (
     <div className="px-6 py-8 md:px-12">
       <Header q={search.q} total={total} models={models.length} loading={loading} />
+      <div className="mb-4 flex justify-end">
+        <SelectModeButton sel={sel} />
+      </div>
+      <SelectionBar sel={sel} />
       <FilterPanel
         value={search}
         showKind
@@ -67,8 +73,9 @@ function SearchPage() {
           <PlayList titles={results} label={'Recherche'}>
 <ul className={cn(GRID, 'transition-opacity', loading && 'opacity-60')}>
             {results.map((t) => (
-              <li key={t.id}>
+              <li key={t.id} className="relative">
                 <MovieCard title={t} />
+                <SelectOverlay sel={sel} id={t.id} title={t.title} />
                 <p className="mt-2 line-clamp-1 text-sm text-neutral-300">{t.title}</p>
               </li>
             ))}

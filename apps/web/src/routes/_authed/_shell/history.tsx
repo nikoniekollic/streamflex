@@ -14,6 +14,7 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
 import { MovieCard, MovieCardSkeleton } from '@/components/catalog/MovieCard'
+import { SelectModeButton, SelectOverlay, SelectionBar, useVideoSelection } from '@/components/catalog/VideoSelection'
 import { formatTime } from '@/lib/stream'
 import {
   RESUME_MAX,
@@ -65,6 +66,7 @@ function HistoryPage() {
   const [open, setOpen] = useState(false)
 
   const visible = items.filter((i) => !removed.has(i.title_id))
+  const sel = useVideoSelection(visible.map((h) => ({ id: h.title_id })))
 
   const remove = async (h: HistoryItem) => {
     setRemoved((s) => new Set(s).add(h.title_id))
@@ -108,6 +110,8 @@ function HistoryPage() {
             </span>
           )}
         </div>
+        <div className="flex flex-wrap items-center gap-2">
+        <SelectModeButton sel={sel} />
         {visible.length > 0 && (
           <AlertDialog open={open} onOpenChange={setOpen}>
             <AlertDialogTrigger asChild>
@@ -132,8 +136,10 @@ function HistoryPage() {
             </AlertDialogContent>
           </AlertDialog>
         )}
+        </div>
       </div>
 
+      <SelectionBar sel={sel} />
       {visible.length === 0 ? (
         <div className="flex flex-col items-center gap-4 py-24 text-center">
           <History className="size-14 text-neutral-600" />
@@ -158,6 +164,7 @@ function HistoryPage() {
                     watch={{ episode: h.episode_id, t: at }}
                     caption={ep}
                   />
+                  <SelectOverlay sel={sel} id={h.title_id} title={h.title} />
                   <button
                     type="button"
                     onClick={() => void remove(h)}

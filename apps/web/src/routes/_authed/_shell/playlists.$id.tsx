@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import { ArrowLeft, Pencil, Trash2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { MovieCard } from '@/components/catalog/MovieCard'
+import { SelectModeButton, SelectOverlay, SelectionBar, useVideoSelection } from '@/components/catalog/VideoSelection'
 import { PlayListButtons } from '@/components/catalog/RandomPlay'
 import { deletePlaylist, fetchPlaylist, removeFromPlaylist, renamePlaylist } from '@/lib/playlists'
 
@@ -25,6 +26,7 @@ function PlaylistPage() {
   const { supabase } = Route.useRouteContext()
   const router = useRouter()
   const navigate = useNavigate()
+  const sel = useVideoSelection(titles)
 
   const run = async (fn: () => Promise<unknown>, ok?: string) => {
     try {
@@ -47,6 +49,7 @@ function PlaylistPage() {
           {titles.length} vidéo{titles.length > 1 ? 's' : ''}
         </span>
         <div className="ml-auto flex flex-wrap items-center gap-2">
+          <SelectModeButton sel={sel} />
           <PlayListButtons label={playlist.name} ids={titles.map((t) => t.id)} />
           <Button
             size="sm"
@@ -72,6 +75,7 @@ function PlaylistPage() {
         </div>
       </div>
 
+      <SelectionBar sel={sel} />
       {titles.length === 0 ? (
         <p className="text-muted-foreground">Cette liste est vide. Ajoute des vidéos avec le bouton « liste » de chaque jaquette.</p>
       ) : (
@@ -80,6 +84,7 @@ function PlaylistPage() {
           {titles.map((t) => (
             <li key={t.id} className="relative">
               <MovieCard title={t} />
+              <SelectOverlay sel={sel} id={t.id} title={t.title} />
               <button
                 type="button"
                 aria-label={`Retirer ${t.title} de la liste`}

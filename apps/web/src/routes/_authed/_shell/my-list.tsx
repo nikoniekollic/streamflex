@@ -3,6 +3,7 @@ import { Link, createFileRoute } from '@tanstack/react-router'
 import { Heart, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { MovieCard, MovieCardSkeleton } from '@/components/catalog/MovieCard'
+import { SelectModeButton, SelectOverlay, SelectionBar, useVideoSelection } from '@/components/catalog/VideoSelection'
 import { PlayListButtons } from '@/components/catalog/RandomPlay'
 import { fetchMyList, useFavorites } from '@/lib/favorites'
 
@@ -32,6 +33,7 @@ function MyList() {
   const { ids, loaded } = useFavorites()
   // un titre retiré disparaît immédiatement (annulable via le toast)
   const visible = loaded ? titles.filter((t) => ids.has(t.id)) : titles
+  const sel = useVideoSelection(visible)
 
   return (
     <div className="px-6 py-8 md:px-12">
@@ -42,11 +44,13 @@ function MyList() {
             {visible.length} titre{visible.length > 1 ? 's' : ''}
           </span>
         )}
-        <div className="ml-auto">
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          <SelectModeButton sel={sel} />
           <PlayListButtons label="Ma liste" ids={visible.filter((t) => t.type === 'movie').map((t) => t.id)} />
         </div>
       </div>
 
+      <SelectionBar sel={sel} />
       {visible.length === 0 ? (
         <div className="flex flex-col items-center gap-4 py-24 text-center">
           <span className="flex size-16 items-center justify-center rounded-full border-2 border-neutral-600">
@@ -64,8 +68,9 @@ function MyList() {
         <PlayList titles={visible} label={'Ma liste'}>
 <ul className={GRID}>
           {visible.map((t) => (
-            <li key={t.id}>
+            <li key={t.id} className="relative">
               <MovieCard title={t} />
+              <SelectOverlay sel={sel} id={t.id} title={t.title} />
               <p className="mt-2 line-clamp-1 text-sm text-neutral-300">{t.title}</p>
             </li>
           ))}
