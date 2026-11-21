@@ -727,9 +727,19 @@ async function verifySuspects(): Promise<number> {
 
 /** Retire du site ce qui manque (dépublié, jamais effacé : revient si le fichier revient). */
 async function sweep(): Promise<string> {
-  const { data: sw } = await adminClient().rpc('sync_onefichier_sweep', { p_grace_min: GRACE_MIN })
-  const removed = Number(sw?.files_removed ?? 0)
-  const gone = Number(sw?.folders_gone ?? 0)
+  // par lots de 500 (limite de 8 s du serveur) : rappel tant qu'il en reste, 4 000 au plus par passe
+  let removed = 0
+  let gone = 0
+  for (let round = 0; round < 8; round++) {
+    const { data: sw, error } = await adminClient().rpc('sync_onefichier_sweep', { p_grace_min: GRACE_MIN })
+    if (error) {
+      console.error('[onefichier-import] retrait', error.message)
+      break
+    }
+    removed += Number(sw?.files_removed ?? 0)
+    gone += Number(sw?.folders_gone ?? 0)
+    if (sw?.more !== true) break
+  }
   return removed || gone ? `, ${removed} fichier(s) retiré(s)${gone ? ` (${gone} dossier(s) disparu(s))` : ''}` : ''
 }
 
