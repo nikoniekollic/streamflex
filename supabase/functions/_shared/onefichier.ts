@@ -63,6 +63,8 @@ export async function onefichierCall(path: string, payload: Record<string, unkno
     await admin.rpc('onefichier_trip', { p_hours: 1, p_reason: `${res.status} ${msg}` })
     throw new OnefichierError('auth', `1fichier: ${msg} — le compte de la clé API n'est pas premium`, 503)
   }
+  // refus propre à UN fichier/dossier (pas au compte : ex. fichier d'un autre compte ou déjà effacé) : pas de pause générale
+  if (/#350|resource not allowed/i.test(msg)) throw new OnefichierError('offline', `1fichier: ${msg}`, 404)
   if (res.status === 401 || res.status === 403 || res.status === 429 || LOCK.test(msg)) {
     await admin.rpc('onefichier_trip', { p_hours: BREAKER_HOURS, p_reason: `${res.status} ${msg}` })
     throw new OnefichierError('auth', `1fichier: ${msg} — appels serveur suspendus ${BREAKER_HOURS} h`, 503)

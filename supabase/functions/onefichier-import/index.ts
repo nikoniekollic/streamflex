@@ -826,7 +826,12 @@ async function deleteTitles(ids: string[]) {
   const all = [...new Set([...files.values()].flat())]
   const removed = new Set<string>()
   const failed = new Map<string, string>() // fichier → raison
+  const queued: string[] = [] // API 1fichier en pause : effacés plus tard (onefichier_pending_rm), la vidéo part quand même
   for (const c of chunk(all, RM_CHUNK)) {
+    if (queued.length) {
+      queued.push(...c)
+      continue
+    }
     try {
       const body = await onefichierCall('file/rm.cgi', { files: c.map((f) => ({ url: `https://1fichier.com/?${f}` })) }, LANE_ADMIN, { acceptKo: true })
       if (Array.isArray(body?.urls)) {
@@ -845,11 +850,16 @@ async function deleteTitles(ids: string[]) {
     } catch (e) {
       // déjà absent chez 1fichier : rien à supprimer, le film peut partir
       if (e instanceof OnefichierError && e.failure === 'offline') for (const f of c) removed.add(f)
+      else if (e instanceof OnefichierError && e.failure === 'host_busy') queued.push(...c)
       else {
         for (const f of c) failed.set(f, (e as Error).message)
         if (e instanceof OnefichierError && e.failure === 'auth') break
       }
     }
+  }
+  for (const c of chunk(queued, 500)) {
+    const { error } = await db.from('onefichier_pending_rm').upsert(c.map((file_id) => ({ file_id })), { onConflict: 'file_id', ignoreDuplicates: true })
+    if (error) for (const f of c) failed.set(f, `mise en attente impossible : ${error.message}`)
   }
   const ok: string[] = []
   const kept: { id: string; reason: string }[] = []
@@ -862,8 +872,37 @@ async function deleteTitles(ids: string[]) {
     const { error } = await db.from('titles').delete().in('id', c)
     if (error) throw new Error(error.message)
   }
-  console.log('[onefichier-import] suppression', JSON.stringify({ titles: ok.length, files: removed.size, kept: kept.length }))
-  return { deleted: ok.length, filesRemoved: removed.size, kept }
+  console.log('[onefichier-import] suppression', JSON.stringify({ titles: ok.length, files: removed.size, queued: queued.length, kept: kept.length }))
+  return { deleted: ok.length, filesRemoved: removed.size, queued: queued.length, kept }
+}
+
+/** Fichiers dont l'effacement attendait la fin d'une pause de l'API 1fichier : effacés maintenant (au plus 200 par passage). */
+async function flushPendingRm(): Promise<number> {
+  const db = adminClient()
+  const { data } = await db.from('onefichier_pending_rm').select('file_id, tries').order('created_at').limit(200)
+  const rows = (data ?? []) as { file_id: string; tries: number }[]
+  let done = 0
+  for (let i = 0; i < rows.length; i += RM_CHUNK) {
+    const c = rows.slice(i, i + RM_CHUNK)
+    const ids = c.map((r) => r.file_id)
+    try {
+      await onefichierCall('file/rm.cgi', { files: ids.map((f) => ({ url: `https://1fichier.com/?${f}` })) }, LANE_WATCH, { acceptKo: true })
+    } catch (e) {
+      if (e instanceof OnefichierError && (e.failure === 'host_busy' || e.failure === 'auth')) break // toujours en pause : au prochain passage
+      if (!(e instanceof OnefichierError && e.failure === 'offline')) {
+        // autre refus : noté, abandonné après 5 essais (le fichier reste dans la corbeille de l'admin à effacer à la main)
+        for (const r of c) {
+          if (r.tries >= 4) await db.from('onefichier_pending_rm').delete().eq('file_id', r.file_id)
+          else await db.from('onefichier_pending_rm').update({ tries: r.tries + 1, last_error: (e as Error).message.slice(0, 300) }).eq('file_id', r.file_id)
+        }
+        continue
+      }
+    }
+    await db.from('onefichier_pending_rm').delete().in('file_id', ids)
+    done += ids.length
+  }
+  if (done) console.log('[onefichier-import] effacements en attente', done)
+  return done
 }
 
 // ───────── Vérification ciblée (admin) : UN modèle ou UN dossier (ex. le répertoire de base après y avoir supprimé des fichiers).
@@ -1126,6 +1165,7 @@ async function watchTick(): Promise<string> {
   }
   const { data: cfg } = await db.from('watch_config').select('enabled, publish, model_per_folder, folders_per_tick').eq('id', 1).single()
   if (!cfg?.enabled) return 'désactivée'
+  await flushPendingRm().catch((e) => console.error('[onefichier-import] effacements en attente', (e as Error).message))
   const { count: busy } = await db.from('import_jobs').select('id', { count: 'exact', head: true }).in('status', ['pending', 'running', 'waiting'])
   if ((busy ?? 0) > 0) {
     // import en cours : pas de relevé de dossiers, mais les fichiers signalés morts sont quand même vérifiés et retirés
