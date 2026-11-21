@@ -30,6 +30,8 @@ export type PoolSlot = {
   /** durée de l'extrait en boucle */
   clip: number
   attached: boolean
+  /** moment enregistré de la jaquette (clé de son image figée) */
+  coverPos: number | null
   /** rang dans la page (ligne puis colonne) : plus petit = chargé en premier */
   order: number
   loading: boolean
@@ -97,11 +99,11 @@ function dropSnap(k: string) {
   snaps.delete(k)
 }
 
-function takeSnap(titleId: string, el: HTMLVideoElement, pos: number | null) {
+function takeSnap(titleId: string, el: HTMLVideoElement, pos: number | null, force = false) {
   if (!canSnap || !el.videoWidth || el.readyState < 2) return
   const want = Math.min(el.videoWidth, snapWidthFor(el.parentElement?.clientWidth || SNAP_MIN_W))
   const cur = snaps.get(titleId)
-  if (cur && (cur.pos === pos || pos == null) && (cur.full || cur.bm.width >= want)) return
+  if (!force && cur && (cur.pos === pos || pos == null) && (cur.full || cur.bm.width >= want)) return
   createImageBitmap(el, { resizeWidth: want, resizeQuality: 'high' })
     .then((bm) => {
       dropSnap(titleId)
@@ -237,6 +239,7 @@ export function acquireSlot(titleId: string, url: string, clip: number, order = 
   const free = (pool.get(titleId) ?? []).find((s) => s.url === url && !s.attached)
   if (free) {
     free.clip = clip
+    free.coverPos = coverPos
     free.order = order
     const l = pool.get(titleId)!.filter((s) => s !== free)
     pool.set(titleId, [...l, free]) // le plus récemment utilisé
@@ -250,12 +253,16 @@ export function acquireSlot(titleId: string, url: string, clip: number, order = 
   el.setAttribute('aria-hidden', 'true')
   Object.assign(el.style, { position: 'absolute', inset: '0', width: '100%', height: '100%', pointerEvents: 'none', background: '#000' })
 
-  const slot: PoolSlot = { titleId, url, el, ready: false, failed: false, anchor: 0, clip, attached: false, order, loading: false, subs: new Set() }
-  const markReady = () => {
-    if (slot.ready || slot.failed) return
+  const slot: PoolSlot = { titleId, url, el, ready: false, failed: false, anchor: 0, clip, attached: false, coverPos, order, loading: false, subs: new Set() }
+  // image figée prise seulement quand l'image est réellement décodée : prise trop tôt, elle était noire et restait noire
+  // à chaque réaffichage de la carte (elle n'était jamais remplacée)
+  const markReady = (decoded: boolean) => {
+    if (slot.failed) return
+    if (decoded) takeSnap(titleId, el, coverPos, slot.ready)
+    if (slot.ready) return
     slot.ready = true
     clearTimeout(slot.stuck)
-    takeSnap(titleId, el, coverPos)
+    if (!decoded) setTimeout(() => !slot.failed && takeSnap(titleId, el, coverPos, true), 1200)
     notify(slot)
   }
   const done = () => {
@@ -265,9 +272,9 @@ export function acquireSlot(titleId: string, url: string, clip: number, order = 
     // on attend que l'image du nouvel instant soit réellement décodée : sinon la jaquette apparaît noire un instant
     const v = el as HTMLVideoElement & { requestVideoFrameCallback?: (cb: () => void) => number }
     if (v.requestVideoFrameCallback && el.isConnected) {
-      v.requestVideoFrameCallback(markReady)
-      setTimeout(markReady, FRAME_WAIT_MS)
-    } else markReady()
+      v.requestVideoFrameCallback(() => markReady(true))
+      setTimeout(() => markReady(false), FRAME_WAIT_MS)
+    } else setTimeout(() => markReady(true), FRAME_WAIT_MS)
   }
 
   el.addEventListener('loadedmetadata', () => {
@@ -328,6 +335,7 @@ export function detachSlot(slot: PoolSlot) {
   // pas encore prête : on libère tout de suite sa place de chargement (sinon une jaquette déjà sortie de l'écran retarde
   // jusqu'à 12 s celles qui sont visibles) ; le lien reste en cache, la recréer au retour ne coûte rien
   if (!slot.ready) return destroy(slot)
+  takeSnap(slot.titleId, slot.el, slot.coverPos, true) // image affichée à cet instant (décodée) : remplace une copie ratée
   slot.el.pause()
   slot.attached = false // l'élément reste en mémoire, hors de la page
   slot.el.remove()
