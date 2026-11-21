@@ -517,6 +517,55 @@ async function folderReady(folderId: number): Promise<boolean> {
   return !data?.last_call_at || Date.now() - new Date(data.last_call_at).getTime() > (FOLDER_GAP_S + 2) * 1000
 }
 
+// ───────── Dossier de plus de 5 000 fichiers : 1fichier n'en liste que 5 000 (« merci d'organiser vos fichiers dans des
+// dossiers ») et ignore les tranches de dates. Le site range alors une partie des fichiers VISIBLES dans un sous-dossier
+// « <nom> 2 » (créé au besoin, même modèle) : au relevé suivant, les fichiers cachés apparaissent. Au plus SPLIT_PER_PASS
+// fichiers déplacés par passage (débit 1fichier) ; recommence tant que le dossier reste plein. Les fichiers gardent leur lien.
+const SPLIT_PER_PASS = 1000
+
+// deno-lint-ignore no-explicit-any
+async function splitCapped(f: WatchRow, listing: { folders: Child[]; files: any[] }, st: WatchStats) {
+  const db = adminClient()
+  const base = `${f.name ?? 'Videos'}`.slice(0, 200)
+  // sous-dossier « <nom> N » qui a encore de la place (moins de 5 000 fichiers annoncés), sinon le suivant à créer
+  let target: { id: number; created: boolean } | null = null
+  for (let n = 2; n < 50 && !target; n++) {
+    const name = `${base} ${n}`
+    const ex = listing.folders.find((c) => c.name === name)
+    if (ex && (ex.files ?? 0) + SPLIT_PER_PASS < CAP) target = { id: ex.id, created: false }
+    else if (!ex) {
+      const made = await onefichierCall('folder/mkdir.cgi', { name, folder_id: f.folder_id }, LANE_WATCH)
+      const id = Number(made?.folder_id)
+      if (!Number.isInteger(id) || id <= 0) throw new OnefichierError('unavailable', `1fichier n'a pas créé le dossier « ${name} »`, 502)
+      // suivi tout de suite, rattaché au même modèle que le dossier plein
+      await db.from('watch_folders').upsert({ folder_id: id, parent_id: f.folder_id, name, model_name: f.model_name, force_full: true, next_scan_at: new Date(Date.now() + (FOLDER_GAP_S + 5) * 1000).toISOString() })
+      target = { id, created: true }
+    }
+  }
+  if (!target) return
+  // les plus anciens fichiers visibles partent dans le sous-dossier
+  const pick = [...listing.files].sort((a, b) => String(a.date ?? '').localeCompare(String(b.date ?? ''))).slice(0, SPLIT_PER_PASS)
+  const moved: string[] = []
+  for (let i = 0; i < pick.length; i += MV_CHUNK) {
+    const c = pick.slice(i, i + MV_CHUNK)
+    try {
+      const body = await onefichierCall('file/mv.cgi', { urls: c.map((x) => `https://1fichier.com/?${x.id}`), destination_folder_id: target.id }, LANE_WATCH, { acceptKo: true })
+      if (Array.isArray(body?.urls)) for (const u of body.urls) { const id = fileIdOf(u); if (id) moved.push(id) }
+      else if (body?.status !== 'KO') moved.push(...c.map((x) => x.id))
+    } catch (e) {
+      console.error('[onefichier-import] découpage', f.folder_id, (e as Error).message)
+      if (e instanceof OnefichierError && (e.failure === 'auth' || e.failure === 'host_busy')) break
+    }
+  }
+  // le site suit : nouveau dossier des fichiers déjà connus (ils ne passent pas pour disparus du dossier plein)
+  for (let i = 0; i < moved.length; i += 200) {
+    await db.from('media_sources').update({ folder_id: target.id, missing_since: null }).eq('provider', 'onefichier').in('file_id', moved.slice(i, i + 200))
+  }
+  await db.from('watch_folders').update({ force_full: true, next_scan_at: new Date(Date.now() + (FOLDER_GAP_S + 5) * 1000).toISOString() }).in('folder_id', [f.folder_id, target.id])
+  st.updated += moved.length
+  console.log('[onefichier-import] découpage', JSON.stringify({ folder: f.folder_id, into: target.id, created: target.created, moved: moved.length }))
+}
+
 async function scanWatched(f: WatchRow, cfg: { model_per_folder: boolean; publish: boolean }, st: WatchStats) {
   const db = adminClient()
   const iso = (ms: number) => new Date(Date.now() + ms).toISOString()
@@ -576,6 +625,14 @@ async function scanWatched(f: WatchRow, cfg: { model_per_folder: boolean; publis
       st.updated += r.renamed + r.fixed + r.restored
       st.missing += r.missing
       st.suspect ||= r.suspect
+      // dossier plein (5 000 fichiers listés au plus) : une partie part dans un sous-dossier, le reste devient visible
+      if (listing.capped && f.folder_id !== 0) {
+        try {
+          await splitCapped(f, listing, st)
+        } catch (e) {
+          console.error('[onefichier-import] découpage impossible', f.folder_id, (e as Error).message)
+        }
+      }
     } else {
       // relevé léger : seul le dossier racine annonce lui-même sa signature
       let force = false
