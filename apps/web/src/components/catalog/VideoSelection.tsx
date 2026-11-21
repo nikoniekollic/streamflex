@@ -12,6 +12,7 @@ import { holdDurations } from '@/lib/duration-probe'
 import { adminErrorMessage, bulkDelete, moveToModel } from '@/lib/admin'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Input } from '@/components/ui/input'
+import { displayModelName } from '@/lib/cover'
 
 export type VideoSelection = ReturnType<typeof useVideoSelection>
 
@@ -221,7 +222,7 @@ function MoveToModel({ sel }: { sel: VideoSelection }) {
     }
   }, [open, models, supabase])
   const norm = (x: string) => x.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase()
-  const match = (m: ModelLite) => !q.trim() || norm(m.name).includes(norm(q.trim()))
+  const match = (m: ModelLite) => !q.trim() || norm(m.name).includes(norm(q.trim())) || norm(displayModelName(m.name)).includes(norm(q.trim()))
   const byId = new Map((models ?? []).map((m) => [m.id, m]))
   const recent = open ? readRecent().map((id) => byId.get(id)).filter((m): m is ModelLite => !!m && match(m)) : []
   const recentIds = new Set(recent.map((m) => m.id))
@@ -238,10 +239,10 @@ function MoveToModel({ sel }: { sel: VideoSelection }) {
       type="button"
       role="option"
       aria-selected={false}
-      onClick={() => pick(m.id, m.name)}
+      onClick={() => pick(m.id, displayModelName(m.name))}
       className="block w-full truncate rounded px-2 py-1.5 text-left text-sm hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
     >
-      {m.name}
+      {displayModelName(m.name)}
     </button>
   )
   return (

@@ -84,6 +84,15 @@ export function modelHue(idx: number): { hue: number; sat: number; light: number
 /** Police par défaut de tous les modèles : celle de Bruno_Dickemz (Georgia italique, nom écrit tel quel). */
 const DEFAULT_NAME_FONT = 'georgia'
 
+// ───────── Nom affiché d'un modèle (le vrai nom reste inchangé en base et dans l'admin) :
+//  • suffixe de date d'import retiré (« ruby_onyx-2026-11-17-21h06 » → « Ruby_Onyx ») ;
+//  • majuscule au début et après « _ », « - », « . » ou une espace.
+const DATE_SUFFIX = /[-_ ]\d{4}-\d{2}-\d{2}[-_ ]\d{2}h\d{2}$/i
+export function displayModelName(name: string): string {
+  const base = name.trim().replace(DATE_SUFFIX, '') || name.trim()
+  return base.replace(/(^|[_\-\s.])(\p{Ll})/gu, (_m, sep: string, ch: string) => sep + ch.toUpperCase())
+}
+
 export function modelNameStyle(name: string, cfg: SiteSettings['names'] = DEFAULT_SETTINGS.names): ModelNameStyle {
   const h = hash(name.toLowerCase())
   const f = NAME_FONTS.find((x) => x.key === cfg.font) ?? NAME_FONTS.find((x) => x.key === DEFAULT_NAME_FONT)!
@@ -91,8 +100,8 @@ export function modelNameStyle(name: string, cfg: SiteSettings['names'] = DEFAUL
   // modèle pas encore chargé : teinte d'après son nom, remplacée dès que son numéro arrive
   const c = idx != null ? modelHue(idx) : { hue: (h >>> 8) % 360, sat: 95, light: 80 }
   const hue = c.hue
-  const len = name.length
-  const px = (len <= 8 ? 1.7 : len <= 14 ? 1.35 : len <= 22 ? 1.1 : 0.95) * cfg.size
+  const len = displayModelName(name).length // taille d'après le nom affiché (sans la date : plus grand, plus lisible)
+  const px = (len <= 10 ? 1.7 : len <= 16 ? 1.45 : len <= 24 ? 1.2 : 1) * cfg.size
   let color = `hsl(${hue} ${c.sat}% ${c.light}%)`
   let stroke = `hsl(${(hue + 180) % 360} 85% 14%)`
   let glow = `hsl(${(hue + 30) % 360} 100% 55%)`

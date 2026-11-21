@@ -5,6 +5,7 @@ import { Check, ChevronDown, Search, SlidersHorizontal, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { SORT_OPTIONS, type SortKey } from '@/lib/sort'
 import { formatSpan, parseSpan, type VideoFilters } from '@/lib/search'
+import { displayModelName } from '@/lib/cover'
 
 export type PanelValue = VideoFilters & { model?: string; kind?: 'videos' | 'models'; q?: string }
 
@@ -169,7 +170,7 @@ export function FilterPanel({
                     <option value="">Tous les modèles</option>
                     {models.map((m) => (
                       <option key={m.id} value={m.id}>
-                        {m.name} ({m.n})
+                        {displayModelName(m.name)} ({m.n})
                       </option>
                     ))}
                   </select>

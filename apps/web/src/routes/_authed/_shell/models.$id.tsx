@@ -16,7 +16,7 @@ import { useInfiniteTitles } from '@/components/catalog/useInfiniteTitles'
 import { hasVideoFilters, validateFilters, type VideoFilters } from '@/lib/search'
 import { fetchModelPage } from '@/lib/model-catalog'
 import { gridPageSize } from '@/lib/screen'
-import { modelNameStyle } from '@/lib/cover'
+import { displayModelName, modelNameStyle } from '@/lib/cover'
 import { useModelColors } from '@/lib/model-names'
 import { useSiteSettings } from '@/lib/site-settings'
 
@@ -87,7 +87,7 @@ function ModelPage() {
               fontSize: '2rem',
             }}
           >
-            {model.name}
+            {displayModelName(model.name)}
           </h1>
           <p className="text-sm text-muted-foreground">
             {total} vidéo{total > 1 ? 's' : ''}
@@ -104,7 +104,7 @@ function ModelPage() {
         </div>
       </div>
       <SelectionBar sel={sel} />
-      <FilterPanel value={search} onApply={apply} showQuery queryPlaceholder={`Rechercher dans les vidéos de ${model.name}…`} />
+      <FilterPanel value={search} onApply={apply} showQuery queryPlaceholder={`Rechercher dans les vidéos de ${displayModelName(model.name)}…`} />
       {durations.pending > 0 && (
         <p className="mb-4 flex items-center gap-2 text-xs text-muted-foreground">
           <Loader2 className="size-3.5 animate-spin" />

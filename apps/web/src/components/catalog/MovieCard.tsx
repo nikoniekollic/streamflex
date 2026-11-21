@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils'
 import type { CatalogTitle } from '@/lib/catalog'
 import { FavoriteButton } from '@/components/catalog/FavoriteButton'
 import { BlankCover } from '@/components/catalog/GeneratedCover'
-import { isModelCover, isStillCover } from '@/lib/cover'
+import { displayModelName, isModelCover, isStillCover } from '@/lib/cover'
 import { ModelName } from '@/components/catalog/ModelName'
 import { HoverPreview } from '@/components/catalog/HoverPreview'
 import { PlaylistMenu } from '@/components/catalog/PlaylistMenu'
@@ -197,8 +197,8 @@ export function MovieCard({ title, variant = 'poster', progress, watch, favorite
           {cards.icons && modelInfo && (
             <button
               type="button"
-              aria-label={`Page du modèle ${modelInfo.name}`}
-              title={`Page du modèle : ${modelInfo.name}`}
+              aria-label={`Page du modèle ${displayModelName(modelInfo.name)}`}
+              title={`Page du modèle : ${displayModelName(modelInfo.name)}`}
               onClick={() => void navigate({ to: '/models/$id', params: { id: modelInfo.id } })}
               className={`${ICON} z-[5]`}
               style={pin(cards.modelPos)}
