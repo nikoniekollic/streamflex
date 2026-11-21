@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react'
-import { useModelName } from '@/lib/model-names'
+import { useModelColors, useModelName } from '@/lib/model-names'
 import { modelNameStyle } from '@/lib/cover'
 import { useSiteSettings } from '@/lib/site-settings'
 
@@ -28,6 +28,7 @@ export function nameBox(names: { x: number; y: number }): { outer: string; style
 /** Libellé stylé d'un nom de modèle (jaquettes de films, cartes de modèles). */
 export function ModelLabel({ name }: { name: string | null }) {
   const { names } = useSiteSettings()
+  useModelColors()
   if (!name || !names.show) return null
   const s = modelNameStyle(name, names)
   const box = nameBox(names)

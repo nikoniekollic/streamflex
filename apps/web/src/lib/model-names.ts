@@ -1,6 +1,7 @@
 import { useEffect, useSyncExternalStore } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
+import { setModelColorIndex } from '@/lib/cover'
 
 // Nom du modèle de chaque jaquette : les requêtes du catalogue ne renvoient pas model_id,
 // on le récupère par lots (1 requête pour ~150 cartes) + la table des modèles chargée une seule fois.
@@ -41,13 +42,14 @@ function loadModels(): Promise<Map<string, string>> {
   modelsPromise ??= (async () => {
     const map = new Map<string, string>()
     for (let off = 0; off < 20_000; off += 1000) {
-      const { data, error } = await (supabase as unknown as SupabaseClient).from('models').select('id, name, emoji').range(off, off + 999)
+      const { data, error } = await (supabase as unknown as SupabaseClient).from('models').select('id, name, emoji, color_idx').range(off, off + 999)
       if (error) {
         modelsPromise = null // on réessaiera
         break
       }
-      for (const m of (data ?? []) as { id: string; name: string; emoji: string | null }[]) {
+      for (const m of (data ?? []) as { id: string; name: string; emoji: string | null; color_idx: number | null }[]) {
         map.set(m.id, m.name)
+        if (m.color_idx != null) setModelColorIndex(m.name, m.color_idx)
         emojiOfModel.set(m.id, m.emoji ?? null)
       }
       if ((data?.length ?? 0) < 1000) break
@@ -163,4 +165,18 @@ export function useModelInfo(titleId: string): ModelInfo | null {
   const id = modelIdOfTitle.get(titleId)
   const name = nameOfTitle.get(titleId)
   return id && name ? { id, name, emoji: emojiOfModel.get(id) ?? null } : null
+}
+
+/** Couleurs des modèles chargées (pages modèles, cartes de modèles) : rafraîchit l'affichage quand elles arrivent. */
+export function useModelColors(): void {
+  useSyncExternalStore(
+    (l) => {
+      listeners.add(l)
+      return () => void listeners.delete(l)
+    },
+    () => version,
+  )
+  useEffect(() => {
+    if (!modelsPromise) void loadModels().then(() => notify())
+  }, [])
 }

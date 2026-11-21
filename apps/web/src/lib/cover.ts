@@ -66,13 +66,34 @@ export type ModelNameStyle = {
   fontSize: string
 }
 
+// ───────── Couleur de chaque modèle : numéro unique en base (models.color_idx, attribué à la création, jamais réutilisé).
+// n° 0 = Bruno_Dickemz (violet). Teinte par l'angle d'or (deux numéros proches = teintes éloignées), clarté et saturation
+// alternées : des dizaines de milliers de variantes, jamais deux modèles de la même couleur.
+const colorIdxOf = new Map<string, number>()
+/** Numéros de couleur chargés avec la liste des modèles (lib/model-names). */
+export function setModelColorIndex(name: string, idx: number) {
+  colorIdxOf.set(name.toLowerCase(), idx)
+}
+const GOLDEN = 137.50776405
+const LIGHT = [80, 70, 87, 64]
+const SAT = [95, 78, 100]
+export function modelHue(idx: number): { hue: number; sat: number; light: number } {
+  const hue = Math.round(((254 + idx * GOLDEN) % 360) * 10) / 10
+  return { hue, sat: SAT[Math.floor(idx / LIGHT.length) % SAT.length], light: LIGHT[idx % LIGHT.length] }
+}
+/** Police par défaut de tous les modèles : celle de Bruno_Dickemz (Georgia italique, nom écrit tel quel). */
+const DEFAULT_NAME_FONT = 'georgia'
+
 export function modelNameStyle(name: string, cfg: SiteSettings['names'] = DEFAULT_SETTINGS.names): ModelNameStyle {
   const h = hash(name.toLowerCase())
-  const f = NAME_FONTS.find((x) => x.key === cfg.font) ?? NAME_FONTS[h % NAME_FONTS.length]
-  const hue = (h >>> 8) % 360
+  const f = NAME_FONTS.find((x) => x.key === cfg.font) ?? NAME_FONTS.find((x) => x.key === DEFAULT_NAME_FONT)!
+  const idx = colorIdxOf.get(name.toLowerCase())
+  // modèle pas encore chargé : teinte d'après son nom, remplacée dès que son numéro arrive
+  const c = idx != null ? modelHue(idx) : { hue: (h >>> 8) % 360, sat: 95, light: 80 }
+  const hue = c.hue
   const len = name.length
   const px = (len <= 8 ? 1.7 : len <= 14 ? 1.35 : len <= 22 ? 1.1 : 0.95) * cfg.size
-  let color = `hsl(${hue} 95% 80%)`
+  let color = `hsl(${hue} ${c.sat}% ${c.light}%)`
   let stroke = `hsl(${(hue + 180) % 360} 85% 14%)`
   let glow = `hsl(${(hue + 30) % 360} 100% 55%)`
   if (cfg.colorMode === 'palette') {

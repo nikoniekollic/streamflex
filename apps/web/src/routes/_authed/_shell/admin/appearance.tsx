@@ -327,7 +327,7 @@ function AppearanceAdmin() {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <Field label="Police">
             <select className={selectCls} value={names.font} onChange={(e) => edit('names', { font: e.target.value })}>
-              <option value="auto">Différente pour chaque modèle</option>
+              <option value="auto">Comme Bruno_Dickemz (Georgia italique) pour tous</option>
               {NAME_FONTS.map((f) => (
                 <option key={f.key} value={f.key}>
                   {f.label}
@@ -381,7 +381,7 @@ function AppearanceAdmin() {
           <div className="flex flex-wrap gap-2">
             {(
               [
-                ['auto', 'Automatiques (une teinte par modèle)'],
+                ['auto', 'Automatiques (une couleur unique par modèle)'],
                 ['palette', 'Palette choisie'],
                 ['fixed', 'Une seule couleur'],
               ] as const

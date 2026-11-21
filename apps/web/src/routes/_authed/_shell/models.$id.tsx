@@ -17,6 +17,7 @@ import { hasVideoFilters, validateFilters, type VideoFilters } from '@/lib/searc
 import { fetchModelPage } from '@/lib/model-catalog'
 import { gridPageSize } from '@/lib/screen'
 import { modelNameStyle } from '@/lib/cover'
+import { useModelColors } from '@/lib/model-names'
 import { useSiteSettings } from '@/lib/site-settings'
 
 type ModelSearch = VideoFilters & { q?: string; page?: number }
@@ -44,6 +45,7 @@ export const Route = createFileRoute('/_authed/_shell/models/$id')({
 function ModelPage() {
   const { model, titles, total, page, per } = Route.useLoaderData()
   const { names } = useSiteSettings()
+  useModelColors()
   const navigate = useNavigate()
   const search = Route.useSearch()
   const filtered = hasVideoFilters(search) || !!search.q
