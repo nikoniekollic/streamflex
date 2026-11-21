@@ -180,6 +180,25 @@ function loadModels(supabase: any): Promise<ModelLite[]> {
   return modelsCache
 }
 
+// modèles utilisés pour les derniers déplacements : remontés en tête de liste (dernier utilisé en premier)
+const RECENT_KEY = 'sf:move-recent-models:v1'
+const RECENT_MAX = 8
+function readRecent(): string[] {
+  try {
+    const v = JSON.parse(localStorage.getItem(RECENT_KEY) ?? '[]') as unknown
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
+  } catch {
+    return []
+  }
+}
+function pushRecent(id: string) {
+  try {
+    localStorage.setItem(RECENT_KEY, JSON.stringify([id, ...readRecent().filter((x) => x !== id)].slice(0, RECENT_MAX)))
+  } catch {
+    /* stockage indisponible : ordre alphabétique seulement */
+  }
+}
+
 /** « Déplacer vers un modèle » : ouvre à droite la liste des modèles (avec recherche) ; un clic sur un modèle lance le
  *  déplacement — vidéos ET fichiers 1fichier vont dans le dossier de ce modèle. */
 function MoveToModel({ sel }: { sel: VideoSelection }) {
@@ -202,12 +221,29 @@ function MoveToModel({ sel }: { sel: VideoSelection }) {
     }
   }, [open, models, supabase])
   const norm = (x: string) => x.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase()
-  const shown = (models ?? []).filter((m) => !q.trim() || norm(m.name).includes(norm(q.trim())))
+  const match = (m: ModelLite) => !q.trim() || norm(m.name).includes(norm(q.trim()))
+  const byId = new Map((models ?? []).map((m) => [m.id, m]))
+  const recent = open ? readRecent().map((id) => byId.get(id)).filter((m): m is ModelLite => !!m && match(m)) : []
+  const recentIds = new Set(recent.map((m) => m.id))
+  const shown = (models ?? []).filter((m) => match(m) && !recentIds.has(m.id))
   const pick = (id: string | null, name: string) => {
     setOpen(false)
     setQ('')
+    if (id) pushRecent(id)
     void sel.move(id, name)
   }
+  const item = (m: ModelLite) => (
+    <button
+      key={m.id}
+      type="button"
+      role="option"
+      aria-selected={false}
+      onClick={() => pick(m.id, m.name)}
+      className="block w-full truncate rounded px-2 py-1.5 text-left text-sm hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
+    >
+      {m.name}
+    </button>
+  )
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -236,19 +272,15 @@ function MoveToModel({ sel }: { sel: VideoSelection }) {
               </button>
             </p>
           )}
-          {models && shown.length === 0 && <p className="p-2 text-sm text-muted-foreground">Aucun modèle ne correspond.</p>}
-          {shown.map((m) => (
-            <button
-              key={m.id}
-              type="button"
-              role="option"
-              aria-selected={false}
-              onClick={() => pick(m.id, m.name)}
-              className="block w-full truncate rounded px-2 py-1.5 text-left text-sm hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
-            >
-              {m.name}
-            </button>
-          ))}
+          {recent.length > 0 && (
+            <>
+              <p className="px-2 pt-1 pb-0.5 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">Récents</p>
+              {recent.map(item)}
+              <div className="my-1 border-t" />
+            </>
+          )}
+          {models && shown.length === 0 && recent.length === 0 && <p className="p-2 text-sm text-muted-foreground">Aucun modèle ne correspond.</p>}
+          {shown.map(item)}
         </div>
         <button
           type="button"
