@@ -327,10 +327,17 @@ async function syncFolder(folderId: number, videos: RemoteFile[], modelName: str
     }
   }
   if (complete && failed === 0) {
-    const { data, error } = await db.rpc('sync_onefichier_missing', { p_folder: folderId, p_ids: videos.map((v) => v.id), p_trusted: trusted })
-    if (!error) {
+    // par lots de 1 000 (limite de 8 s du serveur) : rappel tant qu'il en reste à marquer
+    const ids = videos.map((v) => v.id)
+    for (let round = 0; round < 30; round++) {
+      const { data, error } = await db.rpc('sync_onefichier_missing', { p_folder: folderId, p_ids: ids, p_trusted: trusted })
+      if (error) {
+        console.error('[onefichier-import] manquants', folderId, error.message)
+        break
+      }
       missing = Number(data?.missing ?? 0)
       suspect = data?.suspect === true
+      if (data?.more !== true) break
     }
   }
   return { imported, ignored, failed, fixed, renamed, restored, missing, suspect, duplicates }
