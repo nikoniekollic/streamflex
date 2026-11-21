@@ -7,7 +7,7 @@ import { MovieCard, MovieCardSkeleton } from '@/components/catalog/MovieCard'
 import { SelectModeButton, SelectOverlay, SelectionBar, useVideoSelection } from '@/components/catalog/VideoSelection'
 import { FilterPanel } from '@/components/catalog/FilterPanel'
 import { ModelCard } from '@/components/catalog/ModelCard'
-import { SEARCH_PAGE_SIZE, hasVideoFilters, searchTitles, validateSearchParams, type SearchParams } from '@/lib/search'
+import { SEARCH_PAGE_SIZE, hasVideoFilters, searchTitles, validateSearchParams, videoCount, type SearchParams } from '@/lib/search'
 
 export const Route = createFileRoute('/_authed/_shell/search')({
   validateSearch: validateSearchParams,
@@ -114,7 +114,7 @@ function Header({ q, total, models, loading }: { q?: string; total: number; mode
       </h1>
       <span className="flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite">
         {loading ? <Loader2 className="size-4 animate-spin" /> : null}
-        {total} vidéo{total > 1 ? 's' : ''}
+        {videoCount(total)}
         {models > 0 && ` · ${models} modèle${models > 1 ? 's' : ''}`}
       </span>
     </div>

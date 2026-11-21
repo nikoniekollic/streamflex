@@ -167,3 +167,11 @@ export function parseSpan(v: string): number | undefined {
   for (const [, n, unit] of parts) sec += +n * (unit === 'h' ? 3600 : unit === 's' || unit === 'sec' ? 1 : 60)
   return sec > 0 ? Math.round(sec) : undefined
 }
+
+/** Total plafonné par la base au-delà de 10 000 résultats (mot très courant : la base ne lit plus toute la table). */
+export const SEARCH_TOTAL_CAP = 10_000
+/** « 2 065 vidéos », « plus de 10 000 vidéos ». */
+export function videoCount(total: number): string {
+  if (total === SEARCH_TOTAL_CAP + 1) return 'plus de 10 000 vidéos'
+  return `${total.toLocaleString('fr-FR')} vidéo${total > 1 ? 's' : ''}`
+}

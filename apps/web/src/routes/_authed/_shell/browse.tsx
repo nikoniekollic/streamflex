@@ -8,7 +8,7 @@ import { PaginationBar } from '@/components/ui/pagination-bar'
 import { RandomPlayButton } from '@/components/catalog/RandomPlay'
 import { MovieCard } from '@/components/catalog/MovieCard'
 import { FilterPanel, type PanelValue } from '@/components/catalog/FilterPanel'
-import { hasVideoFilters, queryVideos, validateFilters, type VideoFilters } from '@/lib/search'
+import { hasVideoFilters, queryVideos, validateFilters, videoCount, type VideoFilters } from '@/lib/search'
 
 type BrowseSearch = VideoFilters & { q?: string; model?: string; page?: number }
 const UUID = /^[0-9a-f-]{36}$/i
@@ -55,7 +55,7 @@ function Browse() {
     <section className="px-6 py-10 md:px-12">
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold">
-          Catalogue <span className="text-sm font-normal text-muted-foreground">{total} vidéo{total > 1 ? 's' : ''}{hasVideoFilters(search) || search.q ? ' (filtrées)' : ''}</span>
+          Catalogue <span className="text-sm font-normal text-muted-foreground">{videoCount(total)}{hasVideoFilters(search) || search.q ? ' (filtrées)' : ''}</span>
         </h1>
         <div className="flex flex-wrap items-center gap-3">
           <SelectModeButton sel={sel} />
