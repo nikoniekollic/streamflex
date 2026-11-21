@@ -4,14 +4,14 @@
 import { useEffect, useState } from 'react'
 import { useRouteContext, useRouter } from '@tanstack/react-router'
 import { toast } from 'sonner'
-import { CheckCircle2, Circle, FolderInput, ListChecks, Loader2, Trash2, X } from 'lucide-react'
+import { CheckCircle2, ChevronRight, Circle, FolderInput, ListChecks, Loader2, Trash2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { addSelectionHost, setSelectMode, useHasSelectionHost, useSelectMode, useSelection } from '@/lib/selection'
 import { holdDurations } from '@/lib/duration-probe'
 import { adminErrorMessage, bulkDelete, moveToModel } from '@/lib/admin'
-import { listModels, type AdminModel } from '@/lib/models'
-import { NativeSelect } from '@/components/ui/native-select'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Input } from '@/components/ui/input'
 
 export type VideoSelection = ReturnType<typeof useVideoSelection>
 
@@ -164,47 +164,101 @@ export function SelectOverlay({ sel, id, title }: { sel: VideoSelection; id: str
   )
 }
 
-// modèles chargés une fois (liste de l'admin), partagés par toutes les barres de sélection
-let modelsCache: Promise<AdminModel[]> | null = null
+// modèles chargés une fois (nom seulement : lecture directe, rapide), partagés par toutes les barres de sélection
+type ModelLite = { id: string; name: string }
+let modelsCache: Promise<ModelLite[]> | null = null
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function loadModels(supabase: any): Promise<ModelLite[]> {
+  modelsCache ??= (async () => {
+    const { data, error } = await supabase.from('models').select('id, name').order('name').limit(2000)
+    if (error) throw error
+    return ((data ?? []) as ModelLite[]).sort((a, b) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' }))
+  })().catch((e: unknown) => {
+    modelsCache = null // nouvel essai à la prochaine ouverture
+    throw e
+  })
+  return modelsCache
+}
 
-/** Liste déroulante des modèles + « Déplacer » : vidéos ET fichiers 1fichier vont dans le modèle choisi. */
+/** « Déplacer vers un modèle » : ouvre à droite la liste des modèles (avec recherche) ; un clic sur un modèle lance le
+ *  déplacement — vidéos ET fichiers 1fichier vont dans le dossier de ce modèle. */
 function MoveToModel({ sel }: { sel: VideoSelection }) {
   const { supabase } = useRouteContext({ from: '/_authed' })
-  const [models, setModels] = useState<AdminModel[]>([])
-  const [target, setTarget] = useState('')
+  const [open, setOpen] = useState(false)
+  const [models, setModels] = useState<ModelLite[] | null>(null)
+  const [failed, setFailed] = useState<string | null>(null)
+  const [q, setQ] = useState('')
+  const n = sel.selected.size
   useEffect(() => {
+    if (!open || models) return
     let off = false
-    modelsCache ??= listModels(supabase).catch((e) => {
-      modelsCache = null
-      throw e
-    })
-    modelsCache.then((m) => !off && setModels([...m].sort((a, b) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' }))), () => undefined)
+    setFailed(null)
+    loadModels(supabase).then(
+      (m) => !off && setModels(m),
+      (e: unknown) => !off && setFailed((e as Error)?.message ?? 'erreur'),
+    )
     return () => {
       off = true
     }
-  }, [supabase])
-  const n = sel.selected.size
-  const pick = (v: string) => {
-    setTarget(v)
-    if (!v) return
-    const name = v === '__none' ? '' : (models.find((m) => m.id === v)?.name ?? '')
-    void sel.move(v === '__none' ? null : v, name).finally(() => setTarget(''))
+  }, [open, models, supabase])
+  const norm = (x: string) => x.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase()
+  const shown = (models ?? []).filter((m) => !q.trim() || norm(m.name).includes(norm(q.trim())))
+  const pick = (id: string | null, name: string) => {
+    setOpen(false)
+    setQ('')
+    void sel.move(id, name)
   }
   return (
-    <span className="flex items-center gap-2">
-      {sel.working ? <Loader2 className="size-4 animate-spin" /> : <FolderInput className="size-4 text-muted-foreground" />}
-      <span className="w-60">
-        <NativeSelect aria-label="Déplacer vers un modèle" value={target} onChange={(e) => pick(e.target.value)} disabled={sel.working || n === 0}>
-          <option value="">{n === 0 ? 'Sélectionne des vidéos pour les déplacer' : `Déplacer ${n} vidéo${n > 1 ? 's' : ''} vers le modèle…`}</option>
-          {models.map((m) => (
-            <option key={m.id} value={m.id}>
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button size="sm" variant="secondary" disabled={sel.working || n === 0}>
+          {sel.working ? <Loader2 className="animate-spin" /> : <FolderInput />}
+          {n === 0 ? 'Déplacer vers un modèle' : `Déplacer ${n} vers un modèle`}
+          <ChevronRight className="opacity-70" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent side="right" align="start" sideOffset={8} collisionPadding={12} className="w-72 p-2">
+        <p className="px-1 pb-2 text-xs text-muted-foreground">
+          {n} vidéo{n > 1 ? 's' : ''} → choisis le modèle (fichiers déplacés aussi chez 1fichier)
+        </p>
+        <Input autoFocus placeholder="Rechercher un modèle…" value={q} onChange={(e) => setQ(e.target.value)} className="mb-2 h-8" />
+        <div className="max-h-80 overflow-y-auto" role="listbox" aria-label="Modèles">
+          {models === null && !failed && (
+            <p className="flex items-center gap-2 p-2 text-sm text-muted-foreground">
+              <Loader2 className="size-4 animate-spin" /> Chargement des modèles…
+            </p>
+          )}
+          {failed && (
+            <p className="p-2 text-sm text-destructive">
+              Modèles indisponibles : {failed}{' '}
+              <button type="button" className="underline" onClick={() => setModels(null)}>
+                Réessayer
+              </button>
+            </p>
+          )}
+          {models && shown.length === 0 && <p className="p-2 text-sm text-muted-foreground">Aucun modèle ne correspond.</p>}
+          {shown.map((m) => (
+            <button
+              key={m.id}
+              type="button"
+              role="option"
+              aria-selected={false}
+              onClick={() => pick(m.id, m.name)}
+              className="block w-full truncate rounded px-2 py-1.5 text-left text-sm hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
+            >
               {m.name}
-            </option>
+            </button>
           ))}
-          <option value="__none">— Détacher du modèle</option>
-        </NativeSelect>
-      </span>
-    </span>
+        </div>
+        <button
+          type="button"
+          onClick={() => pick(null, '')}
+          className="mt-2 block w-full rounded border-t px-2 pt-2 pb-1 text-left text-xs text-muted-foreground hover:text-foreground"
+        >
+          Détacher du modèle (rien ne bouge chez 1fichier)
+        </button>
+      </PopoverContent>
+    </Popover>
   )
 }
 
