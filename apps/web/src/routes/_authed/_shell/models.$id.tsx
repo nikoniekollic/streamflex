@@ -11,7 +11,8 @@ import { FilterPanel, type PanelValue } from '@/components/catalog/FilterPanel'
 import { ClearMarks } from '@/components/catalog/ClearMarks'
 import { RandomPlayButton } from '@/components/catalog/RandomPlay'
 import { VerifyFilesButton } from '@/components/admin/VerifyFilesButton'
-import { SelectModeButton, SelectOverlay, SelectionBar, useVideoSelection } from '@/components/catalog/VideoSelection'
+import { SelectModeButton, SelectOverlay, SelectionBar, useSelecting, useVideoSelection } from '@/components/catalog/VideoSelection'
+import { useInfiniteTitles } from '@/components/catalog/useInfiniteTitles'
 import { hasVideoFilters, validateFilters, type VideoFilters } from '@/lib/search'
 import { fetchModelPage } from '@/lib/model-catalog'
 import { gridPageSize } from '@/lib/screen'
@@ -51,9 +52,18 @@ function ModelPage() {
   const s = modelNameStyle(model.name, names)
   const pages = Math.max(1, Math.ceil(total / per))
   const byLength = search.sort === 'longest' || search.sort === 'shortest' || search.min != null || search.max != null
-  const durations = useModelRealDurations(model.id, byLength, search.sort === 'shortest')
-  const sel = useVideoSelection(titles)
+  const selecting = useSelecting()
+  const durations = useModelRealDurations(model.id, byLength, search.sort === 'shortest', selecting)
   const { supabase: sb } = Route.useRouteContext()
+  // mode sélection : les pages suivantes s'ajoutent en défilant (plus de pagination)
+  const { page: _p, ...filters } = search
+  const inf = useInfiniteTitles(selecting, titles, page, pages, `${model.id}|${JSON.stringify(filters)}|${page}|${per}`, (p) =>
+    fetchModelPage(sb, model.id, p, filters, per).then((r) => r.titles),
+  )
+  const list = inf.items
+  const sel = useVideoSelection(list, (ids, how) => {
+    if (how.deleted || how.modelId !== model.id) inf.drop(ids) // partis ailleurs : retirés de la liste affichée
+  })
   return (
     <section className="px-6 py-10 md:px-12">
       <Link to="/models" className="mb-4 inline-flex items-center gap-1 text-sm text-neutral-400 hover:text-white">
@@ -97,15 +107,15 @@ function ModelPage() {
         <p className="mb-4 flex items-center gap-2 text-xs text-muted-foreground">
           <Loader2 className="size-3.5 animate-spin" />
           Lecture des durées réelles : {durations.total - durations.pending} / {durations.total}
-          {byLength ? ' — le tri par durée sera recalculé à la fin.' : ''}
+          {selecting ? ' — en pause pendant la sélection (les aperçus passent en priorité).' : byLength ? ' — le tri par durée sera recalculé à la fin.' : ''}
         </p>
       )}
-      {titles.length === 0 ? (
+      {list.length === 0 ? (
         <p className="text-muted-foreground">{filtered ? 'Aucune vidéo ne correspond à ces filtres.' : 'Aucune vidéo publiée pour ce modèle.'}</p>
       ) : (
-        <PlayList titles={titles} label={model.name}>
+        <PlayList titles={list} label={model.name}>
 <ul className="sf-grid">
-          {titles.map((t) => (
+          {list.map((t) => (
             <li key={t.id} className="relative">
               <MovieCard title={t} />
               <SelectOverlay sel={sel} id={t.id} title={t.title} />
@@ -114,7 +124,13 @@ function ModelPage() {
         </ul>
 </PlayList>
       )}
-      <PaginationBar page={page} pages={pages} onPage={(p) => go({ ...search, page: p })} />
+      {selecting ? (
+        <div ref={inf.sentinel} className="flex justify-center py-8 text-sm text-muted-foreground">
+          {inf.done ? `Fin de la liste — ${list.length} vidéo${list.length > 1 ? 's' : ''} affichée${list.length > 1 ? 's' : ''}` : <Loader2 className="size-5 animate-spin" />}
+        </div>
+      ) : (
+        <PaginationBar page={page} pages={pages} onPage={(p) => go({ ...search, page: p })} />
+      )}
     </section>
   )
 }
@@ -123,7 +139,7 @@ function ModelPage() {
  * Vidéos du modèle dont la base ne connaît pas la durée réelle (seulement estimée d'après la taille du fichier) : elles sont
  * toutes lues, puis la page est rechargée si elle est triée ou filtrée par durée — l'ordre suit alors les vraies durées.
  */
-function useModelRealDurations(modelId: string, byLength: boolean, shortestFirst: boolean) {
+function useModelRealDurations(modelId: string, byLength: boolean, shortestFirst: boolean, paused: boolean) {
   const router = useRouter()
   const [ids, setIds] = useState<string[]>([])
   useEffect(() => {
@@ -158,7 +174,7 @@ function useModelRealDurations(modelId: string, byLength: boolean, shortestFirst
   const { pending } = useDurationProgress(ids)
   const before = useRef(0)
   const latest = useRef(byLength)
-  latest.current = byLength
+  latest.current = byLength && !paused // pas de rechargement de l'ordre pendant la sélection (la liste bougerait sous les doigts)
   // longue lecture : l'ordre est recalculé toutes les 45 s avec les durées déjà lues
   const reading = pending > 0
   useEffect(() => {

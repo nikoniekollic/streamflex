@@ -12,6 +12,7 @@ import { isModelCover, isStillCover } from '@/lib/cover'
 import { ModelName } from '@/components/catalog/ModelName'
 import { HoverPreview } from '@/components/catalog/HoverPreview'
 import { PlaylistMenu } from '@/components/catalog/PlaylistMenu'
+import { CardSelectButton } from '@/components/catalog/VideoSelection'
 import { formatDuration, useCoverPos, useModelInfo, useTitleLength } from '@/lib/model-names'
 import { EmojiView } from '@/lib/emoji-media'
 import { durationCss, pin, ratioCss, useSiteSettings } from '@/lib/site-settings'
@@ -218,6 +219,7 @@ export function MovieCard({ title, variant = 'poster', progress, watch, favorite
             </button>
           )}
         <div className="absolute top-2 right-2 z-[5] flex gap-1.5">
+          {isMovie && <CardSelectButton titleId={title.id} />}
           {isMovie && <PlaylistMenu titleId={title.id} />}
           <FavoriteButton title={title} />
         </div>

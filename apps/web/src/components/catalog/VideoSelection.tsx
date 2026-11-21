@@ -7,38 +7,33 @@ import { toast } from 'sonner'
 import { CheckCircle2, Circle, FolderInput, ListChecks, Loader2, Trash2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { useSelection } from '@/lib/selection'
+import { addSelectionHost, setSelectMode, useHasSelectionHost, useSelectMode, useSelection } from '@/lib/selection'
+import { holdDurations } from '@/lib/duration-probe'
 import { adminErrorMessage, bulkDelete, moveToModel } from '@/lib/admin'
 import { listModels, type AdminModel } from '@/lib/models'
 import { NativeSelect } from '@/components/ui/native-select'
 
-// Mode sélection : gardé d'une page à l'autre et au rechargement de l'onglet, comme la sélection elle-même
-const MODE_KEY = 'sf:browse-select-mode:v1'
-function readMode(): boolean {
-  try {
-    return sessionStorage.getItem(MODE_KEY) === '1'
-  } catch {
-    return false
-  }
-}
-function saveMode(on: boolean) {
-  try {
-    if (on) sessionStorage.setItem(MODE_KEY, '1')
-    else sessionStorage.removeItem(MODE_KEY)
-  } catch {
-    /* stockage indisponible : le mode reste actif jusqu'au rechargement */
-  }
-}
-
 export type VideoSelection = ReturnType<typeof useVideoSelection>
 
-/** État de la sélection pour les vidéos affichées sur cette page. */
-export function useVideoSelection(titles: { id: string }[]) {
+/** Mode sélection actif (admin) ? Utilisable avant de connaître la liste affichée (défilement infini). */
+export function useSelecting(): boolean {
+  const { isAdmin, isKids } = useRouteContext({ from: '/_authed' })
+  return useSelectMode() && isAdmin && !isKids
+}
+
+type Gone = (ids: string[], how: { deleted: boolean; modelId: string | null }) => void
+
+/** État de la sélection pour les vidéos affichées sur cette page. `onGone` : après un déplacement / une suppression. */
+export function useVideoSelection(titles: { id: string }[], onGone?: Gone) {
   const { supabase, isAdmin, isKids } = useRouteContext({ from: '/_authed' })
   const router = useRouter()
   const canSelect = isAdmin && !isKids
-  const [mode, setModeState] = useState(readMode)
+  const mode = useSelectMode()
   const selecting = canSelect && mode
+  // cette page sait afficher la sélection : le bouton dossier des jaquettes y apparaît
+  useEffect(() => (canSelect ? addSelectionHost() : undefined), [canSelect])
+  // pendant la sélection, la lecture des durées (et l'analyse complète de l'admin) est en pause : connexions laissées aux aperçus
+  useEffect(() => (selecting ? holdDurations() : undefined), [selecting])
   const [selected, setSelected] = useSelection()
   const [working, setWorking] = useState(false)
   const allOnPage = titles.length > 0 && titles.every((t) => selected.has(t.id))
@@ -49,10 +44,7 @@ export function useVideoSelection(titles: { id: string }[]) {
     working,
     allOnPage,
     pageCount: titles.length,
-    setMode: (on: boolean) => {
-      saveMode(on)
-      setModeState(on)
-    },
+    setMode: setSelectMode,
     clear: () => setSelected(new Set()),
     toggle: (id: string) =>
       setSelected((s) => {
@@ -85,6 +77,7 @@ export function useVideoSelection(titles: { id: string }[]) {
             ? `${r.moved} vidéo${r.moved > 1 ? 's' : ''} déplacée${r.moved > 1 ? 's' : ''} vers « ${modelName} » (${r.filesMoved} fichier${r.filesMoved > 1 ? 's' : ''} déplacé${r.filesMoved > 1 ? 's' : ''} chez 1fichier${r.created ? ', dossier créé' : ''})`
             : `${r.moved} vidéo${r.moved > 1 ? 's' : ''} détachée${r.moved > 1 ? 's' : ''}`,
         )
+        onGone?.(ids, { deleted: false, modelId })
         setSelected(new Set())
       } catch (e) {
         toast.error(adminErrorMessage(e))
@@ -101,6 +94,7 @@ export function useVideoSelection(titles: { id: string }[]) {
       try {
         await bulkDelete(supabase, ids)
         toast.success(`Supprimé${ids.length > 1 ? 's' : ''} : ${ids.length} vidéo${ids.length > 1 ? 's' : ''}`)
+        onGone?.(ids, { deleted: true, modelId: null })
         setSelected(new Set())
       } catch (e) {
         toast.error(adminErrorMessage(e))
@@ -129,12 +123,12 @@ export function SelectionBar({ sel }: { sel: VideoSelection }) {
   return (
     <div className="sticky top-16 z-40 mb-4 flex flex-wrap items-center gap-2 rounded-lg border bg-background/95 p-3 backdrop-blur">
       <Button size="sm" variant="outline" disabled={sel.pageCount === 0 || sel.working} onClick={sel.togglePage}>
-        {sel.allOnPage ? 'Désélectionner cette page' : 'Tout sélectionner (cette page)'}
+        {sel.allOnPage ? `Désélectionner les ${sel.pageCount} affichées` : `Tout sélectionner (${sel.pageCount} affichées)`}
       </Button>
       <span className="text-sm text-muted-foreground">
         {n > 0
-          ? `${n} vidéo${n > 1 ? 's' : ''} sélectionnée${n > 1 ? 's' : ''} au total — passe à la page suivante pour en ajouter`
-          : 'Clique sur les vidéos pour les sélectionner'}
+          ? `${n} vidéo${n > 1 ? 's' : ''} sélectionnée${n > 1 ? 's' : ''} au total — fais défiler pour en ajouter`
+          : 'Clique sur les vidéos pour les sélectionner (durées en pause, aperçus prioritaires)'}
       </span>
       <div className="ml-auto flex flex-wrap items-center gap-2">
         <MoveToModel sel={sel} />
@@ -211,5 +205,39 @@ function MoveToModel({ sel }: { sel: VideoSelection }) {
         </NativeSelect>
       </span>
     </span>
+  )
+}
+
+/** Bouton dossier + flèche sur une jaquette (admin, pages avec sélection) : coche cette vidéo et passe en mode sélection. */
+export function CardSelectButton({ titleId }: { titleId: string }) {
+  const { isAdmin, isKids } = useRouteContext({ from: '/_authed' })
+  const host = useHasSelectionHost()
+  const [selected, setSelected] = useSelection()
+  if (!isAdmin || isKids || !host) return null
+  const on = selected.has(titleId)
+  return (
+    <button
+      type="button"
+      aria-pressed={on}
+      aria-label={on ? 'Retirer de la sélection à déplacer' : 'Sélectionner pour déplacer'}
+      title={on ? 'Retirer de la sélection' : 'Sélectionner pour déplacer vers un modèle'}
+      onClick={(e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        setSelectMode(true)
+        setSelected((s) => {
+          const n = new Set(s)
+          if (n.has(titleId)) n.delete(titleId)
+          else n.add(titleId)
+          return n
+        })
+      }}
+      className={cn(
+        'flex size-8 items-center justify-center rounded-full border-2 text-white backdrop-blur-sm transition-all hover:scale-110 focus-visible:ring-2 focus-visible:ring-white focus-visible:outline-none',
+        on ? 'border-primary bg-primary' : 'border-neutral-300 bg-black/60 hover:border-white',
+      )}
+    >
+      <FolderInput className="size-4" strokeWidth={2.5} />
+    </button>
   )
 }

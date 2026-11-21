@@ -1,7 +1,9 @@
 import { gridPageSize } from '@/lib/screen'
 import { PlayList } from '@/components/catalog/PlayList'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { SelectModeButton, SelectOverlay, SelectionBar, useVideoSelection } from '@/components/catalog/VideoSelection'
+import { SelectModeButton, SelectOverlay, SelectionBar, useSelecting, useVideoSelection } from '@/components/catalog/VideoSelection'
+import { useInfiniteTitles } from '@/components/catalog/useInfiniteTitles'
+import { Loader2 } from 'lucide-react'
 import { PaginationBar } from '@/components/ui/pagination-bar'
 import { RandomPlayButton } from '@/components/catalog/RandomPlay'
 import { MovieCard } from '@/components/catalog/MovieCard'
@@ -32,8 +34,19 @@ export const Route = createFileRoute('/_authed/_shell/browse')({
 
 function Browse() {
   const { titles, total, page, per } = Route.useLoaderData()
-  const sel = useVideoSelection(titles)
   const search = Route.useSearch()
+  const { supabase, isKids } = Route.useRouteContext()
+  const selecting = useSelecting()
+  const pagesAll = Math.max(1, Math.ceil(total / per))
+  // mode sélection : les pages suivantes s'ajoutent en défilant (plus de pagination)
+  const { page: _p, ...filters } = search
+  const inf = useInfiniteTitles(selecting, titles, page, pagesAll, `${JSON.stringify(filters)}|${page}|${per}`, (p) =>
+    queryVideos(supabase, filters, { limit: per, offset: (p - 1) * per, kids: isKids }).then((r) => r.titles),
+  )
+  const list = inf.items
+  const sel = useVideoSelection(list, (ids, how) => {
+    if (how.deleted || (filters.model && how.modelId !== filters.model)) inf.drop(ids)
+  })
   const navigate = useNavigate()
   const go = (p: BrowseSearch) => void navigate({ to: '/browse', search: { ...p, page: p.page && p.page > 1 ? p.page : undefined } })
   const apply = (v: PanelValue) => go({ q: v.q, sort: v.sort, min: v.min, max: v.max, exact: v.exact, model: v.model })
@@ -51,12 +64,12 @@ function Browse() {
       </div>
       <SelectionBar sel={sel} />
       <FilterPanel value={search} onApply={apply} showQuery showModel queryPlaceholder="Rechercher dans le catalogue…" />
-      {titles.length === 0 ? (
+      {list.length === 0 ? (
         <p className="text-muted-foreground">{hasVideoFilters(search) || search.q ? 'Aucune vidéo ne correspond à ces filtres.' : 'Aucun titre publié pour le moment.'}</p>
       ) : (
-        <PlayList titles={titles} label={'Catalogue'}>
+        <PlayList titles={list} label={'Catalogue'}>
 <ul className="sf-grid">
-          {titles.map((t) => (
+          {list.map((t) => (
             <li key={t.id} className="relative">
               <MovieCard title={t} />
               <SelectOverlay sel={sel} id={t.id} title={t.title} />
@@ -65,7 +78,13 @@ function Browse() {
         </ul>
 </PlayList>
       )}
-      <PaginationBar page={page} pages={pages} onPage={(p) => go({ ...search, page: p })} />
+      {selecting ? (
+        <div ref={inf.sentinel} className="flex justify-center py-8 text-sm text-muted-foreground">
+          {inf.done ? `Fin de la liste — ${list.length} vidéo${list.length > 1 ? 's' : ''} affichée${list.length > 1 ? 's' : ''}` : <Loader2 className="size-5 animate-spin" />}
+        </div>
+      ) : (
+        <PaginationBar page={page} pages={pages} onPage={(p) => go({ ...search, page: p })} />
+      )}
     </section>
   )
 }
