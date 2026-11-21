@@ -272,7 +272,7 @@ function retrySeconds(message: string): number {
  * jour s'il n'avait pas été modifié à la main), fichiers déplacés (modèle suivi), fichiers revenus (republiés). `complete` = la
  * liste est entière (non plafonnée) : les fichiers de ce dossier qui n'y figurent plus sont marqués « manquants ».
  */
-async function syncFolder(folderId: number, videos: RemoteFile[], modelName: string | null, publish: boolean, reassign = false, complete = true, detach = false) {
+async function syncFolder(folderId: number, videos: RemoteFile[], modelName: string | null, publish: boolean, reassign = false, complete = true, detach = false, trusted = false) {
   const db = adminClient()
   let imported = 0
   let ignored = 0
@@ -327,7 +327,7 @@ async function syncFolder(folderId: number, videos: RemoteFile[], modelName: str
     }
   }
   if (complete && failed === 0) {
-    const { data, error } = await db.rpc('sync_onefichier_missing', { p_folder: folderId, p_ids: videos.map((v) => v.id) })
+    const { data, error } = await db.rpc('sync_onefichier_missing', { p_folder: folderId, p_ids: videos.map((v) => v.id), p_trusted: trusted })
     if (!error) {
       missing = Number(data?.missing ?? 0)
       suspect = data?.suspect === true
@@ -348,7 +348,8 @@ async function scanForJob(entry: QueueEntry, job: JobRow): Promise<Outcome> {
   try {
     const listing = await listFolder(entry.id, { annotate: false })
     const videos = listing.files.filter((f) => f.video)
-    const r = await syncFolder(entry.id, videos, job.model_per_folder ? entry.model : null, job.publish === true, job.reassign === true, !listing.capped)
+    const trusted = !listing.capped && listing.ownFiles != null && listing.ownFiles === listing.files.length
+    const r = await syncFolder(entry.id, videos, job.model_per_folder ? entry.model : null, job.publish === true, job.reassign === true, !listing.capped, false, trusted)
     const subs: QueueEntry[] = listing.folders.map((f) => ({ id: f.id, name: f.name, model: childModel(entry, f.name, job.model_mode), depth: (entry.depth ?? 0) + 1 }))
     return { ok: true, entry, listing, r, subs }
   } catch (e) {
@@ -531,7 +532,11 @@ async function scanWatched(f: WatchRow, cfg: { model_per_folder: boolean; publis
       const videos = listing.files.filter((x) => x.video)
       // dossier qui a changé de modèle : toutes ses vidéos sont reclassées ; sinon seuls les fichiers arrivés d'un autre dossier
       const reassign = cfg.model_per_folder && f.reassign_pending
-      const r = await syncFolder(f.folder_id, videos, cfg.model_per_folder ? f.model_name : null, cfg.publish === true, reassign, !listing.capped, cfg.model_per_folder)
+      // relevé confirmé par 1fichier : le nombre de fichiers qu'il annonce pour ce dossier (le sien pour la racine, celui donné
+      // par le parent sinon) = le nombre reçu. Un dossier vidé pour de bon (ex. la racine) est alors vu tout de suite.
+      const announced = isRoot ? listing.ownFiles : (listing.ownFiles ?? f.parent_files)
+      const trusted = !listing.capped && announced != null && announced === listing.files.length
+      const r = await syncFolder(f.folder_id, videos, cfg.model_per_folder ? f.model_name : null, cfg.publish === true, reassign, !listing.capped, cfg.model_per_folder, trusted)
       // des fichiers ont quitté ce dossier (déplacés vers un autre modèle ?) : le parent est relu tout de suite pour repérer
       // le dossier qui les a reçus (sa signature change) et le relire en entier, au lieu d'attendre jusqu'à 10 min
       if (r.missing > 0 && f.parent_id != null) await db.from('watch_folders').update({ next_scan_at: new Date().toISOString() }).eq('folder_id', f.parent_id)

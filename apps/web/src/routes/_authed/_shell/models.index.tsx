@@ -22,7 +22,7 @@ export const Route = createFileRoute('/_authed/_shell/models/')({
   loaderDeps: ({ search }) => search,
   loader: async ({ context, deps }) => {
     const per = gridPageSize() // lignes complètes, selon le nombre de colonnes de cet écran
-    return { ...(await fetchPublicModels(context.supabase, deps.page ?? 1, per, { sort: deps.sort, q: deps.q })), page: deps.page ?? 1, per }
+    return { ...(await fetchPublicModels(context.supabase, deps.page ?? 1, per, { sort: deps.sort ?? 'az', q: deps.q })), page: deps.page ?? 1, per }
   },
   staleTime: 5 * 60_000,
   component: ModelsPage,
@@ -65,7 +65,7 @@ function ModelsPage() {
           <ArrowDownUp className="size-4" aria-hidden />
           <span className="sr-only sm:not-sr-only">Trier par</span>
           <select
-            value={search.sort ?? 'most'}
+            value={search.sort ?? 'az'}
             onChange={(e) => go({ q: search.q, sort: validModelSort(e.target.value) })}
             className="h-10 rounded-md border border-white/10 bg-neutral-900 px-2 text-sm text-white"
             aria-label="Trier les modèles"

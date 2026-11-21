@@ -21,7 +21,7 @@ export const MODEL_SORTS: { value: ModelSort; label: string }[] = [
   { value: 'az', label: 'Nom A → Z' },
   { value: 'za', label: 'Nom Z → A' },
 ]
-export const validModelSort = (v: unknown): ModelSort | undefined => (MODEL_SORTS.some((o) => o.value === v) && v !== 'most' ? (v as ModelSort) : undefined)
+export const validModelSort = (v: unknown): ModelSort | undefined => (MODEL_SORTS.some((o) => o.value === v) && v !== 'az' ? (v as ModelSort) : undefined)
 
 export async function fetchPublicModels(s: TypedSupabaseClient, page = 1, per = MODELS_PER_PAGE, opts: { sort?: ModelSort; q?: string } = {}): Promise<{ models: PublicModel[]; total: number }> {
   const { data, error } = await raw(s).rpc('catalog_models', { p_limit: per, p_offset: (page - 1) * per, p_sort: opts.sort ?? null, p_q: opts.q ?? null })
