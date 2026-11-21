@@ -17,7 +17,8 @@ import { stillUrlFor } from '@/lib/cover'
 export function CoverThumb({ titleId, coverPos, fallback, className, order = 0, direct = false }: { titleId: string; coverPos: number | null; fallback?: ReactNode; className?: string; order?: number; direct?: boolean }) {
   const { activeProfile } = useActiveProfile()
   const profileId = activeProfile?.id
-  const fit = CSS_FIT[useSiteSettings().preview.cardFit]
+  const { cardFit, clipSeconds } = useSiteSettings().preview
+  const fit = CSS_FIT[cardFit]
   // le lien appartient à UN film : quand la vignette change de film (recapture d'un modèle), l'ancien lien ne doit pas servir
   const [got, setGot] = useState<{ id: string; url: string | null }>(() => ({ id: titleId, url: peekPreviewUrl(titleId) }))
   const url = got.id === titleId ? got.url : peekPreviewUrl(titleId)
@@ -69,7 +70,7 @@ export function CoverThumb({ titleId, coverPos, fallback, className, order = 0, 
   useEffect(() => {
     const h = host.current
     if (!h || !url || !near || !needVideo) return
-    const slot = acquireSlot(titleId, url, 30, rank, coverPos)
+    const slot = acquireSlot(titleId, url, clipSeconds, rank, coverPos)
     slot.el.style.objectFit = fit
     attachSlot(slot, h)
     const sync = () => {

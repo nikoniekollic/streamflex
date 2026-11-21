@@ -485,7 +485,7 @@ function AppearanceAdmin() {
             <PosSelect value={preview.hoverPos} onChange={(v) => edit('preview', { hoverPos: v })} />
           </Field>
           <Field label="Durée de l’extrait en boucle">
-            <Range value={preview.clipSeconds} min={10} max={90} step={5} onChange={(v) => edit('preview', { clipSeconds: v })} format={(v) => `${v} s`} />
+            <Range value={preview.clipSeconds} min={3} max={90} step={1} onChange={(v) => edit('preview', { clipSeconds: v })} format={(v) => `${v} s`} />
           </Field>
           <Field label="Volume">
             <Range value={preview.volume} min={0} max={1} step={0.05} onChange={(v) => edit('preview', { volume: v })} format={(v) => `${Math.round(v * 100)} %`} />

@@ -132,7 +132,7 @@ export const DEFAULT_SETTINGS: SiteSettings = {
   preview: {
     fit: 'auto',
     hoverPos: 'center',
-    clipSeconds: 30,
+    clipSeconds: 5,
     volume: 0.7,
     pauseButton: true,
     cardFit: 'cover',
@@ -248,7 +248,7 @@ export function normalizeSettings(input: unknown): SiteSettings {
     preview: {
       fit: oneOf(p.fit, ['auto', 'cover', 'stretch'] as const, 'auto'),
       hoverPos: oneOf(p.hoverPos, POS, 'center'),
-      clipSeconds: clamp(p.clipSeconds, 10, 90, d.preview.clipSeconds),
+      clipSeconds: clamp(p.clipSeconds, 3, 90, d.preview.clipSeconds),
       volume: clamp(p.volume, 0, 1, d.preview.volume),
       pauseButton: p.pauseButton !== false,
       ambient: p.ambient !== false,
