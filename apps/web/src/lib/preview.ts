@@ -319,6 +319,7 @@ export function cancelWarm(titleId: string) {
 const STILL_MAX = 24 // jaquettes autorisées à garder une vidéo ; le chargement, lui, passe 6 par 6 (lib/video-pool)
 const visibleOrder: string[] = []
 const stillOrder: string[] = []
+const onScreen = new Set<string>() // jaquettes réellement à l'écran (stillOrder garde aussi celles sorties depuis moins de 3 s)
 const failed = new Set<string>()
 const ambientListeners = new Set<() => void>()
 let ambientVersion = 0
@@ -360,6 +361,14 @@ export function setStillVisible(id: string, visible: boolean) {
   if (toggle(stillOrder, id, visible)) bump()
 }
 
+/** Carte à l'écran en ce moment : sa vidéo est toujours autorisée (sinon, au-delà de 24 cartes, elle restait noire). */
+export function setOnScreen(id: string, visible: boolean) {
+  if (visible === onScreen.has(id)) return
+  if (visible) onScreen.add(id)
+  else onScreen.delete(id)
+  bump()
+}
+
 export function markAmbientFailed(id: string) {
   if (failed.has(id)) return
   failed.add(id)
@@ -389,7 +398,7 @@ if (typeof window !== 'undefined') {
 }
 
 export const isAmbientSlot = (id: string, max: number) => !overlayOpen && !scrolling && max > 0 && visibleOrder.filter((x) => !failed.has(x)).slice(0, max).includes(id)
-export const isStillSlot = (id: string) => stillOrder.slice(0, STILL_MAX).includes(id)
+export const isStillSlot = (id: string) => onScreen.has(id) || stillOrder.slice(0, STILL_MAX).includes(id)
 export const isOverlayOpen = () => overlayOpen
 export const getAmbientVersion = () => ambientVersion
 export const subscribeAmbient = (l: () => void) => {

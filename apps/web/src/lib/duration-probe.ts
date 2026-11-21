@@ -2,17 +2,22 @@ import { useSyncExternalStore } from 'react'
 import type { TypedSupabaseClient } from '@/lib/supabase'
 import { resolveMany } from '@/lib/preview'
 import { hasExactLength, setExactLength } from '@/lib/model-names'
+import { previewDemand, subscribePreviewDemand } from '@/lib/video-pool'
 
 // Lecture des durées RÉELLES (métadonnées de la vidéo, quelques Ko) dans le navigateur.
 // L'hébergeur refuse les serveurs (HTTP 503) : c'est le navigateur des visiteurs qui lit, une seule fois par vidéo pour tout le site
 // (la durée est enregistrée dans la base). Sans elle, le tri « plus longues » se fiait à une estimation d'après la taille du fichier.
 //  • page d'un modèle : toutes ses vidéos sans durée sont lues, puis le tri est recalculé ;
 //  • jaquettes affichées ailleurs : lues au passage (priorité basse, le survol et le lecteur passent devant).
+// Les aperçus des jaquettes passent TOUJOURS devant : tant qu'ils chargent, les lectures de durées se réduisent au minimum
+// (une seule sur la page d'un modèle, aucune ailleurs) et rendent leur connexion dès qu'un aperçu attend une place ;
+// elles reprennent à plein régime dès que les jaquettes à l'écran sont prêtes. Une jaquette qui charge son aperçu donne
+// d'ailleurs sa durée au passage : elle n'est pas lue une deuxième fois.
 const CHUNK = 24 // liens résolus en un seul appel serveur
 // vidéos lues en même temps (l'hébergeur n'en sert qu'une dizaine à la fois) : page d'un modèle / jaquettes vues au passage
 const PARALLEL_URGENT = 8
 const PARALLEL_BACKGROUND = 3
-const PROBE_TIMEOUT_MS = 25_000
+const PROBE_TIMEOUT_MS = 15_000
 const SESSION_MAX = 6000 // vidéos lues au plus par visite
 const REPORT_EVERY_MS = 2000
 
@@ -109,6 +114,7 @@ let resumeAt = 0
 let resumeWaiters: (() => void)[] = []
 let resumeTimer: ReturnType<typeof setTimeout> | undefined
 const isHeld = () => holds.size > 0 || Date.now() < resumeAt
+const holdListeners = new Set<() => void>()
 
 /** Suspend la lecture des durées (lecteur ouvert) ; renvoie la fonction qui la libère. */
 export function holdDurations(): () => void {
@@ -116,6 +122,7 @@ export function holdDurations(): () => void {
   holds.add(k)
   clearTimeout(resumeTimer)
   for (const abort of running.values()) abort()
+  holdListeners.forEach((l) => l())
   return () => {
     if (!holds.delete(k) || holds.size) return
     resumeAt = Date.now() + RESUME_AFTER_MS
@@ -168,36 +175,94 @@ async function pump() {
       const ids = (isUrgent ? urgent : background).splice(0, CHUNK)
       const { s, profileId } = ctx
       const urls = await resolveMany(s, profileId, ids, false).catch(() => ids.map(() => null))
-      await mapLimit(
+      await runChunk(
         ids.map((id, i) => ({ id, url: urls[i] ?? null })),
-        isUrgent ? PARALLEL_URGENT : PARALLEL_BACKGROUND,
-        async (x) => {
-          if (isHeld()) return requeue(x.id, isUrgent) // lecteur ouvert pendant ce lot : on n'ouvre plus rien
-          let aborted = false
-          const sec = hasExactLength(x.id)
-            ? null
-            : await probeDuration(x.url, PROBE_TIMEOUT_MS, (abort) =>
-                running.set(x.id, () => {
-                  aborted = true
-                  abort()
-                }),
-              )
-          running.delete(x.id)
-          if (aborted) return requeue(x.id, isUrgent) // coupée pour le lecteur : relue plus tard
-          tried.add(x.id)
-          queued.delete(x.id)
-          if (sec != null && sec >= 1 && sec <= 86_400) {
-            setExactLength(x.id, sec)
-            toReport.set(x.id, Math.round(sec))
-            reportTimer ??= setTimeout(() => void report(), REPORT_EVERY_MS)
-          }
-          notify()
-        },
+        isUrgent,
       )
     }
   } finally {
     pumping = false
   }
+}
+
+/** Lectures de durée permises en ce moment : ce que les aperçus laissent libre. */
+function budget(isUrgent: boolean): number {
+  const base = isUrgent ? PARALLEL_URGENT : PARALLEL_BACKGROUND
+  const { loading, waiting } = previewDemand()
+  const used = loading + waiting
+  return used === 0 ? base : Math.max(isUrgent ? 1 : 0, base - used)
+}
+
+/** Lit un lot de durées en s'adaptant en continu à la demande des aperçus. */
+function runChunk(items: { id: string; url: string | null }[], isUrgent: boolean): Promise<void> {
+  return new Promise((done) => {
+    let next = 0
+    const flying: string[] = [] // plus récentes à la fin
+    const yielding = new Set<string>()
+    let finished = false
+    const off = subscribePreviewDemand(() => launch())
+    const offHold = () => launch()
+    holdListeners.add(offHold)
+    function launch() {
+      if (finished) return
+      if (isHeld()) while (next < items.length) requeue(items[next++].id, isUrgent) // lecteur ouvert : on n'ouvre plus rien
+      const cap = budget(isUrgent)
+      // un aperçu attend une place : les lectures en trop rendent leur connexion (relues plus tard)
+      if (previewDemand().waiting > 0) {
+        for (const id of flying.slice().reverse()) {
+          if (flying.length - yielding.size <= cap) break
+          if (yielding.has(id)) continue
+          yielding.add(id)
+          running.get(id)?.()
+        }
+      }
+      while (next < items.length && flying.length < cap) {
+        const x = items[next++]
+        flying.push(x.id)
+        void probeOne(x, isUrgent).finally(() => {
+          flying.splice(flying.indexOf(x.id), 1)
+          yielding.delete(x.id)
+          launch()
+        })
+      }
+      if (next >= items.length && flying.length === 0) {
+        finished = true
+        off()
+        holdListeners.delete(offHold)
+        done()
+      }
+      // sinon : attente d'un changement de la demande des aperçus (ou de la fin d'une lecture)
+    }
+    launch()
+  })
+}
+
+async function probeOne(x: { id: string; url: string | null }, isUrgent: boolean): Promise<void> {
+  if (isHeld()) return requeue(x.id, isUrgent)
+  if (hasExactLength(x.id)) {
+    // durée donnée entre-temps par l'aperçu de la jaquette
+    tried.add(x.id)
+    queued.delete(x.id)
+    notify()
+    return
+  }
+  let aborted = false
+  const sec = await probeDuration(x.url, PROBE_TIMEOUT_MS, (abort) =>
+    running.set(x.id, () => {
+      aborted = true
+      abort()
+    }),
+  )
+  running.delete(x.id)
+  if (aborted) return requeue(x.id, isUrgent) // coupée pour le lecteur ou un aperçu : relue plus tard
+  tried.add(x.id)
+  queued.delete(x.id)
+  if (sec != null && sec >= 1 && sec <= 86_400) {
+    setExactLength(x.id, sec)
+    toReport.set(x.id, Math.round(sec))
+    reportTimer ??= setTimeout(() => void report(), REPORT_EVERY_MS)
+  }
+  notify()
 }
 
 function requeue(id: string, isUrgent: boolean) {

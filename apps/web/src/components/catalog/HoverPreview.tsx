@@ -17,6 +17,7 @@ import {
   markAmbientFailed,
   peekPreviewUrl,
   setAmbientVisible,
+  setOnScreen,
   setStillVisible,
   subscribeAmbient,
   warmPreview,
@@ -153,7 +154,9 @@ export function HoverPreview({ title, active, coverPos }: { title: CatalogTitle;
         if (entry.isIntersecting) {
           clearTimeout(leave)
           setStillVisible(visKey, true)
-        } else leave = setTimeout(() => !activeRef.current && setStillVisible(visKey, false), KEEP_SLOT_MS)
+        }
+        setOnScreen(visKey, entry.isIntersecting)
+        if (!entry.isIntersecting) leave = setTimeout(() => !activeRef.current && setStillVisible(visKey, false), KEEP_SLOT_MS)
         setAmbientVisible(visKey, entry.isIntersecting && entry.intersectionRatio >= 0.6 && ambientAllowed())
       },
       { rootMargin: '0px', threshold: [0, 0.6] },
@@ -169,6 +172,7 @@ export function HoverPreview({ title, active, coverPos }: { title: CatalogTitle;
       cancelWarm(titleId)
       setAmbientVisible(visKey, false)
       setStillVisible(visKey, false)
+      setOnScreen(visKey, false)
     }
   }, [profileId, titleId, visKey])
 
@@ -208,8 +212,13 @@ export function HoverPreview({ title, active, coverPos }: { title: CatalogTitle;
         dropSlot(slot)
         invalidatePreview(titleId)
         setUrl(null)
-        if (retries.current++ < 1 && profileId) {
-          setTimeout(() => void warmPreview(supabase, profileId, titleId).then((u) => u && setUrl(u)), 400)
+        // 1re relance : lien Alldebrid neuf ; 2e : lien direct 1fichier ; ensuite on abandonne l'aperçu animé
+        const attempt = retries.current++
+        if (attempt < 2 && profileId) {
+          setTimeout(() => {
+            const next = attempt === 0 ? warmPreview(supabase, profileId, titleId) : directPreview(supabase, profileId, titleId, { cancelled: false })
+            void next.then((u) => u && setUrl(u))
+          }, 400)
         } else markAmbientFailed(visKey)
       } else if (slot.ready) retries.current = 0
     }

@@ -14,6 +14,8 @@ const slowNet = !!nav.connection?.saveData || /(^|-)2g|3g/.test(nav.connection?.
 const POOL_MAX = (nav.deviceMemory ?? 4) >= 8 ? 96 : (nav.deviceMemory ?? 4) <= 2 ? 24 : 48
 const MAX_LOADING = slowNet ? 4 : 12 // mesuré : les liens Alldebrid se répartissent sur ~3 hôtes (6 connexions chacun)
 const LOAD_TIMEOUT_MS = 12_000
+// jaquette toujours sans image après ce délai : sans réponse → nouveau lien ; métadonnées reçues mais saut bloqué → image du début
+const STUCK_MS = 20_000
 const FRAME_WAIT_MS = 300 // attente max de l'image décodée après un saut (évite un flash noir)
 
 export type PoolSlot = {
@@ -34,6 +36,7 @@ export type PoolSlot = {
   timer?: ReturnType<typeof setTimeout>
   /** repli si le saut vers l'instant aléatoire traîne */
   fallback?: ReturnType<typeof setTimeout>
+  stuck?: ReturnType<typeof setTimeout>
   subs: Set<() => void>
 }
 
@@ -131,6 +134,24 @@ const waiting: PoolSlot[] = []
 let loadingCount = 0
 
 const all = () => [...pool.values()].flat()
+
+// ───────── Demande des aperçus : la lecture des durées (lib/duration-probe) s'efface devant elle
+const demandSubs = new Set<() => void>()
+/** Aperçus en cours de chargement / en attente d'une place. */
+export const previewDemand = () => ({ loading: loadingCount, waiting: waiting.length })
+export const subscribePreviewDemand = (l: () => void) => {
+  demandSubs.add(l)
+  return () => void demandSubs.delete(l)
+}
+let demandQueued = false
+const demandChanged = () => {
+  if (demandQueued) return
+  demandQueued = true
+  queueMicrotask(() => {
+    demandQueued = false
+    demandSubs.forEach((l) => l())
+  })
+}
 const notify = (slot: PoolSlot) => slot.subs.forEach((l) => l())
 
 function releaseLoad(slot: PoolSlot) {
@@ -146,6 +167,25 @@ function startLoad(slot: PoolSlot) {
   loadingCount++
   slot.el.src = slot.url
   slot.timer = setTimeout(() => releaseLoad(slot), LOAD_TIMEOUT_MS) // une vidéo lente ne bloque pas les suivantes
+  slot.stuck = setTimeout(() => unstick(slot), STUCK_MS)
+}
+
+/** Jaquette restée noire : jamais laissée telle quelle. */
+function unstick(slot: PoolSlot) {
+  if (slot.ready || slot.failed) return
+  const el = slot.el
+  if (el.readyState === 0) {
+    // l'hébergeur n'a jamais répondu : la carte redemande un lien neuf
+    slot.failed = true
+    releaseLoad(slot)
+    notify(slot)
+    return
+  }
+  // saut vers l'instant choisi jamais terminé : on montre le début du fichier (déjà chargé)
+  clearTimeout(slot.fallback)
+  slot.anchor = 0
+  rememberQuick(slot.titleId, 0)
+  el.currentTime = 0
 }
 
 function pump() {
@@ -155,6 +195,7 @@ function pump() {
     waiting.sort((a, b) => a.order - b.order)
     startLoad(waiting.shift()!)
   }
+  demandChanged()
 }
 
 function destroy(slot: PoolSlot) {
@@ -162,6 +203,8 @@ function destroy(slot: PoolSlot) {
   if (i >= 0) waiting.splice(i, 1)
   releaseLoad(slot)
   clearTimeout(slot.fallback)
+  clearTimeout(slot.stuck)
+  demandChanged()
   slot.el.pause()
   slot.el.removeAttribute('src')
   slot.el.load()
@@ -211,6 +254,7 @@ export function acquireSlot(titleId: string, url: string, clip: number, order = 
   const markReady = () => {
     if (slot.ready || slot.failed) return
     slot.ready = true
+    clearTimeout(slot.stuck)
     takeSnap(titleId, el, coverPos)
     notify(slot)
   }
@@ -263,6 +307,7 @@ export function acquireSlot(titleId: string, url: string, clip: number, order = 
   el.addEventListener('error', () => {
     console.warn('[StreamFlex][preview] la vidéo ne se charge pas', titleId)
     slot.failed = true
+    clearTimeout(slot.stuck)
     releaseLoad(slot)
     notify(slot)
   })
